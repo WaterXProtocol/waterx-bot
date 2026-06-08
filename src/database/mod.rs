@@ -92,11 +92,12 @@ impl Database {
     }
 
     fn refund_and_prune_old_buffer(conn: &Connection, cutoff: i64) -> SqlResult<()> {
-        // Collect old rows
+        // (chat, msg, kind, owner, fruits, price)
+        type BufferRefundRow = (i64, i64, String, Option<i64>, Option<String>, Option<i64>);
         let mut stmt = conn.prepare(
             "SELECT chat, msg, kind, owner, fruits, price FROM buffer WHERE created_at < ?1",
         )?;
-        let rows: Vec<(i64, i64, String, Option<i64>, Option<String>, Option<i64>)> = stmt
+        let rows: Vec<BufferRefundRow> = stmt
             .query_map(params![cutoff], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
             })?

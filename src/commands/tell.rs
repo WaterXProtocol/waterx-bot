@@ -5,7 +5,7 @@ use telexide::prelude::*;
 #[command(description = "answer a question by picking the best-matching option")]
 pub async fn tell(ctx: Context, message: Message) -> CommandResult {
     let body = text_of(&message);
-    let after_cmd = body.splitn(2, char::is_whitespace).nth(1).unwrap_or("");
+    let after_cmd = body.split_once(char::is_whitespace).map_or("", |(_, rest)| rest);
     let Some((question, opts_str)) = split_question(after_cmd) else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());

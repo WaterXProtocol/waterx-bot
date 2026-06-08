@@ -6,7 +6,7 @@ use telexide::prelude::*;
 #[command(description = "pair items from the two halves of a `?` expression")]
 pub async fn pair(ctx: Context, message: Message) -> CommandResult {
     let body = text_of(&message);
-    let after_cmd = body.splitn(2, char::is_whitespace).nth(1).unwrap_or("");
+    let after_cmd = body.split_once(char::is_whitespace).map_or("", |(_, rest)| rest);
     let Some((left, right)) = split_question(after_cmd) else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
