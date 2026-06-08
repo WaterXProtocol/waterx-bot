@@ -1,0 +1,459 @@
+use super::{current_unix_time, Database};
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
+
+/// Outcome of attempting to consume a sell or buy offer. All variants other
+/// than `Filled` and `SelfCancelled` mean the DB was left untouched.
+#[derive(Debug, Clone)]
+pub enum OfferOutcome {
+    /// Buffer row missing — someone else already took or cancelled it.
+    AlreadyTaken,
+    /// The poster tapped their own button. Escrow has been refunded and the
+    /// buffer row deleted; the caller should also delete the chat message.
+    SelfCancelled,
+    /// Trade completed. `fruits`/`price` describe what changed hands.
+    Filled { fruits: String, price: i64 },
+    /// (sell-offer only) Taker (the buyer) lacked the asking price.
+    TakerNotEnoughBalance,
+    /// Taker would exceed the 5-fruit inventory cap.
+    TakerFruitFull,
+    /// (buy-offer only) Taker (the seller) doesn't own all listed fruits.
+    TakerMissingFruit(char),
+}
+
+fn ensure_row_locked(conn: &Connection, user_id: i64) -> SqlResult<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO balance (user, balance, fruit, cloth) VALUES (?1, 0, '', '')",
+        params![user_id],
+    )?;
+    Ok(())
+}
+
+impl Database {
+    /// Used by envelope-style buffer rows (random drops, /send-to-bot envelope).
+    pub fn insert_buffer(&self, chat: i64, msg: i64) -> SqlResult<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO buffer (chat, msg, kind, created_at) VALUES (?1, ?2, 'envelope', ?3)",
+            params![chat, msg, current_unix_time()],
+        )?;
+        Ok(())
+    }
+
+    /// True iff a buffer row exists, regardless of kind.
+    pub fn has_buffer(&self, chat: i64, msg: i64) -> SqlResult<bool> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT 1 FROM buffer WHERE chat = ?1 AND msg = ?2")?;
+        let mut rows = stmt.query(params![chat, msg])?;
+        Ok(rows.next()?.is_some())
+    }
+
+    pub fn delete_buffer(&self, chat: i64, msg: i64) -> SqlResult<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
+            params![chat, msg],
+        )?;
+        Ok(())
+    }
+
+    /// Open a sell offer. Atomically deducts each char of `fruits` that the
+    /// seller actually owns from their inventory and inserts a sell-kind
+    /// buffer row holding the escrow. Returns the *actually-escrowed* fruits
+    /// (subset of input — any fruit the seller didn't have is dropped). If
+    /// nothing was escrowed, returns an empty string and no buffer row is
+    /// inserted.
+    pub fn open_sell_offer(
+        &self,
+        chat: i64,
+        msg: i64,
+        seller: i64,
+        fruits: &str,
+        price: i64,
+    ) -> SqlResult<String> {
+        let conn = self.conn.lock();
+        ensure_row_locked(&conn, seller)?;
+        let mut sf: String = conn.query_row(
+            "SELECT fruit FROM balance WHERE user = ?1",
+            params![seller],
+            |r| r.get(0),
+        )?;
+        let mut escrowed = String::new();
+        for f in fruits.chars() {
+            let s = f.to_string();
+            if let Some(idx) = sf.find(&s) {
+                sf.remove(idx);
+                escrowed.push(f);
+            }
+        }
+        if escrowed.is_empty() {
+            return Ok(escrowed);
+        }
+        conn.execute(
+            "UPDATE balance SET fruit = ?1 WHERE user = ?2",
+            params![sf, seller],
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO buffer (chat, msg, kind, owner, fruits, price, created_at)
+             VALUES (?1, ?2, 'sell', ?3, ?4, ?5, ?6)",
+            params![chat, msg, seller, escrowed, price, current_unix_time()],
+        )?;
+        Ok(escrowed)
+    }
+
+    /// Open a buy offer. Atomically deducts `price` from the buyer's balance
+    /// (returns false if they can't afford it) and inserts a buy-kind buffer
+    /// row holding the escrow.
+    pub fn open_buy_offer(
+        &self,
+        chat: i64,
+        msg: i64,
+        buyer: i64,
+        fruits: &str,
+        price: i64,
+    ) -> SqlResult<bool> {
+        let conn = self.conn.lock();
+        ensure_row_locked(&conn, buyer)?;
+        let bal: i64 = conn.query_row(
+            "SELECT balance FROM balance WHERE user = ?1",
+            params![buyer],
+            |r| r.get(0),
+        )?;
+        if bal < price {
+            return Ok(false);
+        }
+        conn.execute(
+            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2",
+            params![price, buyer],
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO buffer (chat, msg, kind, owner, fruits, price, created_at)
+             VALUES (?1, ?2, 'buy', ?3, ?4, ?5, ?6)",
+            params![chat, msg, buyer, fruits, price, current_unix_time()],
+        )?;
+        Ok(true)
+    }
+
+    /// Settle a sell offer: `taker` is the buyer pressing the button. On
+    /// success, the buffer row is deleted, the buyer pays the asking price,
+    /// the seller gets the coins, and the escrowed fruit moves to the buyer.
+    pub fn consume_sell(&self, chat: i64, msg: i64, taker: i64) -> SqlResult<OfferOutcome> {
+        let conn = self.conn.lock();
+        let row = conn
+            .query_row(
+                "SELECT kind, owner, fruits, price FROM buffer WHERE chat = ?1 AND msg = ?2",
+                params![chat, msg],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<i64>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<i64>>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((kind, Some(seller), Some(fruits), Some(price))) = row else {
+            return Ok(OfferOutcome::AlreadyTaken);
+        };
+        if kind != "sell" {
+            return Ok(OfferOutcome::AlreadyTaken);
+        }
+
+        // Self-cancel: seller tapped own sell button → return fruit, delete buffer
+        if taker == seller {
+            ensure_row_locked(&conn, seller)?;
+            let sf: String = conn.query_row(
+                "SELECT fruit FROM balance WHERE user = ?1",
+                params![seller],
+                |r| r.get(0),
+            )?;
+            let new_sf = format!("{sf}{fruits}");
+            conn.execute(
+                "UPDATE balance SET fruit = ?1 WHERE user = ?2",
+                params![new_sf, seller],
+            )?;
+            conn.execute(
+                "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
+                params![chat, msg],
+            )?;
+            return Ok(OfferOutcome::SelfCancelled);
+        }
+
+        // Validate taker side
+        ensure_row_locked(&conn, taker)?;
+        let (bal, bf): (i64, String) = conn.query_row(
+            "SELECT balance, fruit FROM balance WHERE user = ?1",
+            params![taker],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if bal < price {
+            return Ok(OfferOutcome::TakerNotEnoughBalance);
+        }
+        if bf.chars().count() + fruits.chars().count() > 5 {
+            return Ok(OfferOutcome::TakerFruitFull);
+        }
+
+        ensure_row_locked(&conn, seller)?;
+        let new_bf = format!("{bf}{fruits}");
+        conn.execute(
+            "UPDATE balance SET balance = ?1, fruit = ?2 WHERE user = ?3",
+            params![bal - price, new_bf, taker],
+        )?;
+        conn.execute(
+            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+            params![price, seller],
+        )?;
+        conn.execute(
+            "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
+            params![chat, msg],
+        )?;
+        Ok(OfferOutcome::Filled { fruits, price })
+    }
+
+    /// Settle a buy offer: `taker` is the seller pressing the button. On
+    /// success the buyer (escrow owner) gets the listed fruit, the seller
+    /// loses that fruit and gains the escrowed coins.
+    pub fn consume_buy(&self, chat: i64, msg: i64, taker: i64) -> SqlResult<OfferOutcome> {
+        let conn = self.conn.lock();
+        let row = conn
+            .query_row(
+                "SELECT kind, owner, fruits, price FROM buffer WHERE chat = ?1 AND msg = ?2",
+                params![chat, msg],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<i64>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<i64>>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((kind, Some(buyer), Some(fruits), Some(price))) = row else {
+            return Ok(OfferOutcome::AlreadyTaken);
+        };
+        if kind != "buy" {
+            return Ok(OfferOutcome::AlreadyTaken);
+        }
+
+        // Self-cancel: buyer tapped own buy button → refund coin, delete buffer
+        if taker == buyer {
+            ensure_row_locked(&conn, buyer)?;
+            conn.execute(
+                "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+                params![price, buyer],
+            )?;
+            conn.execute(
+                "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
+                params![chat, msg],
+            )?;
+            return Ok(OfferOutcome::SelfCancelled);
+        }
+
+        // Validate taker (seller) side
+        ensure_row_locked(&conn, taker)?;
+        let sf: String = conn.query_row(
+            "SELECT fruit FROM balance WHERE user = ?1",
+            params![taker],
+            |r| r.get(0),
+        )?;
+        let mut sf_check = sf.clone();
+        for f in fruits.chars() {
+            let s = f.to_string();
+            if let Some(idx) = sf_check.find(&s) {
+                sf_check.remove(idx);
+            } else {
+                return Ok(OfferOutcome::TakerMissingFruit(f));
+            }
+        }
+
+        // Validate buyer fruit space (escrowed at post time but buyer's
+        // inventory may have grown since)
+        ensure_row_locked(&conn, buyer)?;
+        let bf: String = conn.query_row(
+            "SELECT fruit FROM balance WHERE user = ?1",
+            params![buyer],
+            |r| r.get(0),
+        )?;
+        if bf.chars().count() + fruits.chars().count() > 5 {
+            return Ok(OfferOutcome::TakerFruitFull);
+        }
+
+        let new_bf = format!("{bf}{fruits}");
+        // Coin was already escrowed away from buyer at post time, so we only
+        // credit the seller (taker) here.
+        conn.execute(
+            "UPDATE balance SET fruit = ?1, balance = balance + ?2 WHERE user = ?3",
+            params![sf_check, price, taker],
+        )?;
+        conn.execute(
+            "UPDATE balance SET fruit = ?1 WHERE user = ?2",
+            params![new_bf, buyer],
+        )?;
+        conn.execute(
+            "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
+            params![chat, msg],
+        )?;
+        Ok(OfferOutcome::Filled { fruits, price })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BOT_ID: i64 = 999;
+    const SELLER: i64 = 1;
+    const BUYER: i64 = 2;
+    const CHAT: i64 = 100;
+    const MSG: i64 = 200;
+
+    fn mk_db() -> Database {
+        Database::new(":memory:", BOT_ID).expect("open in-memory db")
+    }
+
+    fn give_fruit(db: &Database, user: i64, fruits: &str) {
+        for f in fruits.chars() {
+            db.fruit_change(user, &f.to_string(), true).unwrap();
+        }
+    }
+
+    fn give_coin(db: &Database, user: i64, amount: i64) {
+        db.force_change(user, amount).unwrap();
+    }
+
+    #[test]
+    fn open_sell_escrows_owned_fruit_only() {
+        let db = mk_db();
+        give_fruit(&db, SELLER, "🍑");
+        let escrowed = db.open_sell_offer(CHAT, MSG, SELLER, "🍑🍓", 50).unwrap();
+        assert_eq!(escrowed, "🍑");
+        assert_eq!(db.get_user_info(SELLER).unwrap().fruit, "");
+    }
+
+    #[test]
+    fn open_sell_no_fruit_no_buffer() {
+        let db = mk_db();
+        let escrowed = db.open_sell_offer(CHAT, MSG, SELLER, "🍑", 50).unwrap();
+        assert!(escrowed.is_empty());
+        assert!(!db.has_buffer(CHAT, MSG).unwrap());
+    }
+
+    #[test]
+    fn consume_sell_completes_trade() {
+        let db = mk_db();
+        give_fruit(&db, SELLER, "🍑");
+        give_coin(&db, BUYER, 100);
+        db.open_sell_offer(CHAT, MSG, SELLER, "🍑", 50).unwrap();
+        let outcome = db.consume_sell(CHAT, MSG, BUYER).unwrap();
+        match outcome {
+            OfferOutcome::Filled { fruits, price } => {
+                assert_eq!(fruits, "🍑");
+                assert_eq!(price, 50);
+            }
+            other => panic!("expected Filled, got {other:?}"),
+        }
+        assert_eq!(db.get_user_info(SELLER).unwrap().balance, 50);
+        assert_eq!(db.get_user_info(BUYER).unwrap().balance, 50);
+        assert_eq!(db.get_user_info(BUYER).unwrap().fruit, "🍑");
+        assert!(!db.has_buffer(CHAT, MSG).unwrap());
+    }
+
+    #[test]
+    fn consume_sell_self_cancel_refunds_fruit() {
+        let db = mk_db();
+        give_fruit(&db, SELLER, "🍑");
+        db.open_sell_offer(CHAT, MSG, SELLER, "🍑", 50).unwrap();
+        let outcome = db.consume_sell(CHAT, MSG, SELLER).unwrap();
+        assert!(matches!(outcome, OfferOutcome::SelfCancelled));
+        assert_eq!(db.get_user_info(SELLER).unwrap().fruit, "🍑");
+        assert!(!db.has_buffer(CHAT, MSG).unwrap());
+    }
+
+    #[test]
+    fn consume_sell_taker_low_balance() {
+        let db = mk_db();
+        give_fruit(&db, SELLER, "🍑");
+        db.open_sell_offer(CHAT, MSG, SELLER, "🍑", 50).unwrap();
+        let outcome = db.consume_sell(CHAT, MSG, BUYER).unwrap();
+        assert!(matches!(outcome, OfferOutcome::TakerNotEnoughBalance));
+        assert!(db.has_buffer(CHAT, MSG).unwrap()); // offer still live
+        assert_eq!(db.get_user_info(BUYER).unwrap().balance, 0); // no spend
+    }
+
+    #[test]
+    fn consume_sell_taker_fruit_full() {
+        let db = mk_db();
+        give_fruit(&db, SELLER, "🍑");
+        give_fruit(&db, BUYER, "🍓🍎🍊🥭🍍"); // 5 fruits already
+        give_coin(&db, BUYER, 100);
+        db.open_sell_offer(CHAT, MSG, SELLER, "🍑", 50).unwrap();
+        let outcome = db.consume_sell(CHAT, MSG, BUYER).unwrap();
+        assert!(matches!(outcome, OfferOutcome::TakerFruitFull));
+        assert_eq!(db.get_user_info(BUYER).unwrap().balance, 100); // unchanged
+    }
+
+    #[test]
+    fn consume_sell_already_taken() {
+        let db = mk_db();
+        let outcome = db.consume_sell(CHAT, MSG, BUYER).unwrap();
+        assert!(matches!(outcome, OfferOutcome::AlreadyTaken));
+    }
+
+    #[test]
+    fn open_buy_escrows_coin() {
+        let db = mk_db();
+        give_coin(&db, BUYER, 100);
+        assert!(db.open_buy_offer(CHAT, MSG, BUYER, "🍑", 50).unwrap());
+        assert_eq!(db.get_user_info(BUYER).unwrap().balance, 50);
+    }
+
+    #[test]
+    fn open_buy_rejects_when_broke() {
+        let db = mk_db();
+        assert!(!db.open_buy_offer(CHAT, MSG, BUYER, "🍑", 50).unwrap());
+        assert!(!db.has_buffer(CHAT, MSG).unwrap());
+    }
+
+    #[test]
+    fn consume_buy_completes_trade() {
+        let db = mk_db();
+        give_coin(&db, BUYER, 100);
+        give_fruit(&db, SELLER, "🍑");
+        db.open_buy_offer(CHAT, MSG, BUYER, "🍑", 50).unwrap();
+        let outcome = db.consume_buy(CHAT, MSG, SELLER).unwrap();
+        match outcome {
+            OfferOutcome::Filled { fruits, price } => {
+                assert_eq!(fruits, "🍑");
+                assert_eq!(price, 50);
+            }
+            other => panic!("expected Filled, got {other:?}"),
+        }
+        assert_eq!(db.get_user_info(SELLER).unwrap().balance, 50);
+        assert_eq!(db.get_user_info(SELLER).unwrap().fruit, "");
+        assert_eq!(db.get_user_info(BUYER).unwrap().balance, 50); // already deducted
+        assert_eq!(db.get_user_info(BUYER).unwrap().fruit, "🍑");
+        assert!(!db.has_buffer(CHAT, MSG).unwrap());
+    }
+
+    #[test]
+    fn consume_buy_self_cancel_refunds_coin() {
+        let db = mk_db();
+        give_coin(&db, BUYER, 100);
+        db.open_buy_offer(CHAT, MSG, BUYER, "🍑", 50).unwrap();
+        let outcome = db.consume_buy(CHAT, MSG, BUYER).unwrap();
+        assert!(matches!(outcome, OfferOutcome::SelfCancelled));
+        assert_eq!(db.get_user_info(BUYER).unwrap().balance, 100); // full refund
+    }
+
+    #[test]
+    fn consume_buy_taker_missing_fruit() {
+        let db = mk_db();
+        give_coin(&db, BUYER, 100);
+        db.open_buy_offer(CHAT, MSG, BUYER, "🍑", 50).unwrap();
+        // SELLER (taker here) has no fruit
+        let outcome = db.consume_buy(CHAT, MSG, SELLER).unwrap();
+        assert!(matches!(outcome, OfferOutcome::TakerMissingFruit('🍑')));
+    }
+}
+
