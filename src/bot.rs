@@ -98,10 +98,7 @@ pub async fn run() -> anyhow::Result<()> {
         .username
         .clone()
         .ok_or_else(|| anyhow::anyhow!("bot has no @username (BotFather should always assign one)"))?;
-    eprintln!(
-        "[{}] starting as @{bot_username} (id={})",
-        cfg.name, me.id
-    );
+    eprintln!("starting as @{bot_username} (id={})", me.id);
 
     let mut builder = ClientBuilder::new();
     builder

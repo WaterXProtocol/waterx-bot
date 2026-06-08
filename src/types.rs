@@ -4,7 +4,6 @@ use std::env;
 pub struct BotConfig {
     pub token: String,
     pub owner: i64,
-    pub name: String,
     pub dev: bool,
 }
 
@@ -12,8 +11,8 @@ impl BotConfig {
     /// Load from environment variables. `dotenvy::dotenv()` should be called
     /// from `main` before this so a `.env` file is picked up.
     ///
-    /// Required: `BOT_TOKEN`, `BOT_OWNER`, `BOT_NAME`.
-    /// Optional: `BOT_DEV` (default `false`; truthy values: `true`, `1`).
+    /// Required: `BOT_TOKEN`, `BOT_OWNER`.
+    /// Optional: `BOT_DEV` (default `true`; falsy values: `false`, `0`).
     pub fn from_env() -> anyhow::Result<Self> {
         let token = env::var("BOT_TOKEN")
             .map_err(|_| anyhow::anyhow!("BOT_TOKEN not set"))?;
@@ -22,18 +21,15 @@ impl BotConfig {
         let owner: i64 = owner_raw
             .parse()
             .map_err(|e| anyhow::anyhow!("BOT_OWNER must be an integer: {e}"))?;
-        let name = env::var("BOT_NAME")
-            .map_err(|_| anyhow::anyhow!("BOT_NAME not set"))?;
+        // Dev defaults to true so a fresh `.env` works in any chat type
+        // without thinking about the envelope-drop chat-type rule. Set
+        // `BOT_DEV=false` only when running a production bot that should
+        // restrict envelope drops to non-private chats.
         let dev = env::var("BOT_DEV")
             .ok()
-            .map(|s| matches!(s.as_str(), "true" | "TRUE" | "True" | "1"))
-            .unwrap_or(false);
-        Ok(Self {
-            token,
-            owner,
-            name,
-            dev,
-        })
+            .map(|s| !matches!(s.as_str(), "false" | "FALSE" | "False" | "0"))
+            .unwrap_or(true);
+        Ok(Self { token, owner, dev })
     }
 }
 

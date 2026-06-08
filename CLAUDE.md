@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Telegram bot for a small private group, written in Rust on top of [`telexide`](https://docs.rs/telexide). Each slash command is a Chinese-language utility (random pickers, balance/fruit/cloth ledger, betting games, fruit trading). State persists in a local SQLite file named after `cfg.name`. Configuration comes from environment variables (loaded from `.env` if present): `BOT_TOKEN`, `BOT_OWNER` (numeric Telegram user id), `BOT_NAME`, and optional `BOT_DEV` (`true`/`false`, default `false`).
+A Telegram bot for a small private group, written in Rust on top of [`telexide`](https://docs.rs/telexide). Each slash command is a Chinese-language utility (random pickers, balance/fruit/cloth ledger, betting games, fruit trading). State persists in `waterx.db` (a SQLite file in the working directory; constant defined at `database::DB_FILENAME`). Configuration comes from environment variables (loaded from `.env` if present): `BOT_TOKEN`, `BOT_OWNER` (numeric Telegram user id), and optional `BOT_DEV` (default `true`; set `false` for production).
 
 ## Commands
 
@@ -65,4 +65,4 @@ This matters because `/sell` and `/buy` slash commands **don't transact** — th
 
 ## Configuration
 
-Env vars consumed by `BotConfig::from_env` (see `src/types.rs`): `BOT_TOKEN` / `BOT_OWNER` / `BOT_NAME` (all required) and optional `BOT_DEV`. The SQLite database file is opened at the literal value of `BOT_NAME` (no extension). `bot.rs::run` calls `BotConfig::from_env` and `dotenvy::dotenv` is invoked from `main`. `.env.example` at the repo root is the template; copy it to `.env` (gitignored) and fill in real values.
+Env vars consumed by `BotConfig::from_env` (see `src/types.rs`): `BOT_TOKEN` / `BOT_OWNER` (required) and optional `BOT_DEV` (default `true`). The SQLite database file path is hardcoded — `database::DB_FILENAME = "waterx.db"`. `bot.rs::run` calls `BotConfig::from_env` and `dotenvy::dotenv` is invoked from `main`. `.env.example` at the repo root is the template; copy it to `.env` (gitignored) and fill in real values.

@@ -10,8 +10,8 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The on-disk SQLite filename. Fixed so the data file is predictable across
-/// `BOT_NAME` changes and easy to gitignore.
+/// The on-disk SQLite filename. Fixed so the data file is predictable
+/// across deploys and easy to gitignore.
 pub const DB_FILENAME: &str = "waterx.db";
 
 /// Buffer rows are pruned this many seconds after creation, with their escrow
