@@ -173,6 +173,9 @@ async fn handle_gamble(
             if !game.close() {
                 return answer(ctx, cb, "已收盤", true).await;
             }
+            if let Err(err) = db.save_bet_game(game) {
+                eprintln!("save_bet_game(close) error: {err}");
+            }
             (game.get_text(), game.get_buttons())
         };
         let _ = tg::edit_with_buttons(ctx, chat_id, msg_id, &text, &rows).await;
@@ -201,6 +204,9 @@ async fn handle_gamble(
                 db.force_change(cb.from.id, stake).ok();
                 return answer(ctx, cb, "下注失敗", true).await;
             }
+            if let Err(err) = db.save_bet_game(game) {
+                eprintln!("save_bet_game(stake) error: {err}");
+            }
             (game.get_text(), game.get_buttons())
         };
         let _ = tg::edit_with_buttons(ctx, chat_id, msg_id, &text, &rows).await;
@@ -222,6 +228,9 @@ async fn handle_gamble(
                 return answer(ctx, cb, "尚未收盤", true).await;
             }
             let (outputs, display) = game.settle(outcome);
+            if let Err(err) = db.save_bet_game(game) {
+                eprintln!("save_bet_game(settle) error: {err}");
+            }
             (outputs, display, game.state.clone())
         };
         for (user, win) in &outputs {

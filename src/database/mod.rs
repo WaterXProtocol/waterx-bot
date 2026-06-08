@@ -1,6 +1,7 @@
 mod buffer;
-mod user;
 mod fruit;
+mod games;
+mod user;
 
 pub use buffer::OfferOutcome;
 pub use user::UserRow;
@@ -8,6 +9,10 @@ pub use user::UserRow;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// The on-disk SQLite filename. Fixed so the data file is predictable across
+/// `BOT_NAME` changes and easy to gitignore.
+pub const DB_FILENAME: &str = "waterx.db";
 
 /// Buffer rows are pruned this many seconds after creation, with their escrow
 /// refunded to the original owner. Matches "drop stale offers/envelopes on
@@ -51,6 +56,14 @@ impl Database {
                 price      INTEGER,
                 created_at INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (chat, msg)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS bet_games (
+                id         TEXT    NOT NULL PRIMARY KEY,
+                blob       TEXT    NOT NULL,
+                created_at INTEGER NOT NULL
             )",
             [],
         )?;

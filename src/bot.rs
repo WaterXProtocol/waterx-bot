@@ -1,5 +1,5 @@
 use crate::commands::{callbacks, messages, *};
-use crate::database::Database;
+use crate::database::{Database, DB_FILENAME};
 use crate::game::BetGame;
 use crate::types::BotConfig;
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -64,8 +64,21 @@ pub async fn run() -> anyhow::Result<()> {
         .next()
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| anyhow::anyhow!("malformed bot token (expected `<id>:<secret>`)"))?;
-    let db = Arc::new(Database::new(&cfg.name, bot_id)?);
-    let games: Arc<Mutex<HashMap<String, BetGame>>> = Arc::new(Mutex::new(HashMap::new()));
+    let db = Arc::new(Database::new(DB_FILENAME, bot_id)?);
+    let games_map: HashMap<String, BetGame> = match db.load_all_bet_games() {
+        Ok(rows) => {
+            let n = rows.len();
+            if n > 0 {
+                eprintln!("loaded {n} bet game(s) from disk");
+            }
+            rows.into_iter().collect()
+        }
+        Err(err) => {
+            eprintln!("bet_games load error (starting with empty map): {err}");
+            HashMap::new()
+        }
+    };
+    let games: Arc<Mutex<HashMap<String, BetGame>>> = Arc::new(Mutex::new(games_map));
     let cfg_arc = Arc::new(cfg.clone());
 
     // Resolve the bot's real @username via getMe BEFORE building the framework

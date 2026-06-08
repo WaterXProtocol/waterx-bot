@@ -4,14 +4,14 @@ use std::collections::HashMap;
 /// Stake amounts shown as per-option buttons in the betting keyboard.
 pub const STAKE_AMOUNTS: &[i64] = &[1, 5, 10, 50];
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OptionData {
     pub detail: HashMap<i64, i64>,
     pub bet: i64,
     pub odd: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BetGame {
     pub id: String,
     pub host: i64,

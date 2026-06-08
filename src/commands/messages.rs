@@ -30,15 +30,18 @@ pub async fn on_message(ctx: Context, update: Update) {
 /// variants) — we only need the chat id and chat type to decide whether to
 /// drop an envelope, both of which are extractable from the raw JSON.
 pub async fn maybe_spawn_envelope(ctx: &Context, chat_id: i64, is_private: bool) {
-    // Match the original Python's `_valid_type`: normal mode allows only
-    // non-private chats; dev mode is the inverse.
+    // Chat-type rule:
+    //   normal mode (dev=false): drop only in non-private chats (groups etc.)
+    //   dev mode    (dev=true):  drop in *all* chat types (groups AND private)
+    // (Originally dev mode was "private only", which made dev too narrow to
+    // exercise the group envelope paths.)
     let dev = ctx
         .data
         .read()
         .get::<ConfigKey>()
         .expect("ConfigKey missing — bot::run did not init properly")
         .dev;
-    if dev != is_private {
+    if !dev && is_private {
         return;
     }
 

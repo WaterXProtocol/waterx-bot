@@ -1330,6 +1330,7 @@ dependencies = [
  "rand",
  "rand_distr",
  "rusqlite",
+ "serde",
  "serde_json",
  "telexide",
  "thiserror",

@@ -54,6 +54,9 @@ pub async fn gamble(ctx: Context, message: Message) -> CommandResult {
     )
     .await?;
 
+    if let Err(err) = db(&ctx).save_bet_game(&game) {
+        eprintln!("save_bet_game error (continuing in-memory only): {err}");
+    }
     let games_arc = games(&ctx);
     games_arc.lock().await.insert(key, game);
     Ok(())

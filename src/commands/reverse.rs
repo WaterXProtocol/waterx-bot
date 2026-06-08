@@ -38,6 +38,9 @@ pub async fn reverse(ctx: Context, message: Message) -> CommandResult {
         let verb = if *delta > 0 { "收回" } else { "繳回" };
         lines.push(format!("***{tail} {verb}{}顆 水幣", delta.abs()));
     }
+    if let Err(err) = database.delete_bet_game(&gid) {
+        eprintln!("delete_bet_game({gid}) error: {err}");
+    }
     reply(&ctx, &message, lines.join("\n")).await?;
     Ok(())
 }

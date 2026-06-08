@@ -13,11 +13,22 @@ pub async fn clear(ctx: Context, message: Message) -> CommandResult {
     }
     let owner_id = config(&ctx).owner;
     let games_arc = games(&ctx);
-    let snapshot = {
+    let database = db(&ctx);
+    let (snapshot, dropped_ids) = {
         let mut g = games_arc.lock().await;
+        let dropped: Vec<String> = g
+            .iter()
+            .filter(|(_, game)| game.state == BetState::draw)
+            .map(|(k, _)| k.clone())
+            .collect();
         g.retain(|_, game| game.state != BetState::draw);
-        g.clone()
+        (g.clone(), dropped)
     };
+    for id in &dropped_ids {
+        if let Err(err) = database.delete_bet_game(id) {
+            eprintln!("delete_bet_game({id}) error: {err}");
+        }
+    }
     send_text(&ctx, owner_id, build_status(&snapshot)).await?;
     Ok(())
 }

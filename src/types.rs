@@ -38,7 +38,7 @@ impl BotConfig {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BetState {
     betting,
     closed,
