@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Telegram bot for a small private group, written in Rust on top of [`telexide`](https://docs.rs/telexide). Each slash command is a Chinese-language utility (random pickers, balance/fruit/cloth ledger, betting games, fruit trading). State persists in `waterx.db` (a SQLite file in the working directory; constant defined at `database::DB_FILENAME`). Configuration comes from environment variables (loaded from `.env` if present): `BOT_TOKEN`, `BOT_OWNER` (numeric Telegram user id), and optional `BOT_DEV` (default `true`; set `false` for production).
+A Telegram bot for a small private group, written in Rust on top of [`telexide`](https://docs.rs/telexide). The slash commands are Chinese-language utilities: random picker, balance/fruit ledger, coin/fruit transfers, dice betting, bet games, and fruit trading. State persists in `waterx.db` (a SQLite file in the working directory; constant defined at `database::DB_FILENAME`). Configuration comes from environment variables (loaded from `.env` if present): `BOT_TOKEN`, `BOT_OWNER` (numeric Telegram user id), and optional `BOT_DEV` (default `true`; set `false` for production).
+
+The current command set is `start, random, balance, fruit, send, dice, gamble, sell, buy`. The DB schema (`balance(user, balance, fruit, cloth)` + `buffer` + `bet_games`) still carries a `cloth` column and a `fruit_pop` helper from the prior larger command set — a future redesign will rework the schema.
 
 ## Commands
 
@@ -33,11 +35,12 @@ There are no tests yet — `cargo test` is a no-op.
 
 ### Shared state via `TypeMapKey`
 
-`bot.rs` defines three keys (`DbKey`, `GamesKey`, `ConfigKey`). Handlers reach state through helpers in `src/commands/util.rs`:
+`bot.rs` defines four keys: `DbKey`, `GamesKey`, `ConfigKey`, `BotIdKey`. Handlers reach state through helpers in `src/commands/util.rs`:
 
 - `db(&ctx) -> Arc<Database>`
 - `games(&ctx) -> Arc<tokio::sync::Mutex<HashMap<String, BetGame>>>`
-- `config(&ctx) -> Arc<BotConfig>`
+
+`ConfigKey` and `BotIdKey` are read directly via `ctx.data.read().get::<…>()` at the few sites that need them.
 
 These helpers also encapsulate the **Send-across-await gotcha**: `ctx.data.read()` returns a `parking_lot::RwLockReadGuard` that is **not `Send`**, so it cannot be held across `.await`. The helpers grab the value and let the guard drop on the same statement — always go through them rather than calling `ctx.data.read()` inline.
 
@@ -46,6 +49,8 @@ These helpers also encapsulate the **Send-across-await gotcha**: `ctx.data.read(
 Telegram callback queries (inline-button presses) are *not* commands. They come through `src/commands/callbacks.rs::on_callback`, a `#[prepare_listener]` registered via `add_handler_func` in `bot.rs`. It matches `UpdateContent::CallbackQuery` and dispatches on the `cb.data` string prefix: `envelope:`, `gamble:`, `sell:`, `buy:`.
 
 This matters because `/sell` and `/buy` slash commands **don't transact** — they just post an inline keyboard with a `sell:<seller>:<fruits>:<price>` or `buy:<buyer>:<fruits>:<price>` payload. The actual fruit/coin exchange happens when the counterparty taps the button and the callback fires.
+
+The `envelope:` callback prefix is still routed even though the `/envelope` command was removed: `/send <amount>` with no reply target (or replying to the bot) posts a red-envelope-style claim button, and that share path uses the same callback.
 
 ### Bet games
 
@@ -59,9 +64,7 @@ This matters because `/sell` and `/buy` slash commands **don't transact** — th
 
 - **`InlineKeyboardButton::new(text, pay)`** takes two args. The second is `pay: bool` (a Telegram payment-button flag) — telexide's `#[build_struct]` macro promoted it to mandatory because it isn't `Option<T>`. Pass `false` unless you're actually building a payment button.
 - **`rand::thread_rng()`** returns a non-`Send` `ThreadRng` — scope it in a block that ends before any `.await`, or the `#[command]` future fails the `Send` bound.
-- **The `_COMMAND` statics are pub-glob-reexported** (`pub use start::*`) so `create_framework!(name, start, choose, ...)` can resolve them at the bot.rs call site. Don't move command fns into private modules or the macro expansion will fail to resolve `<name>_COMMAND`.
-- **Owner gating**: commands like `/sleep`, `/status`, `/clear`, `/param`, `/reverse`, `/mint` early-return unless `is_owner(&ctx, uid)` (from `commands/util.rs`). `/mint` additionally requires `cfg.dev = true`.
-- **Stubbed commands**: `dice` and `param` reply with a placeholder and contain a `TODO:` describing what's missing — `dice` needs telexide's dice-result polling, `param` needs runtime-mutable config fields.
+- **The `_COMMAND` statics are pub-glob-reexported** (`pub use start::*`) so `create_framework!(name, start, random, ...)` can resolve them at the bot.rs call site. Don't move command fns into private modules or the macro expansion will fail to resolve `<name>_COMMAND`.
 
 ## Configuration
 
