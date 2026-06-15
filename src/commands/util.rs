@@ -1,7 +1,6 @@
-use crate::bot::{ConfigKey, DbKey, GamesKey};
+use crate::bot::{DbKey, GamesKey};
 use crate::database::Database;
 use crate::game::BetGame;
-use crate::types::BotConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
 use telexide::api::types::SendMessage;
@@ -29,14 +28,6 @@ pub fn games(ctx: &Context) -> Arc<Mutex<HashMap<String, BetGame>>> {
         .read()
         .get::<GamesKey>()
         .expect("GamesKey missing — bot::run did not init properly")
-        .clone()
-}
-
-pub fn config(ctx: &Context) -> Arc<BotConfig> {
-    ctx.data
-        .read()
-        .get::<ConfigKey>()
-        .expect("ConfigKey missing — bot::run did not init properly")
         .clone()
 }
 
@@ -104,10 +95,6 @@ pub fn format_number(n: i64) -> String {
 
 pub fn from_id(msg: &Message) -> Option<i64> {
     msg.from.as_ref().map(|u| u.id)
-}
-
-pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
-    config(ctx).owner == user_id
 }
 
 pub const ERR_REPLY: &str = "🤯";

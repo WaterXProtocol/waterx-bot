@@ -1,4 +1,4 @@
-use crate::commands::{callbacks, messages, *};
+use crate::commands::{callbacks, *};
 use crate::database::{Database, DB_FILENAME};
 use crate::game::BetGame;
 use crate::types::BotConfig;
@@ -29,31 +29,6 @@ impl TypeMapKey for ConfigKey {
 pub struct BotIdKey;
 impl TypeMapKey for BotIdKey {
     type Value = i64;
-}
-
-#[derive(Debug, Clone)]
-pub struct RuntimeParams {
-    /// Inverse probability of an envelope spawn per message — 1-in-N.
-    pub p_possi: u32,
-    /// Mean of the normal distribution that picks the envelope amount.
-    pub p_mean: f64,
-    /// Standard deviation of the same distribution.
-    pub p_std: f64,
-}
-
-impl Default for RuntimeParams {
-    fn default() -> Self {
-        Self {
-            p_possi: 5,
-            p_mean: 4.0,
-            p_std: 3.0,
-        }
-    }
-}
-
-pub struct ParamsKey;
-impl TypeMapKey for ParamsKey {
-    type Value = Arc<parking_lot::RwLock<RuntimeParams>>;
 }
 
 pub async fn run() -> anyhow::Result<()> {
@@ -105,13 +80,9 @@ pub async fn run() -> anyhow::Result<()> {
         .set_token(&cfg.token)
         .set_framework(create_framework!(
             bot_username.as_str(),
-            start, choose, random, tell, tells, shuffle, pair, wolfram,
-            balance, send, allin, dice, gamble, fruit, cloth, throw,
-            sell, buy, envelope,
-            sleep, status, clear, param, reverse, mint
+            start, random, balance, fruit, send, dice, gamble, sell, buy
         ))
-        .add_handler_func(callbacks::on_callback)
-        .add_handler_func(messages::on_message);
+        .add_handler_func(callbacks::on_callback);
     let client = builder.build();
     {
         let mut data = client.data.write();
@@ -119,14 +90,9 @@ pub async fn run() -> anyhow::Result<()> {
         data.insert::<GamesKey>(games);
         data.insert::<ConfigKey>(cfg_arc);
         data.insert::<BotIdKey>(bot_id);
-        data.insert::<ParamsKey>(Arc::new(parking_lot::RwLock::new(RuntimeParams::default())));
     }
 
-    // Eagerly set the user-facing command menu (the "/" autocomplete). Other
-    // commands stay registered with the framework so they still dispatch when
-    // typed; they just don't appear in the menu. Owner-only tools (/sleep
-    // /status /clear /param /reverse /mint) and string-utility commands
-    // (/choose /tell /tells /shuffle /pair /wolfram) are hidden.
+    // Eagerly set the user-facing command menu (the "/" autocomplete).
     {
         use telexide::model::BotCommand;
         const VISIBLE: &[(&str, &str)] = &[
@@ -134,15 +100,11 @@ pub async fn run() -> anyhow::Result<()> {
             ("random", "從參數中隨機挑一個"),
             ("balance", "查看水幣餘額"),
             ("fruit", "查看水果"),
-            ("cloth", "查看衣服上的水果"),
             ("send", "回覆訊息以送出水幣或水果"),
-            ("allin", "回覆訊息以歐印"),
-            ("throw", "回覆訊息以隨機丟一顆水果"),
             ("dice", "/dice <猜1-6> <下注> 中6倍"),
             ("gamble", "開賭局或查看自己押注"),
             ("sell", "/sell <水果> <價格>"),
             ("buy", "/buy <水果> <價格>"),
-            ("envelope", "/envelope <金額> 發紅包"),
         ];
         let cmds: Vec<BotCommand> = VISIBLE
             .iter()
@@ -221,42 +183,10 @@ async fn robust_poll(client: &telexide::client::Client) -> anyhow::Result<()> {
                 Ok(update) => client.fire_handlers(update),
                 Err(err) => {
                     eprintln!(
-                        "update parse error (salvaging update_id={raw_id:?}): {err}"
+                        "update parse error (skipping update_id={raw_id:?}): {err}"
                     );
-                    // Salvage path: even if telexide can't model the message
-                    // content (typical cause: Telegram added a new sticker /
-                    // entity variant), we can still roll an envelope drop
-                    // from chat_id + chat type alone. Spawn so we don't
-                    // block the polling loop on send_message.
-                    if let Some((chat_id, is_private)) = salvage_chat(&item) {
-                        let ctx = telexide::client::Context::new(
-                            client.api_client.clone(),
-                            client.data.clone(),
-                        );
-                        tokio::spawn(async move {
-                            crate::commands::messages::maybe_spawn_envelope(
-                                &ctx, chat_id, is_private,
-                            )
-                            .await;
-                        });
-                    }
                 }
             }
         }
     }
-}
-
-/// Pull `(chat_id, is_private)` out of a raw Update JSON object when its
-/// full deserialisation failed. Returns None if it doesn't look like a
-/// `message`-bearing update.
-fn salvage_chat(item: &serde_json::Value) -> Option<(i64, bool)> {
-    let chat = item
-        .get("message")
-        .or_else(|| item.get("edited_message"))
-        .or_else(|| item.get("channel_post"))
-        .or_else(|| item.get("edited_channel_post"))?
-        .get("chat")?;
-    let chat_id = chat.get("id")?.as_i64()?;
-    let is_private = chat.get("type").and_then(serde_json::Value::as_str) == Some("private");
-    Some((chat_id, is_private))
 }
