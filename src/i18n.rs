@@ -676,7 +676,7 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 10] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 11] {
     [
         ("start", hi(l)),
         ("random", menu_random(l)),
@@ -688,7 +688,15 @@ pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 10] {
         ("sell", menu_sell(l)),
         ("buy", menu_buy(l)),
         ("markets", menu_markets(l)),
+        ("checkin", menu_checkin(l)),
     ]
+}
+
+fn menu_checkin(l: Lang) -> &'static str {
+    tr!(l;
+        "Claim your daily 10 water-coins", "領取每日 10 水幣", "领取每日 10 水币", "毎日10水コインを受け取る", "매일 10 물코인 받기",
+        "Ежедневные 10 водных монет", "Réclame tes 10 pièces d'eau du jour", "Reclama tus 10 monedas de agua diarias", "Tägliche 10 Wassermünzen abholen", "Nhận 10 xu nước mỗi ngày",
+        "Klaim 10 koin air harian", "Kunin ang araw-araw na 10 water-coins", "รับ 10 เหรียญน้ำประจำวัน", "Claim je dagelijkse 10 watermunten", "Günlük 10 su paranı al")
 }
 
 fn menu_markets(l: Lang) -> &'static str {
@@ -764,6 +772,25 @@ pub fn settle_line(l: Lang, tail: &str, verb: &str, amt: &str) -> String {
     .replace("{tail}", tail)
     .replace("{verb}", verb)
     .replace("{amt}", amt)
+}
+
+// ----------------------------------------------------------------------------
+// `/checkin` daily reward
+// ----------------------------------------------------------------------------
+
+pub fn checkin_done(l: Lang, amt: &str) -> String {
+    tr!(l;
+        "Checked in! +{amt} water-coins 🪙", "簽到成功！+{amt} 水幣 🪙", "签到成功！+{amt} 水币 🪙", "チェックイン完了！+{amt} 水コイン 🪙", "출석 완료! +{amt} 물코인 🪙",
+        "Отметка получена! +{amt} водных монет 🪙", "Pointage validé ! +{amt} pièces d'eau 🪙", "¡Registrado! +{amt} monedas de agua 🪙", "Eingecheckt! +{amt} Wassermünzen 🪙", "Điểm danh thành công! +{amt} xu nước 🪙",
+        "Check-in berhasil! +{amt} koin air 🪙", "Naka-check in! +{amt} water-coins 🪙", "เช็คอินแล้ว! +{amt} เหรียญน้ำ 🪙", "Ingecheckt! +{amt} watermunten 🪙", "Giriş yapıldı! +{amt} su parası 🪙")
+    .replace("{amt}", amt)
+}
+
+pub fn checkin_already(l: Lang) -> &'static str {
+    tr!(l;
+        "Already checked in today — come back after 00:00 UTC ⏳", "今天已經簽到了，UTC 00:00 後再來 ⏳", "今天已经签到了，UTC 00:00 后再来 ⏳", "今日はもうチェックイン済み。UTC 00:00 以降にまた来てね ⏳", "오늘은 이미 출석했어 — UTC 00:00 이후에 다시 와 ⏳",
+        "Сегодня уже отмечались — возвращайтесь после 00:00 UTC ⏳", "Déjà pointé aujourd'hui — reviens après 00:00 UTC ⏳", "Ya te registraste hoy — vuelve después de las 00:00 UTC ⏳", "Heute schon eingecheckt — komm nach 00:00 UTC wieder ⏳", "Hôm nay đã điểm danh rồi — quay lại sau 00:00 UTC ⏳",
+        "Sudah check-in hari ini — kembali setelah 00:00 UTC ⏳", "Naka-check in ka na ngayon — balik ka after 00:00 UTC ⏳", "วันนี้เช็คอินแล้ว — กลับมาหลัง 00:00 UTC ⏳", "Vandaag al ingecheckt — kom terug na 00:00 UTC ⏳", "Bugün giriş yapıldı — 00:00 UTC'den sonra tekrar gel ⏳")
 }
 
 // ----------------------------------------------------------------------------
@@ -863,6 +890,7 @@ mod tests {
                 result_header(l, "id", "X"),
                 settle_line(l, "1234", verb_won(l), "5"),
                 markets_more(l, "3"),
+                checkin_done(l, "10"),
             ];
             for s in samples {
                 assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");

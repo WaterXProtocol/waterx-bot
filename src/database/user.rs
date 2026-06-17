@@ -36,6 +36,29 @@ impl Database {
         Ok(true)
     }
 
+    /// Grants the daily check-in `reward` unless the user already claimed it
+    /// today. "Today" is the UTC day index (`unix_secs / 86400`), so the
+    /// window resets exactly at 00:00 UTC. Returns true if granted, false if
+    /// already claimed today.
+    pub fn try_checkin(&self, user_id: i64, reward: i64) -> SqlResult<bool> {
+        self.ensure_row(user_id)?;
+        let today = super::current_unix_time() / 86_400;
+        let conn = self.conn.lock();
+        let last: i64 = conn.query_row(
+            "SELECT last_checkin FROM balance WHERE user = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
+        if last >= today {
+            return Ok(false);
+        }
+        conn.execute(
+            "UPDATE balance SET balance = balance + ?1, last_checkin = ?2 WHERE user = ?3",
+            params![reward, today, user_id],
+        )?;
+        Ok(true)
+    }
+
     /// Owner-only: applies a change without the non-negative guard.
     pub fn force_change(&self, user_id: i64, change: i64) -> SqlResult<()> {
         self.ensure_row(user_id)?;

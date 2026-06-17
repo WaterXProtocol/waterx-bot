@@ -39,9 +39,10 @@ impl Database {
         let conn = Connection::open(db_name)?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS balance (
-                user    INTEGER PRIMARY KEY,
-                balance INTEGER NOT NULL DEFAULT 0,
-                fruit   TEXT    NOT NULL DEFAULT ''
+                user         INTEGER PRIMARY KEY,
+                balance      INTEGER NOT NULL DEFAULT 0,
+                fruit        TEXT    NOT NULL DEFAULT '',
+                last_checkin INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
@@ -78,6 +79,13 @@ impl Database {
         // (column absent on fresh DBs, or SQLite < 3.35 without DROP COLUMN) are
         // harmless and swallowed — the column simply stays unused if it can't go.
         let _ = conn.execute("ALTER TABLE balance DROP COLUMN cloth", []);
+        // Add the daily-checkin tracker to older `balance` tables (stores the
+        // last claimed UTC day index; errors with "duplicate column" on tables
+        // that already have it, which we swallow).
+        let _ = conn.execute(
+            "ALTER TABLE balance ADD COLUMN last_checkin INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
 
         // Prune buffer rows older than 24h. Pre-TTL rows have created_at=0 and
         // get cleared too, which is what we want — a restart drops all dangling

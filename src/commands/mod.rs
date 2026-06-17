@@ -3,6 +3,7 @@ pub mod util;
 
 pub mod balance;
 pub mod buy;
+pub mod checkin;
 pub mod callbacks;
 pub mod dice;
 pub mod fruit;
@@ -15,6 +16,7 @@ pub mod start;
 
 pub use balance::*;
 pub use buy::*;
+pub use checkin::*;
 pub use dice::*;
 pub use fruit::*;
 pub use gamble::*;
