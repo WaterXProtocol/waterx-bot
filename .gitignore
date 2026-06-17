@@ -31,7 +31,9 @@ target
 .DS_Store
 
 # Live bot config — contains the Telegram token. Never commit.
+# (`.env*.example` templates are tracked explicitly below.)
 .env
+.env.dev
 .env.local
 # Legacy JSON config (no longer used, but kept as a credential safety net).
 bot_shadow.json
