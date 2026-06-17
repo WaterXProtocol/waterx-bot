@@ -1,5 +1,6 @@
 use crate::commands::tg;
 use crate::commands::util::*;
+use crate::i18n::{self, Lang};
 use telexide::api::types::DeleteMessage;
 use telexide::prelude::*;
 
@@ -9,6 +10,7 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
+    let lang = Lang::from_user(&seller);
     let parts = args(&message);
     if parts.len() < 2 {
         reply(&ctx, &message, ERR_REPLY).await?;
@@ -27,11 +29,11 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
     // Send placeholder with a (cleanly-serialised) inline button first to claim
     // a message id; then escrow fruit against that id atomically.
     let rows = vec![vec![(
-        format!("${} 買入", format_number(price)),
+        i18n::sell_button(lang, &format_number(price)),
         format!("sell:{}:{fruits}:{price}", seller.id),
     )]];
     let sent =
-        tg::send_with_buttons(&ctx, message.chat.get_id(), "(loading…)", &rows).await?;
+        tg::send_with_buttons(&ctx, message.chat.get_id(), i18n::loading(lang), &rows).await?;
 
     let database = db(&ctx);
     let escrowed =
@@ -45,21 +47,17 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
                 sent.message_id,
             ))
             .await;
-        reply(&ctx, &message, "來亂的嗎🤨").await?;
+        reply(&ctx, &message, i18n::messing_around(lang)).await?;
         return Ok(());
     }
 
     // Replace the placeholder with the real listing — refresh the callback
     // payload too in case `escrowed` is a subset of the requested fruits.
     let final_rows = vec![vec![(
-        format!("${} 買入", format_number(price)),
+        i18n::sell_button(lang, &format_number(price)),
         format!("sell:{}:{escrowed}:{price}", seller.id),
     )]];
-    let listing = format!(
-        "{} 出售 {escrowed}\n要價 {} 水幣",
-        full_name(&seller),
-        format_number(price)
-    );
+    let listing = i18n::sell_listing(lang, &full_name(&seller), &escrowed, &format_number(price));
     tg::edit_with_buttons(
         &ctx,
         sent.chat.get_id(),

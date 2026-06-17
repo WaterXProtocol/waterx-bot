@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn save_load_round_trip() {
         let db = mk_db();
-        let mut g = BetGame::new(123, "晚餐吃啥", &["麵", "飯"]);
+        let mut g = BetGame::new(123, crate::i18n::Lang::Hant, "晚餐吃啥", &["麵", "飯"]);
         g.set_id(100, 200);
         g.stake(1, "麵", 10);
         g.stake(2, "飯", 5);
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn save_is_upsert() {
         let db = mk_db();
-        let mut g = BetGame::new(123, "t", &["A", "B"]);
+        let mut g = BetGame::new(123, crate::i18n::Lang::En, "t", &["A", "B"]);
         g.set_id(100, 200);
         g.stake(1, "A", 5);
         db.save_bet_game(&g).unwrap();
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn delete_works() {
         let db = mk_db();
-        let mut g = BetGame::new(123, "t", &["A"]);
+        let mut g = BetGame::new(123, crate::i18n::Lang::En, "t", &["A"]);
         g.set_id(100, 200);
         db.save_bet_game(&g).unwrap();
         db.delete_bet_game(&g.id).unwrap();
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn load_all_survives_state_transitions() {
         let db = mk_db();
-        let mut g = BetGame::new(123, "t", &["A", "B"]);
+        let mut g = BetGame::new(123, crate::i18n::Lang::En, "t", &["A", "B"]);
         g.set_id(100, 200);
         g.stake(1, "A", 10);
         g.close();

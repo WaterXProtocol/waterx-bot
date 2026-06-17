@@ -33,6 +33,8 @@ impl BotConfig {
     }
 }
 
+use crate::i18n::{self, Lang};
+
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BetState {
@@ -43,12 +45,14 @@ pub enum BetState {
 }
 
 impl BetState {
-    pub fn as_str(&self) -> &'static str {
+    /// Localized status label shown on the shared bet-game board (rendered in
+    /// the host's language; see [`crate::game::BetGame`]).
+    pub fn label(&self, lang: Lang) -> &'static str {
         match self {
-            BetState::betting => "下注中",
-            BetState::closed => "已收盤",
-            BetState::settled => "已結算",
-            BetState::draw => "流局",
+            BetState::betting => i18n::state_betting(lang),
+            BetState::closed => i18n::state_closed(lang),
+            BetState::settled => i18n::state_settled(lang),
+            BetState::draw => i18n::draw_label(lang),
         }
     }
 }

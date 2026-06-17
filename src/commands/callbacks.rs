@@ -3,6 +3,7 @@ use crate::commands::tg;
 use crate::commands::util::{format_number, SORRY_FRUITS};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
+use crate::i18n::{self, Lang};
 use crate::types::BetState;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -87,9 +88,10 @@ async fn handle_envelope(
     };
     let chat_id = message.chat.get_id();
     let msg_id = message.message_id;
+    let lang = Lang::from_user(&cb.from);
     let db = db_arc(ctx);
     if !db.has_buffer(chat_id, msg_id).unwrap_or(false) {
-        return answer(ctx, cb, "別人領走了🙁", false).await;
+        return answer(ctx, cb, i18n::someone_took_it(lang), false).await;
     }
     let amount: i64 = rest.parse().unwrap_or(0);
     if amount <= 0 {
@@ -105,31 +107,27 @@ async fn handle_envelope(
                     ctx,
                     chat_id,
                     msg_id,
-                    &format!("{} 收到一顆 {fruit}", cb.from.first_name),
+                    &i18n::received_fruit(lang, &cb.from.first_name, &s),
                 )
                 .await;
-                return answer(ctx, cb, "搶到啦😁", false).await;
+                return answer(ctx, cb, i18n::grabbed_it(lang), false).await;
             }
-            Ok(false) => return answer(ctx, cb, "水果太多囉😶", false).await,
-            Err(_) => return answer(ctx, cb, "資料庫錯誤", true).await,
+            Ok(false) => return answer(ctx, cb, i18n::too_many_fruits(lang), false).await,
+            Err(_) => return answer(ctx, cb, i18n::db_error(lang), true).await,
         }
     }
     if db.balance_change(cb.from.id, amount).is_err() {
-        return answer(ctx, cb, "資料庫錯誤", true).await;
+        return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
     db.delete_buffer(chat_id, msg_id).ok();
     let _ = tg::edit_text_only(
         ctx,
         chat_id,
         msg_id,
-        &format!(
-            "{} 收到 {} 顆 水幣",
-            cb.from.first_name,
-            format_number(amount)
-        ),
+        &i18n::received_coins(lang, &cb.from.first_name, &format_number(amount)),
     )
     .await;
-    answer(ctx, cb, "搶到啦😁", false).await
+    answer(ctx, cb, i18n::grabbed_it(lang), false).await
 }
 
 async fn handle_gamble(
@@ -143,6 +141,7 @@ async fn handle_gamble(
     let chat_id = message.chat.get_id();
     let msg_id = message.message_id;
     let key = format!("{chat_id}:{msg_id}");
+    let lang = Lang::from_user(&cb.from);
 
     let games = games_arc(ctx);
     let db = db_arc(ctx);
@@ -157,7 +156,7 @@ async fn handle_gamble(
     // betting keyboard; tap just dismisses the spinner with no state change)
     if parts.len() >= 2 && parts[0] == "label" {
         let opt = parts[1..].join(":");
-        return answer(ctx, cb, format!("{opt} 的押注"), false).await;
+        return answer(ctx, cb, i18n::bets_for_option(lang, &opt), false).await;
     }
 
     // close: gamble:
@@ -165,13 +164,13 @@ async fn handle_gamble(
         let (text, rows) = {
             let mut g = games.lock().await;
             let Some(game) = g.get_mut(&key) else {
-                return answer(ctx, cb, "賭局已失效", true).await;
+                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
             };
             if game.host != cb.from.id {
-                return answer(ctx, cb, "你不是莊家😶", true).await;
+                return answer(ctx, cb, i18n::not_host(lang), true).await;
             }
             if !game.close() {
-                return answer(ctx, cb, "已收盤", true).await;
+                return answer(ctx, cb, i18n::already_closed(lang), true).await;
             }
             if let Err(err) = db.save_bet_game(game) {
                 eprintln!("save_bet_game(close) error: {err}");
@@ -179,30 +178,30 @@ async fn handle_gamble(
             (game.get_text(), game.get_buttons())
         };
         let _ = tg::edit_with_buttons(ctx, chat_id, msg_id, &text, &rows).await;
-        return answer(ctx, cb, "關閉賭局", false).await;
+        return answer(ctx, cb, i18n::close_game_toast(lang), false).await;
     }
 
     // bet: gamble:<option>:<stake>
     if parts.len() == 2 {
         let option = parts[0];
         let Ok(stake) = parts[1].parse::<i64>() else {
-            return answer(ctx, cb, "下注額錯誤", true).await;
+            return answer(ctx, cb, i18n::bad_stake(lang), true).await;
         };
         if stake <= 0 {
-            return answer(ctx, cb, "下注額錯誤", true).await;
+            return answer(ctx, cb, i18n::bad_stake(lang), true).await;
         }
         if !db.balance_change(cb.from.id, -stake).unwrap_or(false) {
-            return answer(ctx, cb, "錢不夠耶😶", true).await;
+            return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
         }
         let (text, rows) = {
             let mut g = games.lock().await;
             let Some(game) = g.get_mut(&key) else {
                 db.force_change(cb.from.id, stake).ok();
-                return answer(ctx, cb, "賭局已失效", true).await;
+                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
             };
             if !game.stake(cb.from.id, option, stake) {
                 db.force_change(cb.from.id, stake).ok();
-                return answer(ctx, cb, "下注失敗", true).await;
+                return answer(ctx, cb, i18n::bet_failed(lang), true).await;
             }
             if let Err(err) = db.save_bet_game(game) {
                 eprintln!("save_bet_game(stake) error: {err}");
@@ -210,28 +209,30 @@ async fn handle_gamble(
             (game.get_text(), game.get_buttons())
         };
         let _ = tg::edit_with_buttons(ctx, chat_id, msg_id, &text, &rows).await;
-        return answer(ctx, cb, "下注成功", false).await;
+        return answer(ctx, cb, i18n::bet_success(lang), false).await;
     }
 
     // settle: gamble:<outcome>
     if parts.len() == 1 {
         let outcome = parts[0];
-        let (outputs, display, state) = {
+        // The settled board is rendered in the host's language (game.lang),
+        // not the tapper's — it's a single shared message.
+        let (outputs, display, state, game_lang) = {
             let mut g = games.lock().await;
             let Some(game) = g.get_mut(&key) else {
-                return answer(ctx, cb, "賭局已失效", true).await;
+                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
             };
             if game.host != cb.from.id {
-                return answer(ctx, cb, "你不是莊家😶", true).await;
+                return answer(ctx, cb, i18n::not_host(lang), true).await;
             }
             if game.state != BetState::closed {
-                return answer(ctx, cb, "尚未收盤", true).await;
+                return answer(ctx, cb, i18n::not_closed_yet(lang), true).await;
             }
             let (outputs, display) = game.settle(outcome);
             if let Err(err) = db.save_bet_game(game) {
                 eprintln!("save_bet_game(settle) error: {err}");
             }
-            (outputs, display, game.state.clone())
+            (outputs, display, game.state.clone(), game.lang)
         };
         for (user, win) in &outputs {
             if *win > 0 {
@@ -242,13 +243,13 @@ async fn handle_gamble(
             ctx,
             chat_id,
             msg_id,
-            &format!("{}\n---{}\n", display, state.as_str()),
+            &format!("{}\n---{}\n", display, state.label(game_lang)),
         )
         .await;
-        return answer(ctx, cb, "結算成功", false).await;
+        return answer(ctx, cb, i18n::settle_success(lang), false).await;
     }
 
-    answer(ctx, cb, "系統錯誤", true).await
+    answer(ctx, cb, i18n::system_error(lang), true).await
 }
 
 async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
@@ -257,34 +258,33 @@ async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::
     };
     let chat_id = message.chat.get_id();
     let msg_id = message.message_id;
+    let lang = Lang::from_user(&cb.from);
     let db = db_arc(ctx);
     let outcome = match db.consume_sell(chat_id, msg_id, cb.from.id) {
         Ok(o) => o,
-        Err(_) => return answer(ctx, cb, "資料庫錯誤", true).await,
+        Err(_) => return answer(ctx, cb, i18n::db_error(lang), true).await,
     };
     match outcome {
-        OfferOutcome::AlreadyTaken => answer(ctx, cb, "別人成交了🙁", false).await,
+        OfferOutcome::AlreadyTaken => answer(ctx, cb, i18n::someone_dealt(lang), false).await,
         OfferOutcome::SelfCancelled => {
             delete_msg(ctx, chat_id, msg_id).await.ok();
-            answer(ctx, cb, "已撤回賣單", false).await
+            answer(ctx, cb, i18n::withdrew_sell(lang), false).await
         }
         OfferOutcome::Filled { fruits, price } => {
             let _ = tg::edit_text_only(
                 ctx,
                 chat_id,
                 msg_id,
-                &format!(
-                    "{} 花 {} 水幣\n買了 {fruits}",
-                    cb.from.first_name,
-                    format_number(price)
-                ),
+                &i18n::bought_msg(lang, &cb.from.first_name, &format_number(price), &fruits),
             )
             .await;
-            answer(ctx, cb, format!("買了 {fruits}🥳"), true).await
+            answer(ctx, cb, i18n::bought_toast(lang, &fruits), true).await
         }
-        OfferOutcome::TakerNotEnoughBalance => answer(ctx, cb, "錢不夠耶😶", true).await,
-        OfferOutcome::TakerFruitFull => answer(ctx, cb, "水果太多囉😶", true).await,
-        OfferOutcome::TakerMissingFruit(_) => answer(ctx, cb, "系統錯誤", true).await,
+        OfferOutcome::TakerNotEnoughBalance => {
+            answer(ctx, cb, i18n::not_enough_money(lang), true).await
+        }
+        OfferOutcome::TakerFruitFull => answer(ctx, cb, i18n::too_many_fruits(lang), true).await,
+        OfferOutcome::TakerMissingFruit(_) => answer(ctx, cb, i18n::system_error(lang), true).await,
     }
 }
 
@@ -294,35 +294,34 @@ async fn handle_buy(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::E
     };
     let chat_id = message.chat.get_id();
     let msg_id = message.message_id;
+    let lang = Lang::from_user(&cb.from);
     let db = db_arc(ctx);
     let outcome = match db.consume_buy(chat_id, msg_id, cb.from.id) {
         Ok(o) => o,
-        Err(_) => return answer(ctx, cb, "資料庫錯誤", true).await,
+        Err(_) => return answer(ctx, cb, i18n::db_error(lang), true).await,
     };
     match outcome {
-        OfferOutcome::AlreadyTaken => answer(ctx, cb, "別人成交了🙁", false).await,
+        OfferOutcome::AlreadyTaken => answer(ctx, cb, i18n::someone_dealt(lang), false).await,
         OfferOutcome::SelfCancelled => {
             delete_msg(ctx, chat_id, msg_id).await.ok();
-            answer(ctx, cb, "已撤回買單", false).await
+            answer(ctx, cb, i18n::withdrew_buy(lang), false).await
         }
         OfferOutcome::Filled { fruits, price } => {
             let _ = tg::edit_text_only(
                 ctx,
                 chat_id,
                 msg_id,
-                &format!(
-                    "{} 賣出 {fruits}\n賺了 {} 水幣",
-                    cb.from.first_name,
-                    format_number(price)
-                ),
+                &i18n::sold_msg(lang, &cb.from.first_name, &fruits, &format_number(price)),
             )
             .await;
-            answer(ctx, cb, format!("賺取 {} 水幣🥳", format_number(price)), true).await
+            answer(ctx, cb, i18n::sold_toast(lang, &format_number(price)), true).await
         }
         OfferOutcome::TakerMissingFruit(ch) => {
-            answer(ctx, cb, format!("你沒有 {ch} 喔😶"), true).await
+            answer(ctx, cb, i18n::you_dont_have(lang, &ch.to_string()), true).await
         }
-        OfferOutcome::TakerFruitFull => answer(ctx, cb, "買家水果太多囉😶", true).await,
-        OfferOutcome::TakerNotEnoughBalance => answer(ctx, cb, "系統錯誤", true).await,
+        OfferOutcome::TakerFruitFull => answer(ctx, cb, i18n::buyer_fruit_full(lang), true).await,
+        OfferOutcome::TakerNotEnoughBalance => {
+            answer(ctx, cb, i18n::system_error(lang), true).await
+        }
     }
 }

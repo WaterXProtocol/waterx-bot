@@ -1,4 +1,5 @@
 use crate::commands::util::*;
+use crate::i18n::{self, Lang};
 use telexide::prelude::*;
 
 #[command(description = "show the caller's island-coin balance")]
@@ -7,19 +8,13 @@ pub async fn balance(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
+    let lang = Lang::from_user(user);
     let info = db(&ctx).get_user_info(user.id)?;
+    let coins = format_number(info.balance);
     let body = if info.balance >= 0 {
-        format!(
-            "{}\n擁有 {} 顆 水幣",
-            full_name(user),
-            format_number(info.balance)
-        )
+        i18n::have_coins(lang, &full_name(user), &coins)
     } else {
-        format!(
-            "{}\n欠債 {} 顆 水幣",
-            full_name(user),
-            format_number(info.balance)
-        )
+        i18n::debt_coins(lang, &full_name(user), &coins)
     };
     reply(&ctx, &message, body).await?;
     Ok(())

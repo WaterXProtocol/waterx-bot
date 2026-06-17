@@ -1,3 +1,4 @@
+use crate::i18n::{self, Lang};
 use crate::types::BetState;
 use std::collections::HashMap;
 
@@ -15,6 +16,11 @@ pub struct OptionData {
 pub struct BetGame {
     pub id: String,
     pub host: i64,
+    /// Language the shared board is rendered in — the host's locale, resolved
+    /// at creation. `#[serde(default)]` keeps games persisted before i18n
+    /// (which have no `lang` field) loading as English.
+    #[serde(default)]
+    pub lang: Lang,
     pub description: String,
     pub state: BetState,
     pub options: HashMap<String, OptionData>,
@@ -26,7 +32,7 @@ pub struct BetGame {
 }
 
 impl BetGame {
-    pub fn new(host: i64, description: &str, options: &[&str]) -> Self {
+    pub fn new(host: i64, lang: Lang, description: &str, options: &[&str]) -> Self {
         let mut opts = HashMap::new();
         let mut order = Vec::new();
         for o in options {
@@ -36,6 +42,7 @@ impl BetGame {
         Self {
             id: String::new(),
             host,
+            lang,
             description: description.to_string(),
             state: BetState::betting,
             options: opts,
@@ -55,7 +62,7 @@ impl BetGame {
     }
 
     pub fn get_header(&self) -> String {
-        format!("{}\n---{}\n", self.description, self.state.as_str())
+        format!("{}\n---{}\n", self.description, self.state.label(self.lang))
     }
 
     pub fn get_text(&self) -> String {
@@ -84,13 +91,19 @@ impl BetGame {
                         .collect();
                     rows.push(row);
                 }
-                rows.push(vec![("收盤".to_string(), "gamble:".to_string())]);
+                rows.push(vec![(
+                    i18n::close_button(self.lang).to_string(),
+                    "gamble:".to_string(),
+                )]);
             }
             BetState::closed => {
                 for opt in &self.option_order {
                     rows.push(vec![(opt.clone(), format!("gamble:{opt}"))]);
                 }
-                rows.push(vec![("流局".to_string(), "gamble:$draw$".to_string())]);
+                rows.push(vec![(
+                    i18n::draw_label(self.lang).to_string(),
+                    "gamble:$draw$".to_string(),
+                )]);
             }
             _ => {}
         }
@@ -141,7 +154,7 @@ impl BetGame {
             self.state = BetState::draw;
             return (
                 self.inputs.clone(),
-                format!("{}\n莊家指定結果：流局", self.id),
+                i18n::result_header(self.lang, &self.id, i18n::draw_label(self.lang)),
             );
         }
         let mut outputs = HashMap::new();
@@ -164,20 +177,27 @@ impl BetGame {
         if changes.is_empty() {
             // Nobody bet at all.
             self.state = BetState::draw;
-            let display = format!(
-                "{}\n莊家指定結果：{outcome}\n但好像沒有人下注欸😶",
-                self.id
-            );
+            let display = i18n::result_header(self.lang, &self.id, outcome)
+                + i18n::no_one_bet_suffix(self.lang);
             return (outputs, display);
         }
 
         self.state = BetState::settled;
-        let mut display = format!("{}\n莊家指定結果：{outcome}", self.id);
+        let mut display = i18n::result_header(self.lang, &self.id, outcome);
         for (user, diff) in &changes {
             let s = format!("{user:0>4}");
             let tail = &s[s.len().saturating_sub(4)..];
-            let verb = if *diff >= 0 { "贏了" } else { "輸了" };
-            display.push_str(&format!("\n***{tail} {verb}{}顆 水幣", diff.abs()));
+            let verb = if *diff >= 0 {
+                i18n::verb_won(self.lang)
+            } else {
+                i18n::verb_lost(self.lang)
+            };
+            display.push_str(&i18n::settle_line(
+                self.lang,
+                tail,
+                verb,
+                &diff.abs().to_string(),
+            ));
         }
         (outputs, display)
     }
@@ -214,7 +234,11 @@ impl BetGame {
             }
             BetState::settled => {
                 if let Some(diff) = self.changes.get(&user) {
-                    let verb = if *diff >= 0 { "贏了" } else { "輸了" };
+                    let verb = if *diff >= 0 {
+                        i18n::verb_won(self.lang)
+                    } else {
+                        i18n::verb_lost(self.lang)
+                    };
                     format!("\n{verb} {}", diff.abs())
                 } else {
                     String::new()
@@ -235,7 +259,7 @@ mod tests {
 
     #[test]
     fn stake_updates_all_odds() {
-        let mut g = BetGame::new(0, "test", &["A", "B"]);
+        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10);
         g.stake(2, "B", 5);
         // total = 15. A.bet = 10 → odd = 1.500. B.bet = 5 → odd = 3.000.
@@ -250,7 +274,7 @@ mod tests {
 
     #[test]
     fn settle_pays_winners_proportionally() {
-        let mut g = BetGame::new(0, "test", &["A", "B"]);
+        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10);
         g.stake(2, "A", 30);
         g.stake(3, "B", 10);
@@ -268,14 +292,14 @@ mod tests {
 
     #[test]
     fn settle_draw_refunds_inputs() {
-        let mut g = BetGame::new(0, "test", &["A", "B"]);
+        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10);
         g.stake(2, "B", 7);
         g.close();
         let (out, display) = g.settle("$draw$");
         assert_eq!(out[&1], 10);
         assert_eq!(out[&2], 7);
-        assert!(display.contains("流局"));
+        assert!(display.contains("Draw"));
         assert_eq!(g.state, BetState::draw);
         assert!(g.changes.is_empty()); // can't /reverse a draw
         assert!(g.reverse().is_none());
@@ -283,17 +307,17 @@ mod tests {
 
     #[test]
     fn settle_no_bets_at_all_is_draw() {
-        let mut g = BetGame::new(0, "test", &["A", "B"]);
+        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
         g.close();
         let (out, display) = g.settle("A");
         assert!(out.is_empty());
-        assert!(display.contains("但好像沒有人下注欸"));
+        assert!(display.contains("but it seems nobody placed a bet"));
         assert_eq!(g.state, BetState::draw);
     }
 
     #[test]
     fn check_skips_users_with_no_record() {
-        let mut g = BetGame::new(0, "test", &["A", "B"]);
+        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10);
         assert!(!g.check(1).is_empty()); // bettor sees their row
         assert!(g.check(99).is_empty()); // someone who didn't bet sees nothing
@@ -301,14 +325,14 @@ mod tests {
 
     #[test]
     fn check_shows_settled_result() {
-        let mut g = BetGame::new(0, "test", &["A", "B"]);
+        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10);
         g.stake(2, "B", 10);
         g.close();
         g.settle("A");
         let s1 = g.check(1);
-        assert!(s1.contains("贏了"));
+        assert!(s1.contains("won"));
         let s2 = g.check(2);
-        assert!(s2.contains("輸了"));
+        assert!(s2.contains("lost"));
     }
 }

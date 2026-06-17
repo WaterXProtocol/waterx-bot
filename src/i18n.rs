@@ -1,0 +1,822 @@
+//! Hand-rolled, dependency-free internationalisation.
+//!
+//! Every user-facing string lives here, grouped one-function-per-message so a
+//! translator sees all locales for a given message side by side. Language is
+//! auto-detected from Telegram's `User.language_code` (an IETF tag like `en`,
+//! `zh-Hans`, `pt-BR`) via [`Lang::from_user`]; there is no per-user setting
+//! command and no DB column. Unknown / unsupported tags fall back to English.
+//!
+//! ## Per-user vs. shared messages
+//!
+//! Direct replies and callback toasts are rendered in the *acting* user's
+//! language. Messages that are a single shared/edited post — the bet-game
+//! board and the sell/buy listings — are rendered in their **creator's**
+//! language (the game host, or the seller/buyer), because one message body is
+//! shown to everyone. `BetGame` therefore stores a [`Lang`] (see `game.rs`).
+//!
+//! ## Adding a message
+//!
+//! Add a function below and fill in all 15 arms of `tr!`. For messages with
+//! runtime values, leave `{placeholder}` tokens in every arm and substitute
+//! with `.replace(...)`; the helper [`fill`] / chained `replace` keeps it
+//! type-free. Keep emoji in place — they read the same in every language.
+
+/// Supported locales. `En` is the default / fallback (see [`Lang::from_code`]).
+///
+/// `Hant` = Traditional Chinese (the bot's original language); `Hans` =
+/// Simplified Chinese. Serialize/Deserialize + Default(En) are needed because
+/// `BetGame` persists a `Lang` to SQLite as JSON.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum Lang {
+    #[default]
+    En,
+    Hant,
+    Hans,
+    Ja,
+    Ko,
+    Ru,
+    Fr,
+    Es,
+    De,
+    Vi,
+    Id,
+    Fil,
+    Th,
+    Nl,
+    Tr,
+}
+
+/// Pick the matching arm for `$lang`. Arms are listed in the fixed order
+/// `en, hant, hans, ja, ko, ru, fr, es, de, vi, id, fil, th, nl, tr`.
+macro_rules! tr {
+    ($lang:expr;
+        $en:literal, $hant:literal, $hans:literal, $ja:literal, $ko:literal,
+        $ru:literal, $fr:literal, $es:literal, $de:literal, $vi:literal,
+        $id:literal, $fil:literal, $th:literal, $nl:literal, $tr:literal $(,)?
+    ) => {
+        match $lang {
+            Lang::En => $en,
+            Lang::Hant => $hant,
+            Lang::Hans => $hans,
+            Lang::Ja => $ja,
+            Lang::Ko => $ko,
+            Lang::Ru => $ru,
+            Lang::Fr => $fr,
+            Lang::Es => $es,
+            Lang::De => $de,
+            Lang::Vi => $vi,
+            Lang::Id => $id,
+            Lang::Fil => $fil,
+            Lang::Th => $th,
+            Lang::Nl => $nl,
+            Lang::Tr => $tr,
+        }
+    };
+}
+
+impl Lang {
+    /// Map an IETF language tag (case-insensitive, `-`/`_` separated) to a
+    /// [`Lang`]. Chinese is split into Traditional vs. Simplified by region /
+    /// script subtag; bare `zh` defaults to Simplified. Everything unknown
+    /// falls back to [`Lang::En`].
+    pub fn from_code(code: &str) -> Lang {
+        let c = code.to_ascii_lowercase();
+        if c.starts_with("zh") {
+            // zh-Hant / zh-TW / zh-HK / zh-MO → Traditional; else Simplified.
+            if c.contains("hant") || c.contains("tw") || c.contains("hk") || c.contains("mo") {
+                return Lang::Hant;
+            }
+            return Lang::Hans;
+        }
+        let primary = c.split(['-', '_']).next().unwrap_or("");
+        match primary {
+            "en" => Lang::En,
+            "ja" => Lang::Ja,
+            "ko" => Lang::Ko,
+            "ru" => Lang::Ru,
+            "fr" => Lang::Fr,
+            "es" => Lang::Es,
+            "de" => Lang::De,
+            "vi" => Lang::Vi,
+            "id" => Lang::Id,
+            "fil" | "tl" => Lang::Fil,
+            "th" => Lang::Th,
+            "nl" => Lang::Nl,
+            "tr" => Lang::Tr,
+            _ => Lang::En,
+        }
+    }
+
+    /// Resolve the locale for a Telegram user, defaulting to English when the
+    /// client reports no `language_code`.
+    pub fn from_user(u: &telexide::model::User) -> Lang {
+        u.language_code
+            .as_deref()
+            .map(Lang::from_code)
+            .unwrap_or(Lang::En)
+    }
+
+    /// The two-letter code used when registering a localized command menu via
+    /// `setMyCommands`. Telegram only accepts ISO 639-1 here, so the
+    /// Traditional/Simplified split collapses to a single `zh` menu (Simplified
+    /// wins, being registered last in [`Lang::ALL`]) and Filipino uses `tl`.
+    pub fn menu_code(self) -> &'static str {
+        match self {
+            Lang::En => "en",
+            Lang::Hant => "zh",
+            Lang::Hans => "zh",
+            Lang::Ja => "ja",
+            Lang::Ko => "ko",
+            Lang::Ru => "ru",
+            Lang::Fr => "fr",
+            Lang::Es => "es",
+            Lang::De => "de",
+            Lang::Vi => "vi",
+            Lang::Id => "id",
+            Lang::Fil => "tl",
+            Lang::Th => "th",
+            Lang::Nl => "nl",
+            Lang::Tr => "tr",
+        }
+    }
+
+    /// Every locale, for iterating when registering command menus.
+    pub const ALL: [Lang; 15] = [
+        Lang::En,
+        Lang::Hant,
+        Lang::Hans,
+        Lang::Ja,
+        Lang::Ko,
+        Lang::Ru,
+        Lang::Fr,
+        Lang::Es,
+        Lang::De,
+        Lang::Vi,
+        Lang::Id,
+        Lang::Fil,
+        Lang::Th,
+        Lang::Nl,
+        Lang::Tr,
+    ];
+}
+
+// ----------------------------------------------------------------------------
+// Parameter-free messages
+// ----------------------------------------------------------------------------
+
+pub fn hi(l: Lang) -> &'static str {
+    tr!(l;
+        "Hi?", "嗨？", "嗨？", "やあ？", "안녕?",
+        "Привет?", "Salut ?", "¿Hola?", "Hallo?", "Chào?",
+        "Hai?", "Kumusta?", "หวัดดี?", "Hoi?", "Selam?")
+}
+
+pub fn not_enough_money(l: Lang) -> &'static str {
+    tr!(l;
+        "Not enough money 😶", "錢不夠耶😶", "钱不够耶😶", "お金が足りないよ😶", "돈이 부족해😶",
+        "Не хватает денег 😶", "Pas assez d'argent 😶", "No tienes suficiente dinero 😶", "Nicht genug Geld 😶", "Không đủ tiền 😶",
+        "Uangnya kurang 😶", "Kulang ang pera 😶", "เงินไม่พอ 😶", "Niet genoeg geld 😶", "Para yetmiyor 😶")
+}
+
+pub fn messing_around(l: Lang) -> &'static str {
+    tr!(l;
+        "Are you messing around? 🤨", "來亂的嗎🤨", "来乱的吗🤨", "ふざけてるの？🤨", "장난쳐?🤨",
+        "Хулиганишь? 🤨", "Tu rigoles ? 🤨", "¿Estás jugando? 🤨", "Veräppelst du mich? 🤨", "Đùa à? 🤨",
+        "Bercanda ya? 🤨", "Nambobola ka? 🤨", "กวนป่วนหรือเปล่า 🤨", "Loop je te dollen? 🤨", "Dalga mı geçiyorsun? 🤨")
+}
+
+pub fn reply_to_send_fruit(l: Lang) -> &'static str {
+    tr!(l;
+        "Reply to someone's message to send fruit 😅", "回覆對方訊息來送水果呦😅", "回复对方消息来送水果哟😅", "相手のメッセージに返信してフルーツを送ってね😅", "상대 메시지에 답장해서 과일을 보내세요😅",
+        "Ответьте на сообщение, чтобы отправить фрукт 😅", "Réponds à un message pour envoyer un fruit 😅", "Responde a un mensaje para enviar fruta 😅", "Antworte auf eine Nachricht, um Obst zu senden 😅", "Trả lời tin nhắn của người khác để gửi trái cây 😅",
+        "Balas pesan seseorang untuk mengirim buah 😅", "Mag-reply sa mensahe para magpadala ng prutas 😅", "ตอบกลับข้อความเพื่อส่งผลไม้ 😅", "Reageer op een bericht om fruit te sturen 😅", "Meyve göndermek için bir mesaja yanıt ver 😅")
+}
+
+pub fn bot_no_money(l: Lang) -> &'static str {
+    tr!(l;
+        "I don't need money 😎", "我不需要錢喔 😎", "我不需要钱哦 😎", "お金はいらないよ 😎", "난 돈 필요 없어 😎",
+        "Мне деньги не нужны 😎", "Je n'ai pas besoin d'argent 😎", "No necesito dinero 😎", "Ich brauche kein Geld 😎", "Tôi không cần tiền đâu 😎",
+        "Aku nggak butuh uang 😎", "Hindi ko kailangan ng pera 😎", "ฉันไม่ต้องการเงินหรอก 😎", "Ik heb geen geld nodig 😎", "Paraya ihtiyacım yok 😎")
+}
+
+pub fn grab_envelope_title(l: Lang) -> &'static str {
+    tr!(l;
+        "Grab the red envelope!", "搶紅包囉！", "抢红包啦！", "紅包を取ろう！", "행운 봉투를 잡아라!",
+        "Хватай красный конверт!", "Attrape l'enveloppe rouge !", "¡Atrapa el sobre rojo!", "Schnapp dir den roten Umschlag!", "Giành lì xì nào!",
+        "Rebut amplop merahnya!", "Agawin ang red envelope!", "คว้าซองแดงเลย!", "Grijp de rode envelop!", "Kırmızı zarfı kap!")
+}
+
+pub fn claim_button(l: Lang) -> &'static str {
+    tr!(l;
+        "Claim 🧧", "領取🧧", "领取🧧", "受け取る🧧", "받기🧧",
+        "Забрать 🧧", "Récupérer 🧧", "Reclamar 🧧", "Einsammeln 🧧", "Nhận 🧧",
+        "Ambil 🧧", "Kunin 🧧", "รับ 🧧", "Pak 🧧", "Al 🧧")
+}
+
+pub fn so_eager_to_lose(l: Lang) -> &'static str {
+    tr!(l;
+        "So eager to lose? 🤔", "就這麼想輸嗎？🤔", "就这么想输吗？🤔", "そんなに負けたいの？🤔", "그렇게 지고 싶어?🤔",
+        "Так хочешь проиграть? 🤔", "Tu veux tant perdre ? 🤔", "¿Tantas ganas de perder? 🤔", "Willst du so gerne verlieren? 🤔", "Muốn thua đến thế à? 🤔",
+        "Pengen banget kalah? 🤔", "Gusto mo bang matalo agad? 🤔", "อยากแพ้ขนาดนั้นเลยเหรอ 🤔", "Wil je zo graag verliezen? 🤔", "Kaybetmeye bu kadar hevesli misin? 🤔")
+}
+
+pub fn wrong_guess(l: Lang) -> &'static str {
+    tr!(l;
+        "Wrong guess 😐", "沒猜中呦😐", "没猜中哟😐", "外れたよ😐", "못 맞췄어😐",
+        "Не угадал 😐", "Raté 😐", "Fallaste 😐", "Daneben 😐", "Đoán sai rồi 😐",
+        "Tebakan salah 😐", "Mali ang hula 😐", "ทายผิด 😐", "Mis geraden 😐", "Yanlış tahmin 😐")
+}
+
+pub fn loading(l: Lang) -> &'static str {
+    tr!(l;
+        "(loading…)", "(載入中…)", "(加载中…)", "(読み込み中…)", "(불러오는 중…)",
+        "(загрузка…)", "(chargement…)", "(cargando…)", "(lädt…)", "(đang tải…)",
+        "(memuat…)", "(naglo-load…)", "(กำลังโหลด…)", "(laden…)", "(yükleniyor…)")
+}
+
+pub fn no_betting_records(l: Lang) -> &'static str {
+    tr!(l;
+        "No betting records 🤗", "沒有賭博記錄🤗", "没有赌博记录🤗", "賭けの記録はないよ🤗", "베팅 기록이 없어🤗",
+        "Нет ставок 🤗", "Aucun pari en cours 🤗", "Sin registros de apuestas 🤗", "Keine Wetten 🤗", "Không có lịch sử cá cược 🤗",
+        "Tidak ada catatan taruhan 🤗", "Walang record ng pusta 🤗", "ไม่มีประวัติการเดิมพัน 🤗", "Geen weddenschappen 🤗", "Bahis kaydı yok 🤗")
+}
+
+pub fn service_paused(l: Lang) -> &'static str {
+    tr!(l;
+        "(service paused)", "(暫停服務)", "(暂停服务)", "(サービス停止中)", "(서비스 일시 중지)",
+        "(сервис приостановлен)", "(service en pause)", "(servicio en pausa)", "(Dienst pausiert)", "(tạm dừng dịch vụ)",
+        "(layanan dijeda)", "(naka-pause ang serbisyo)", "(หยุดให้บริการชั่วคราว)", "(dienst gepauzeerd)", "(hizmet duraklatıldı)")
+}
+
+pub fn im_back(l: Lang) -> &'static str {
+    tr!(l;
+        "I'm back 🙂", "我回來了🙂", "我回来了🙂", "戻ってきたよ🙂", "돌아왔어🙂",
+        "Я вернулся 🙂", "Je suis de retour 🙂", "Ya volví 🙂", "Ich bin zurück 🙂", "Tôi quay lại rồi 🙂",
+        "Aku kembali 🙂", "Bumalik na ako 🙂", "ฉันกลับมาแล้ว 🙂", "Ik ben terug 🙂", "Geri döndüm 🙂")
+}
+
+pub fn someone_took_it(l: Lang) -> &'static str {
+    tr!(l;
+        "Someone else grabbed it 🙁", "別人領走了🙁", "别人领走了🙁", "他の人に取られたよ🙁", "다른 사람이 가져갔어🙁",
+        "Кто-то уже забрал 🙁", "Quelqu'un l'a déjà pris 🙁", "Alguien más lo tomó 🙁", "Jemand anderes hat es genommen 🙁", "Người khác đã nhận mất rồi 🙁",
+        "Sudah diambil orang lain 🙁", "May ibang nakakuha na 🙁", "คนอื่นรับไปแล้ว 🙁", "Iemand anders heeft het gepakt 🙁", "Başkası kaptı 🙁")
+}
+
+pub fn grabbed_it(l: Lang) -> &'static str {
+    tr!(l;
+        "Got it! 😁", "搶到啦😁", "抢到啦😁", "ゲットした😁", "받았다😁",
+        "Поймал! 😁", "Attrapé ! 😁", "¡Lo tomé! 😁", "Erwischt! 😁", "Nhận được rồi! 😁",
+        "Dapat! 😁", "Nakuha! 😁", "คว้าได้แล้ว 😁", "Gepakt! 😁", "Kaptım! 😁")
+}
+
+pub fn too_many_fruits(l: Lang) -> &'static str {
+    tr!(l;
+        "Too many fruits 😶", "水果太多囉😶", "水果太多啦😶", "フルーツが多すぎるよ😶", "과일이 너무 많아😶",
+        "Слишком много фруктов 😶", "Trop de fruits 😶", "Demasiada fruta 😶", "Zu viel Obst 😶", "Quá nhiều trái cây 😶",
+        "Buahnya terlalu banyak 😶", "Sobra nang prutas 😶", "ผลไม้เยอะเกินไป 😶", "Te veel fruit 😶", "Çok fazla meyve 😶")
+}
+
+pub fn db_error(l: Lang) -> &'static str {
+    tr!(l;
+        "Database error", "資料庫錯誤", "数据库错误", "データベースエラー", "데이터베이스 오류",
+        "Ошибка базы данных", "Erreur de base de données", "Error de base de datos", "Datenbankfehler", "Lỗi cơ sở dữ liệu",
+        "Kesalahan basis data", "Error sa database", "ฐานข้อมูลผิดพลาด", "Databasefout", "Veritabanı hatası")
+}
+
+pub fn game_invalid(l: Lang) -> &'static str {
+    tr!(l;
+        "This game is no longer valid", "賭局已失效", "赌局已失效", "この賭けは無効です", "이 게임은 만료됐어",
+        "Игра больше недействительна", "Ce pari n'est plus valide", "Esta apuesta ya no es válida", "Diese Wette ist nicht mehr gültig", "Ván cược không còn hiệu lực",
+        "Permainan sudah tidak berlaku", "Hindi na valid ang laro", "เกมนี้ใช้ไม่ได้แล้ว", "Dit spel is niet meer geldig", "Bu oyun artık geçerli değil")
+}
+
+pub fn not_host(l: Lang) -> &'static str {
+    tr!(l;
+        "You're not the host 😶", "你不是莊家😶", "你不是庄家😶", "あなたは親じゃないよ😶", "당신은 딜러가 아니에요😶",
+        "Вы не ведущий 😶", "Tu n'es pas l'organisateur 😶", "No eres el anfitrión 😶", "Du bist nicht der Gastgeber 😶", "Bạn không phải nhà cái 😶",
+        "Kamu bukan bandar 😶", "Hindi ikaw ang host 😶", "คุณไม่ใช่เจ้ามือ 😶", "Jij bent niet de spelleider 😶", "Ev sahibi sen değilsin 😶")
+}
+
+pub fn already_closed(l: Lang) -> &'static str {
+    tr!(l;
+        "Already closed", "已收盤", "已收盘", "締め切り済み", "이미 마감됨",
+        "Уже закрыто", "Déjà clôturé", "Ya cerrado", "Bereits geschlossen", "Đã đóng",
+        "Sudah ditutup", "Sarado na", "ปิดรับแล้ว", "Al gesloten", "Zaten kapandı")
+}
+
+pub fn close_game_toast(l: Lang) -> &'static str {
+    tr!(l;
+        "Game closed", "關閉賭局", "关闭赌局", "賭けを締め切りました", "베팅 마감",
+        "Ставки закрыты", "Paris clôturés", "Apuestas cerradas", "Wetten geschlossen", "Đã đóng cược",
+        "Taruhan ditutup", "Sarado na ang pusta", "ปิดรับเดิมพันแล้ว", "Inzetten gesloten", "Bahisler kapandı")
+}
+
+pub fn bad_stake(l: Lang) -> &'static str {
+    tr!(l;
+        "Invalid stake amount", "下注額錯誤", "下注额错误", "賭け金が不正です", "베팅 금액이 잘못됐어",
+        "Неверная ставка", "Mise invalide", "Cantidad de apuesta inválida", "Ungültiger Einsatz", "Số tiền cược không hợp lệ",
+        "Jumlah taruhan tidak valid", "Mali ang halaga ng pusta", "จำนวนเดิมพันไม่ถูกต้อง", "Ongeldige inzet", "Geçersiz bahis miktarı")
+}
+
+pub fn bet_failed(l: Lang) -> &'static str {
+    tr!(l;
+        "Bet failed", "下注失敗", "下注失败", "賭けに失敗", "베팅 실패",
+        "Ставка не удалась", "Échec du pari", "Apuesta fallida", "Wette fehlgeschlagen", "Đặt cược thất bại",
+        "Taruhan gagal", "Nabigo ang pusta", "เดิมพันล้มเหลว", "Inzet mislukt", "Bahis başarısız")
+}
+
+pub fn bet_success(l: Lang) -> &'static str {
+    tr!(l;
+        "Bet placed", "下注成功", "下注成功", "賭け成功", "베팅 완료",
+        "Ставка принята", "Pari placé", "Apuesta realizada", "Wette platziert", "Đặt cược thành công",
+        "Taruhan berhasil", "Tagumpay ang pusta", "เดิมพันสำเร็จ", "Inzet geplaatst", "Bahis başarılı")
+}
+
+pub fn not_closed_yet(l: Lang) -> &'static str {
+    tr!(l;
+        "Not closed yet", "尚未收盤", "尚未收盘", "まだ締め切っていません", "아직 마감 안 됨",
+        "Ещё не закрыто", "Pas encore clôturé", "Aún no cerrado", "Noch nicht geschlossen", "Chưa đóng cược",
+        "Belum ditutup", "Hindi pa sarado", "ยังไม่ปิดรับ", "Nog niet gesloten", "Henüz kapanmadı")
+}
+
+pub fn settle_success(l: Lang) -> &'static str {
+    tr!(l;
+        "Settled", "結算成功", "结算成功", "精算完了", "정산 완료",
+        "Расчёт выполнен", "Réglé", "Liquidado", "Abgerechnet", "Đã thanh toán",
+        "Selesai dihitung", "Naayos na", "ชำระเสร็จแล้ว", "Afgerekend", "Hesaplandı")
+}
+
+pub fn system_error(l: Lang) -> &'static str {
+    tr!(l;
+        "System error", "系統錯誤", "系统错误", "システムエラー", "시스템 오류",
+        "Системная ошибка", "Erreur système", "Error del sistema", "Systemfehler", "Lỗi hệ thống",
+        "Kesalahan sistem", "Error sa sistema", "ระบบผิดพลาด", "Systeemfout", "Sistem hatası")
+}
+
+pub fn someone_dealt(l: Lang) -> &'static str {
+    tr!(l;
+        "Someone else closed the deal 🙁", "別人成交了🙁", "别人成交了🙁", "他の人が成立させたよ🙁", "다른 사람이 거래했어🙁",
+        "Кто-то уже заключил сделку 🙁", "Quelqu'un a déjà conclu 🙁", "Alguien más cerró el trato 🙁", "Jemand anderes hat den Handel gemacht 🙁", "Người khác đã chốt rồi 🙁",
+        "Sudah ditransaksikan orang lain 🙁", "May ibang nakatransaksyon na 🙁", "คนอื่นปิดดีลไปแล้ว 🙁", "Iemand anders heeft de deal gesloten 🙁", "Başkası anlaşmayı yaptı 🙁")
+}
+
+pub fn withdrew_sell(l: Lang) -> &'static str {
+    tr!(l;
+        "Sell offer withdrawn", "已撤回賣單", "已撤回卖单", "売り注文を取り消しました", "판매 주문을 철회했어",
+        "Предложение о продаже отозвано", "Offre de vente retirée", "Oferta de venta retirada", "Verkaufsangebot zurückgezogen", "Đã hủy lệnh bán",
+        "Penawaran jual dibatalkan", "Binawi ang alok na benta", "ยกเลิกคำสั่งขายแล้ว", "Verkoopaanbod ingetrokken", "Satış teklifi geri çekildi")
+}
+
+pub fn withdrew_buy(l: Lang) -> &'static str {
+    tr!(l;
+        "Buy offer withdrawn", "已撤回買單", "已撤回买单", "買い注文を取り消しました", "구매 주문을 철회했어",
+        "Предложение о покупке отозвано", "Offre d'achat retirée", "Oferta de compra retirada", "Kaufangebot zurückgezogen", "Đã hủy lệnh mua",
+        "Penawaran beli dibatalkan", "Binawi ang alok na bili", "ยกเลิกคำสั่งซื้อแล้ว", "Aankoopaanbod ingetrokken", "Alış teklifi geri çekildi")
+}
+
+pub fn buyer_fruit_full(l: Lang) -> &'static str {
+    tr!(l;
+        "The buyer has too many fruits 😶", "買家水果太多囉😶", "买家水果太多啦😶", "買い手のフルーツが多すぎます😶", "구매자의 과일이 너무 많아😶",
+        "У покупателя слишком много фруктов 😶", "L'acheteur a trop de fruits 😶", "El comprador tiene demasiada fruta 😶", "Der Käufer hat zu viel Obst 😶", "Người mua có quá nhiều trái cây 😶",
+        "Pembeli punya terlalu banyak buah 😶", "Sobra nang prutas ng bumibili 😶", "ผู้ซื้อมีผลไม้มากเกินไป 😶", "De koper heeft te veel fruit 😶", "Alıcının çok fazla meyvesi var 😶")
+}
+
+// --- /send-to-bot reaction lines (1..=5 fruits eaten) ---
+
+pub fn eat_reaction(l: Lang, n: usize) -> &'static str {
+    match n {
+        1 => tr!(l;
+            "Yummy", "好吃", "好吃", "おいしい", "맛있어",
+            "Вкусно", "Délicieux", "Rico", "Lecker", "Ngon",
+            "Enak", "Masarap", "อร่อย", "Lekker", "Lezzetli"),
+        2 => tr!(l;
+            "So yummy", "好好吃", "好好吃", "とってもおいしい", "너무 맛있어",
+            "Очень вкусно", "Trop bon", "Muy rico", "Sehr lecker", "Ngon quá",
+            "Enak banget", "Ang sarap", "อร่อยมาก", "Heel lekker", "Çok lezzetli"),
+        3 => tr!(l;
+            "So much!", "好多好多", "好多好多", "いっぱいだ", "엄청 많아",
+            "Так много!", "Tellement !", "¡Cuánto!", "So viel!", "Nhiều quá!",
+            "Banyak sekali!", "Ang dami!", "เยอะมาก!", "Zo veel!", "Çok fazla!"),
+        4 => tr!(l;
+            "So blissful", "好幸福", "好幸福", "幸せ", "너무 행복해",
+            "Какое блаженство", "Quel bonheur", "Qué felicidad", "So glücklich", "Hạnh phúc quá",
+            "Bahagia banget", "Sobrang saya", "มีความสุขมาก", "Zo gelukkig", "Çok mutluyum"),
+        _ => tr!(l;
+            "Blissed out to heaven", "幸福到升天", "幸福到升天", "天に昇る幸せ", "하늘로 승천할 만큼 행복해",
+            "Блаженство до небес", "Au septième ciel", "En el séptimo cielo", "Im siebten Himmel", "Hạnh phúc thăng thiên",
+            "Bahagia sampai ke langit", "Parang nasa langit ang saya", "มีความสุขจนลอยขึ้นสวรรค์", "In de zevende hemel", "Mutluluktan göklere uçuyorum"),
+    }
+}
+
+// --- bet-game labels, buttons, verbs ---
+
+pub fn state_betting(l: Lang) -> &'static str {
+    tr!(l;
+        "Betting open", "下注中", "下注中", "受付中", "베팅 중",
+        "Приём ставок", "Paris ouverts", "Apuestas abiertas", "Wetten offen", "Đang nhận cược",
+        "Sedang bertaruh", "Bukas ang pusta", "กำลังรับเดิมพัน", "Inzetten open", "Bahisler açık")
+}
+
+pub fn state_closed(l: Lang) -> &'static str {
+    tr!(l;
+        "Closed", "已收盤", "已收盘", "締め切り", "마감",
+        "Закрыто", "Clôturé", "Cerrado", "Geschlossen", "Đã đóng",
+        "Ditutup", "Sarado", "ปิดรับ", "Gesloten", "Kapandı")
+}
+
+pub fn state_settled(l: Lang) -> &'static str {
+    tr!(l;
+        "Settled", "已結算", "已结算", "精算済み", "정산됨",
+        "Рассчитано", "Réglé", "Liquidado", "Abgerechnet", "Đã thanh toán",
+        "Selesai", "Naayos", "ชำระแล้ว", "Afgerekend", "Hesaplandı")
+}
+
+pub fn draw_label(l: Lang) -> &'static str {
+    tr!(l;
+        "Draw", "流局", "流局", "流局", "무승부",
+        "Ничья", "Nul", "Empate", "Unentschieden", "Hòa",
+        "Seri", "Patas", "เสมอ", "Gelijkspel", "Berabere")
+}
+
+pub fn close_button(l: Lang) -> &'static str {
+    tr!(l;
+        "Close", "收盤", "收盘", "締め切る", "마감",
+        "Закрыть", "Clôturer", "Cerrar", "Schließen", "Đóng",
+        "Tutup", "Isara", "ปิดรับ", "Sluiten", "Kapat")
+}
+
+pub fn verb_won(l: Lang) -> &'static str {
+    tr!(l;
+        "won", "贏了", "赢了", "勝った", "이김",
+        "выиграл", "a gagné", "ganó", "gewann", "thắng",
+        "menang", "nanalo", "ชนะ", "won", "kazandı")
+}
+
+pub fn verb_lost(l: Lang) -> &'static str {
+    tr!(l;
+        "lost", "輸了", "输了", "負けた", "잃음",
+        "проиграл", "a perdu", "perdió", "verlor", "thua",
+        "kalah", "natalo", "แพ้", "verloor", "kaybetti")
+}
+
+// ----------------------------------------------------------------------------
+// Parameterised messages — leave {tokens} in every arm, substitute below.
+// ----------------------------------------------------------------------------
+
+pub fn have_coins(l: Lang, name: &str, coins: &str) -> String {
+    tr!(l;
+        "{name}\nhas {coins} water-coins", "{name}\n擁有 {coins} 顆 水幣", "{name}\n拥有 {coins} 颗 水币", "{name}\n水コインを {coins} 枚 持っている", "{name}\n물코인 {coins} 개 보유",
+        "{name}\nимеет {coins} водных монет", "{name}\npossède {coins} pièces d'eau", "{name}\ntiene {coins} monedas de agua", "{name}\nhat {coins} Wassermünzen", "{name}\ncó {coins} xu nước",
+        "{name}\npunya {coins} koin air", "{name}\nmay {coins} water-coins", "{name}\nมีเหรียญน้ำ {coins} เหรียญ", "{name}\nheeft {coins} watermunten", "{name}\n{coins} su parası var")
+    .replace("{name}", name)
+    .replace("{coins}", coins)
+}
+
+pub fn debt_coins(l: Lang, name: &str, coins: &str) -> String {
+    tr!(l;
+        "{name}\nis in debt {coins} water-coins", "{name}\n欠債 {coins} 顆 水幣", "{name}\n欠债 {coins} 颗 水币", "{name}\n水コインを {coins} 枚 借金している", "{name}\n물코인 {coins} 개 빚짐",
+        "{name}\nдолжен {coins} водных монет", "{name}\ndoit {coins} pièces d'eau", "{name}\ndebe {coins} monedas de agua", "{name}\nschuldet {coins} Wassermünzen", "{name}\nđang nợ {coins} xu nước",
+        "{name}\nberutang {coins} koin air", "{name}\nmay utang na {coins} water-coins", "{name}\nเป็นหนี้เหรียญน้ำ {coins} เหรียญ", "{name}\nstaat {coins} watermunten in het rood", "{name}\n{coins} su parası borçlu")
+    .replace("{name}", name)
+    .replace("{coins}", coins)
+}
+
+pub fn want_fruit(l: Lang, name: &str) -> String {
+    tr!(l;
+        "{name}\nwants some fruit 🤤", "{name}\n想要水果🤤", "{name}\n想要水果🤤", "{name}\nフルーツが欲しい🤤", "{name}\n과일이 먹고 싶어🤤",
+        "{name}\nхочет фруктов 🤤", "{name}\nveut des fruits 🤤", "{name}\nquiere fruta 🤤", "{name}\nmöchte Obst 🤤", "{name}\nthèm trái cây 🤤",
+        "{name}\nmau buah 🤤", "{name}\ngustong-gusto ng prutas 🤤", "{name}\nอยากกินผลไม้ 🤤", "{name}\nwil wat fruit 🤤", "{name}\nbiraz meyve istiyor 🤤")
+    .replace("{name}", name)
+}
+
+pub fn fruit_store(l: Lang, name: &str, fruits: &str) -> String {
+    tr!(l;
+        "{name}'s fruit stash:\n{fruits}", "{name}\n的水果庫:\n{fruits}", "{name}\n的水果库:\n{fruits}", "{name} のフルーツ庫:\n{fruits}", "{name} 의 과일 창고:\n{fruits}",
+        "Запас фруктов {name}:\n{fruits}", "Réserve de fruits de {name} :\n{fruits}", "Reserva de fruta de {name}:\n{fruits}", "Obstvorrat von {name}:\n{fruits}", "Kho trái cây của {name}:\n{fruits}",
+        "Stok buah {name}:\n{fruits}", "Imbak na prutas ni {name}:\n{fruits}", "คลังผลไม้ของ {name}:\n{fruits}", "Fruitvoorraad van {name}:\n{fruits}", "{name} kullanıcısının meyve deposu:\n{fruits}")
+    .replace("{name}", name)
+    .replace("{fruits}", fruits)
+}
+
+pub fn sent_coins(l: Lang, sender: &str, recv: &str, coins: &str) -> String {
+    tr!(l;
+        "{sender} sent {recv}\n{coins} water-coins", "{sender} 送給 {recv}\n{coins} 顆 水幣", "{sender} 送给 {recv}\n{coins} 颗 水币", "{sender} が {recv} に\n水コインを {coins} 枚 送った", "{sender} 님이 {recv} 님에게\n물코인 {coins} 개 보냄",
+        "{sender} отправил {recv}\n{coins} водных монет", "{sender} a envoyé à {recv}\n{coins} pièces d'eau", "{sender} envió a {recv}\n{coins} monedas de agua", "{sender} hat {recv}\n{coins} Wassermünzen geschickt", "{sender} đã gửi {recv}\n{coins} xu nước",
+        "{sender} mengirim {recv}\n{coins} koin air", "Nagpadala si {sender} kay {recv}\nng {coins} water-coins", "{sender} ส่งให้ {recv}\nเหรียญน้ำ {coins} เหรียญ", "{sender} stuurde {recv}\n{coins} watermunten", "{sender}, {recv} kullanıcısına\n{coins} su parası gönderdi")
+    .replace("{sender}", sender)
+    .replace("{recv}", recv)
+    .replace("{coins}", coins)
+}
+
+pub fn sent_envelope_title(l: Lang, sender: &str, coins: &str) -> String {
+    tr!(l;
+        "{sender} dropped a {coins} water-coin red envelope!", "{sender} 發紅包 {coins} 水幣！", "{sender} 发红包 {coins} 水币！", "{sender} が {coins} 水コインの紅包を配った！", "{sender} 님이 {coins} 물코인 행운 봉투를 뿌렸어요!",
+        "{sender} раздаёт красный конверт на {coins} водных монет!", "{sender} lâche une enveloppe rouge de {coins} pièces d'eau !", "¡{sender} soltó un sobre rojo de {coins} monedas de agua!", "{sender} verteilt einen roten Umschlag mit {coins} Wassermünzen!", "{sender} phát lì xì {coins} xu nước!",
+        "{sender} membagikan amplop merah {coins} koin air!", "Naghulog si {sender} ng red envelope na {coins} water-coins!", "{sender} แจกซองแดง {coins} เหรียญน้ำ!", "{sender} deelt een rode envelop van {coins} watermunten uit!", "{sender}, {coins} su paralık kırmızı zarf bıraktı!")
+    .replace("{sender}", sender)
+    .replace("{coins}", coins)
+}
+
+pub fn sent_fruits(l: Lang, sender: &str, recv: &str, fruits: &str) -> String {
+    tr!(l;
+        "{sender} sent {recv}\n{fruits}", "{sender} 送給 {recv}\n{fruits}", "{sender} 送给 {recv}\n{fruits}", "{sender} が {recv} に\n{fruits} を送った", "{sender} 님이 {recv} 님에게\n{fruits} 보냄",
+        "{sender} отправил {recv}\n{fruits}", "{sender} a envoyé à {recv}\n{fruits}", "{sender} envió a {recv}\n{fruits}", "{sender} hat {recv}\n{fruits} geschickt", "{sender} đã gửi {recv}\n{fruits}",
+        "{sender} mengirim {recv}\n{fruits}", "Nagpadala si {sender} kay {recv}\n{fruits}", "{sender} ส่งให้ {recv}\n{fruits}", "{sender} stuurde {recv}\n{fruits}", "{sender}, {recv} kullanıcısına\n{fruits} gönderdi")
+    .replace("{sender}", sender)
+    .replace("{recv}", recv)
+    .replace("{fruits}", fruits)
+}
+
+pub fn thanks(l: Lang, sender: &str, line: &str) -> String {
+    tr!(l;
+        "Thank you {sender}!\n{line}", "謝謝 {sender}！\n{line}", "谢谢 {sender}！\n{line}", "ありがとう {sender}！\n{line}", "고마워 {sender}!\n{line}",
+        "Спасибо, {sender}!\n{line}", "Merci {sender} !\n{line}", "¡Gracias {sender}!\n{line}", "Danke {sender}!\n{line}", "Cảm ơn {sender}!\n{line}",
+        "Terima kasih {sender}!\n{line}", "Salamat {sender}!\n{line}", "ขอบคุณ {sender}!\n{line}", "Bedankt {sender}!\n{line}", "Teşekkürler {sender}!\n{line}")
+    .replace("{sender}", sender)
+    .replace("{line}", line)
+}
+
+pub fn dice_win(l: Lang, name: &str, coins: &str) -> String {
+    tr!(l;
+        "Correct! 😮 {name} won {coins} water-coins", "猜中了😮 {name} 贏得 {coins} 顆 水幣", "猜中了😮 {name} 赢得 {coins} 颗 水币", "的中！😮 {name} が水コインを {coins} 枚 獲得", "정답! 😮 {name} 님이 물코인 {coins} 개 획득",
+        "Угадал! 😮 {name} выиграл {coins} водных монет", "Gagné ! 😮 {name} remporte {coins} pièces d'eau", "¡Correcto! 😮 {name} ganó {coins} monedas de agua", "Richtig! 😮 {name} gewann {coins} Wassermünzen", "Đoán đúng! 😮 {name} thắng {coins} xu nước",
+        "Tepat! 😮 {name} menang {coins} koin air", "Tama! 😮 Nanalo si {name} ng {coins} water-coins", "ทายถูก! 😮 {name} ได้ {coins} เหรียญน้ำ", "Correct! 😮 {name} won {coins} watermunten", "Bildin! 😮 {name}, {coins} su parası kazandı")
+    .replace("{name}", name)
+    .replace("{coins}", coins)
+}
+
+pub fn sell_button(l: Lang, price: &str) -> String {
+    tr!(l;
+        "Buy for ${price}", "${price} 買入", "${price} 买入", "${price} で買う", "${price} 에 구매",
+        "Купить за ${price}", "Acheter pour ${price}", "Comprar por ${price}", "Für ${price} kaufen", "Mua với giá ${price}",
+        "Beli seharga ${price}", "Bilhin sa ${price}", "ซื้อในราคา ${price}", "Koop voor ${price}", "${price} karşılığında al")
+    .replace("{price}", price)
+}
+
+pub fn buy_button(l: Lang, price: &str) -> String {
+    tr!(l;
+        "Sell for ${price}", "${price} 賣出", "${price} 卖出", "${price} で売る", "${price} 에 판매",
+        "Продать за ${price}", "Vendre pour ${price}", "Vender por ${price}", "Für ${price} verkaufen", "Bán với giá ${price}",
+        "Jual seharga ${price}", "Ibenta sa ${price}", "ขายในราคา ${price}", "Verkoop voor ${price}", "${price} karşılığında sat")
+    .replace("{price}", price)
+}
+
+pub fn sell_listing(l: Lang, seller: &str, fruits: &str, price: &str) -> String {
+    tr!(l;
+        "{seller} is selling {fruits}\nasking {price} water-coins", "{seller} 出售 {fruits}\n要價 {price} 水幣", "{seller} 出售 {fruits}\n要价 {price} 水币", "{seller} が {fruits} を売り出し\n希望価格 {price} 水コイン", "{seller} 님이 {fruits} 판매\n희망가 {price} 물코인",
+        "{seller} продаёт {fruits}\nцена {price} водных монет", "{seller} vend {fruits}\nprix demandé {price} pièces d'eau", "{seller} vende {fruits}\npide {price} monedas de agua", "{seller} verkauft {fruits}\nfür {price} Wassermünzen", "{seller} đang bán {fruits}\ngiá {price} xu nước",
+        "{seller} menjual {fruits}\nharga {price} koin air", "Nagbebenta si {seller} ng {fruits}\nhinihingi {price} water-coins", "{seller} ขาย {fruits}\nราคา {price} เหรียญน้ำ", "{seller} verkoopt {fruits}\nvraagprijs {price} watermunten", "{seller}, {fruits} satıyor\nistenen fiyat {price} su parası")
+    .replace("{seller}", seller)
+    .replace("{fruits}", fruits)
+    .replace("{price}", price)
+}
+
+pub fn buy_listing(l: Lang, buyer: &str, fruits: &str, price: &str) -> String {
+    tr!(l;
+        "{buyer} wants to buy {fruits}\noffering {price} water-coins", "{buyer} 收購 {fruits}\n出價 {price} 水幣", "{buyer} 收购 {fruits}\n出价 {price} 水币", "{buyer} が {fruits} を買い取り\n提示額 {price} 水コイン", "{buyer} 님이 {fruits} 매입\n제시가 {price} 물코인",
+        "{buyer} скупает {fruits}\nпредлагает {price} водных монет", "{buyer} achète {fruits}\noffre {price} pièces d'eau", "{buyer} compra {fruits}\nofrece {price} monedas de agua", "{buyer} kauft {fruits}\nbietet {price} Wassermünzen", "{buyer} thu mua {fruits}\ntrả {price} xu nước",
+        "{buyer} membeli {fruits}\nmenawar {price} koin air", "Bumibili si {buyer} ng {fruits}\nnag-aalok ng {price} water-coins", "{buyer} รับซื้อ {fruits}\nเสนอ {price} เหรียญน้ำ", "{buyer} koopt {fruits}\nbiedt {price} watermunten", "{buyer}, {fruits} alıyor\n{price} su parası teklif ediyor")
+    .replace("{buyer}", buyer)
+    .replace("{fruits}", fruits)
+    .replace("{price}", price)
+}
+
+pub fn received_fruit(l: Lang, name: &str, fruit: &str) -> String {
+    tr!(l;
+        "{name} received a {fruit}", "{name} 收到一顆 {fruit}", "{name} 收到一颗 {fruit}", "{name} が {fruit} を1つ受け取った", "{name} 님이 {fruit} 한 개 받음",
+        "{name} получил {fruit}", "{name} a reçu un {fruit}", "{name} recibió un {fruit}", "{name} hat ein {fruit} erhalten", "{name} nhận được một {fruit}",
+        "{name} menerima sebuah {fruit}", "Nakatanggap si {name} ng {fruit}", "{name} ได้รับ {fruit} หนึ่งลูก", "{name} ontving een {fruit}", "{name} bir {fruit} aldı")
+    .replace("{name}", name)
+    .replace("{fruit}", fruit)
+}
+
+pub fn received_coins(l: Lang, name: &str, coins: &str) -> String {
+    tr!(l;
+        "{name} received {coins} water-coins", "{name} 收到 {coins} 顆 水幣", "{name} 收到 {coins} 颗 水币", "{name} が水コインを {coins} 枚 受け取った", "{name} 님이 물코인 {coins} 개 받음",
+        "{name} получил {coins} водных монет", "{name} a reçu {coins} pièces d'eau", "{name} recibió {coins} monedas de agua", "{name} hat {coins} Wassermünzen erhalten", "{name} nhận được {coins} xu nước",
+        "{name} menerima {coins} koin air", "Nakatanggap si {name} ng {coins} water-coins", "{name} ได้รับ {coins} เหรียญน้ำ", "{name} ontving {coins} watermunten", "{name}, {coins} su parası aldı")
+    .replace("{name}", name)
+    .replace("{coins}", coins)
+}
+
+pub fn bets_for_option(l: Lang, opt: &str) -> String {
+    tr!(l;
+        "Bets on {opt}", "{opt} 的押注", "{opt} 的押注", "{opt} への賭け", "{opt} 에 대한 베팅",
+        "Ставки на {opt}", "Mises sur {opt}", "Apuestas a {opt}", "Wetten auf {opt}", "Cược cho {opt}",
+        "Taruhan untuk {opt}", "Pusta para sa {opt}", "เดิมพันสำหรับ {opt}", "Inzetten op {opt}", "{opt} için bahisler")
+    .replace("{opt}", opt)
+}
+
+pub fn bought_msg(l: Lang, name: &str, price: &str, fruits: &str) -> String {
+    tr!(l;
+        "{name} spent {price} water-coins\nand bought {fruits}", "{name} 花 {price} 水幣\n買了 {fruits}", "{name} 花 {price} 水币\n买了 {fruits}", "{name} が水コインを {price} 枚 使って\n{fruits} を買った", "{name} 님이 물코인 {price} 개 써서\n{fruits} 구매",
+        "{name} потратил {price} водных монет\nи купил {fruits}", "{name} a dépensé {price} pièces d'eau\net acheté {fruits}", "{name} gastó {price} monedas de agua\ny compró {fruits}", "{name} hat {price} Wassermünzen ausgegeben\nund {fruits} gekauft", "{name} đã tiêu {price} xu nước\nvà mua {fruits}",
+        "{name} menghabiskan {price} koin air\ndan membeli {fruits}", "Gumastos si {name} ng {price} water-coins\nat bumili ng {fruits}", "{name} จ่าย {price} เหรียญน้ำ\nและซื้อ {fruits}", "{name} gaf {price} watermunten uit\nen kocht {fruits}", "{name}, {price} su parası harcayıp\n{fruits} aldı")
+    .replace("{name}", name)
+    .replace("{price}", price)
+    .replace("{fruits}", fruits)
+}
+
+pub fn bought_toast(l: Lang, fruits: &str) -> String {
+    tr!(l;
+        "Bought {fruits} 🥳", "買了 {fruits}🥳", "买了 {fruits}🥳", "{fruits} を買った🥳", "{fruits} 샀다🥳",
+        "Куплено {fruits} 🥳", "{fruits} acheté 🥳", "Compraste {fruits} 🥳", "{fruits} gekauft 🥳", "Đã mua {fruits} 🥳",
+        "Beli {fruits} 🥳", "Nabili ang {fruits} 🥳", "ซื้อ {fruits} แล้ว 🥳", "{fruits} gekocht 🥳", "{fruits} alındı 🥳")
+    .replace("{fruits}", fruits)
+}
+
+pub fn sold_msg(l: Lang, name: &str, fruits: &str, price: &str) -> String {
+    tr!(l;
+        "{name} sold {fruits}\nand earned {price} water-coins", "{name} 賣出 {fruits}\n賺了 {price} 水幣", "{name} 卖出 {fruits}\n赚了 {price} 水币", "{name} が {fruits} を売って\n水コインを {price} 枚 稼いだ", "{name} 님이 {fruits} 팔아서\n물코인 {price} 개 벌었어요",
+        "{name} продал {fruits}\nи заработал {price} водных монет", "{name} a vendu {fruits}\net gagné {price} pièces d'eau", "{name} vendió {fruits}\ny ganó {price} monedas de agua", "{name} hat {fruits} verkauft\nund {price} Wassermünzen verdient", "{name} đã bán {fruits}\nvà kiếm được {price} xu nước",
+        "{name} menjual {fruits}\ndan mendapat {price} koin air", "Ibinenta ni {name} ang {fruits}\nat kumita ng {price} water-coins", "{name} ขาย {fruits}\nและได้ {price} เหรียญน้ำ", "{name} verkocht {fruits}\nen verdiende {price} watermunten", "{name}, {fruits} satıp\n{price} su parası kazandı")
+    .replace("{name}", name)
+    .replace("{fruits}", fruits)
+    .replace("{price}", price)
+}
+
+pub fn sold_toast(l: Lang, price: &str) -> String {
+    tr!(l;
+        "Earned {price} water-coins 🥳", "賺取 {price} 水幣🥳", "赚取 {price} 水币🥳", "水コインを {price} 枚 稼いだ🥳", "물코인 {price} 개 벌었다🥳",
+        "Заработано {price} водных монет 🥳", "{price} pièces d'eau gagnées 🥳", "Ganaste {price} monedas de agua 🥳", "{price} Wassermünzen verdient 🥳", "Kiếm được {price} xu nước 🥳",
+        "Dapat {price} koin air 🥳", "Kumita ng {price} water-coins 🥳", "ได้ {price} เหรียญน้ำ 🥳", "{price} watermunten verdiend 🥳", "{price} su parası kazanıldı 🥳")
+    .replace("{price}", price)
+}
+
+pub fn you_dont_have(l: Lang, ch: &str) -> String {
+    tr!(l;
+        "You don't have {ch} 😶", "你沒有 {ch} 喔😶", "你没有 {ch} 哦😶", "{ch} を持っていないよ😶", "{ch} 이(가) 없어😶",
+        "У вас нет {ch} 😶", "Tu n'as pas de {ch} 😶", "No tienes {ch} 😶", "Du hast kein {ch} 😶", "Bạn không có {ch} 😶",
+        "Kamu nggak punya {ch} 😶", "Wala kang {ch} 😶", "คุณไม่มี {ch} 😶", "Je hebt geen {ch} 😶", "Sende {ch} yok 😶")
+    .replace("{ch}", ch)
+}
+
+// --- bet-game settlement display (rendered in the host's language) ---
+
+pub fn result_header(l: Lang, id: &str, outcome: &str) -> String {
+    tr!(l;
+        "{id}\nHost's result: {outcome}", "{id}\n莊家指定結果：{outcome}", "{id}\n庄家指定结果：{outcome}", "{id}\n親の指定結果：{outcome}", "{id}\n딜러 지정 결과: {outcome}",
+        "{id}\nИтог от ведущего: {outcome}", "{id}\nRésultat de l'organisateur : {outcome}", "{id}\nResultado del anfitrión: {outcome}", "{id}\nErgebnis des Gastgebers: {outcome}", "{id}\nKết quả nhà cái: {outcome}",
+        "{id}\nHasil dari bandar: {outcome}", "{id}\nResulta ng host: {outcome}", "{id}\nผลที่เจ้ามือกำหนด: {outcome}", "{id}\nUitslag van spelleider: {outcome}", "{id}\nEv sahibinin sonucu: {outcome}")
+    .replace("{id}", id)
+    .replace("{outcome}", outcome)
+}
+
+pub fn no_one_bet_suffix(l: Lang) -> &'static str {
+    tr!(l;
+        "\nbut it seems nobody placed a bet 😶", "\n但好像沒有人下注欸😶", "\n但好像没有人下注欸😶", "\nでも誰も賭けてないみたい😶", "\n근데 아무도 안 건 것 같아😶",
+        "\nно, похоже, никто не сделал ставку 😶", "\nmais on dirait que personne n'a parié 😶", "\npero parece que nadie apostó 😶", "\naber anscheinend hat niemand gewettet 😶", "\nnhưng hình như không ai đặt cược 😶",
+        "\ntapi sepertinya tidak ada yang bertaruh 😶", "\npero mukhang walang nagtaya 😶", "\nแต่เหมือนจะไม่มีใครเดิมพันเลย 😶", "\nmaar het lijkt erop dat niemand heeft ingezet 😶", "\nama görünüşe göre kimse bahis oynamadı 😶")
+}
+
+// ----------------------------------------------------------------------------
+// Command-menu descriptions (the "/" autocomplete). Registered per-language
+// via `setMyCommands` in `bot::run`.
+// ----------------------------------------------------------------------------
+
+/// `(command, description)` pairs for the bot's command menu in `l`. Order and
+/// command names must match the `create_framework!` list in `bot.rs`.
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
+    [
+        ("start", hi(l)),
+        ("random", menu_random(l)),
+        ("balance", menu_balance(l)),
+        ("fruit", menu_fruit(l)),
+        ("send", menu_send(l)),
+        ("dice", menu_dice(l)),
+        ("gamble", menu_gamble(l)),
+        ("sell", menu_sell(l)),
+        ("buy", menu_buy(l)),
+    ]
+}
+
+fn menu_random(l: Lang) -> &'static str {
+    tr!(l;
+        "Pick one of the arguments at random", "從參數中隨機挑一個", "从参数中随机挑一个", "引数からランダムに1つ選ぶ", "인자 중 하나를 무작위로 선택",
+        "Выбрать случайный из аргументов", "Choisir un argument au hasard", "Elige un argumento al azar", "Eines der Argumente zufällig wählen", "Chọn ngẫu nhiên một tham số",
+        "Pilih satu argumen secara acak", "Pumili ng isa nang random", "สุ่มเลือกหนึ่งจากตัวเลือก", "Kies willekeurig een argument", "Argümanlardan birini rastgele seç")
+}
+
+fn menu_balance(l: Lang) -> &'static str {
+    tr!(l;
+        "Check your water-coin balance", "查看水幣餘額", "查看水币余额", "水コインの残高を見る", "물코인 잔액 확인",
+        "Посмотреть баланс водных монет", "Voir ton solde de pièces d'eau", "Ver tu saldo de monedas de agua", "Wassermünzen-Guthaben ansehen", "Xem số dư xu nước",
+        "Cek saldo koin air", "Tingnan ang water-coin balance", "ดูยอดเหรียญน้ำ", "Bekijk je watermunten-saldo", "Su parası bakiyeni gör")
+}
+
+fn menu_fruit(l: Lang) -> &'static str {
+    tr!(l;
+        "Check your fruit", "查看水果", "查看水果", "フルーツを見る", "과일 확인",
+        "Посмотреть фрукты", "Voir tes fruits", "Ver tu fruta", "Dein Obst ansehen", "Xem trái cây",
+        "Cek buahmu", "Tingnan ang iyong prutas", "ดูผลไม้ของคุณ", "Bekijk je fruit", "Meyvelerini gör")
+}
+
+fn menu_send(l: Lang) -> &'static str {
+    tr!(l;
+        "Reply to a message to send coins or fruit", "回覆訊息以送出水幣或水果", "回复消息以送出水币或水果", "メッセージに返信してコインや果物を送る", "메시지에 답장해 코인이나 과일 보내기",
+        "Ответьте на сообщение, чтобы отправить монеты или фрукты", "Réponds à un message pour envoyer pièces ou fruits", "Responde a un mensaje para enviar monedas o fruta", "Auf eine Nachricht antworten, um Münzen oder Obst zu senden", "Trả lời tin nhắn để gửi xu hoặc trái cây",
+        "Balas pesan untuk mengirim koin atau buah", "Mag-reply para magpadala ng coins o prutas", "ตอบกลับข้อความเพื่อส่งเหรียญหรือผลไม้", "Reageer op een bericht om munten of fruit te sturen", "Coin veya meyve göndermek için bir mesaja yanıt ver")
+}
+
+fn menu_dice(l: Lang) -> &'static str {
+    tr!(l;
+        "/dice <guess 1-6> <wager> — 6x on a hit", "/dice <猜1-6> <下注> 中6倍", "/dice <猜1-6> <下注> 中6倍", "/dice <予想1-6> <掛け金> 当たれば6倍", "/dice <예상 1-6> <베팅> 적중 시 6배",
+        "/dice <число 1-6> <ставка> — 6x при попадании", "/dice <pari 1-6> <mise> — 6x si ça tombe", "/dice <adivina 1-6> <apuesta> — 6x si aciertas", "/dice <Tipp 1-6> <Einsatz> — 6x bei Treffer", "/dice <đoán 1-6> <tiền cược> — trúng x6",
+        "/dice <tebak 1-6> <taruhan> — 6x kalau tepat", "/dice <hula 1-6> <pusta> — 6x kapag tama", "/dice <ทาย 1-6> <เดิมพัน> — ถูก 6 เท่า", "/dice <gok 1-6> <inzet> — 6x bij een treffer", "/dice <tahmin 1-6> <bahis> — tutarsa 6 kat")
+}
+
+fn menu_gamble(l: Lang) -> &'static str {
+    tr!(l;
+        "Open a bet or view your stakes", "開賭局或查看自己押注", "开赌局或查看自己押注", "賭けを開くか自分の賭けを見る", "베팅을 열거나 내 베팅 보기",
+        "Открыть ставку или посмотреть свои", "Ouvrir un pari ou voir tes mises", "Abre una apuesta o mira las tuyas", "Eine Wette eröffnen oder deine Einsätze ansehen", "Mở ván cược hoặc xem cược của bạn",
+        "Buka taruhan atau lihat taruhanmu", "Magbukas ng pusta o tingnan ang sa'yo", "เปิดเดิมพันหรือดูเดิมพันของคุณ", "Open een weddenschap of bekijk je inzetten", "Bahis aç ya da bahislerini gör")
+}
+
+fn menu_sell(l: Lang) -> &'static str {
+    tr!(l;
+        "/sell <fruit> <price>", "/sell <水果> <價格>", "/sell <水果> <价格>", "/sell <フルーツ> <価格>", "/sell <과일> <가격>",
+        "/sell <фрукт> <цена>", "/sell <fruit> <prix>", "/sell <fruta> <precio>", "/sell <Obst> <Preis>", "/sell <trái cây> <giá>",
+        "/sell <buah> <harga>", "/sell <prutas> <presyo>", "/sell <ผลไม้> <ราคา>", "/sell <fruit> <prijs>", "/sell <meyve> <fiyat>")
+}
+
+fn menu_buy(l: Lang) -> &'static str {
+    tr!(l;
+        "/buy <fruit> <price>", "/buy <水果> <價格>", "/buy <水果> <价格>", "/buy <フルーツ> <価格>", "/buy <과일> <가격>",
+        "/buy <фрукт> <цена>", "/buy <fruit> <prix>", "/buy <fruta> <precio>", "/buy <Obst> <Preis>", "/buy <trái cây> <giá>",
+        "/buy <buah> <harga>", "/buy <prutas> <presyo>", "/buy <ผลไม้> <ราคา>", "/buy <fruit> <prijs>", "/buy <meyve> <fiyat>")
+}
+
+/// Per-staker settlement line, e.g. `***1234 won 50 water-coins`. `verb` is
+/// already localized via [`verb_won`] / [`verb_lost`].
+pub fn settle_line(l: Lang, tail: &str, verb: &str, amt: &str) -> String {
+    tr!(l;
+        "\n***{tail} {verb} {amt} water-coins", "\n***{tail} {verb}{amt}顆 水幣", "\n***{tail} {verb}{amt}颗 水币", "\n***{tail} 水コイン{amt}枚{verb}", "\n***{tail} 물코인 {amt}개 {verb}",
+        "\n***{tail} {verb} {amt} водных монет", "\n***{tail} {verb} {amt} pièces d'eau", "\n***{tail} {verb} {amt} monedas de agua", "\n***{tail} {verb} {amt} Wassermünzen", "\n***{tail} {verb} {amt} xu nước",
+        "\n***{tail} {verb} {amt} koin air", "\n***{tail} {verb} {amt} water-coins", "\n***{tail} {verb} {amt} เหรียญน้ำ", "\n***{tail} {verb} {amt} watermunten", "\n***{tail} {amt} su parası {verb}")
+    .replace("{tail}", tail)
+    .replace("{verb}", verb)
+    .replace("{amt}", amt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_common_tags() {
+        assert_eq!(Lang::from_code("en"), Lang::En);
+        assert_eq!(Lang::from_code("en-US"), Lang::En);
+        assert_eq!(Lang::from_code("JA"), Lang::Ja);
+        assert_eq!(Lang::from_code("ru"), Lang::Ru);
+        assert_eq!(Lang::from_code("pt-BR"), Lang::En); // unsupported → fallback
+        assert_eq!(Lang::from_code(""), Lang::En);
+        assert_eq!(Lang::from_code("fil"), Lang::Fil);
+        assert_eq!(Lang::from_code("tl"), Lang::Fil);
+    }
+
+    #[test]
+    fn splits_chinese_by_script_and_region() {
+        assert_eq!(Lang::from_code("zh-Hant"), Lang::Hant);
+        assert_eq!(Lang::from_code("zh-TW"), Lang::Hant);
+        assert_eq!(Lang::from_code("zh-HK"), Lang::Hant);
+        assert_eq!(Lang::from_code("zh-Hans"), Lang::Hans);
+        assert_eq!(Lang::from_code("zh-CN"), Lang::Hans);
+        assert_eq!(Lang::from_code("zh"), Lang::Hans); // bare zh → Simplified
+    }
+
+    #[test]
+    fn no_unfilled_placeholders_in_any_locale() {
+        // Every parameterised template, in every locale, must consume all of
+        // its tokens — a leftover `{` means an arm forgot a placeholder.
+        for l in Lang::ALL {
+            let samples = [
+                have_coins(l, "A", "1"),
+                debt_coins(l, "A", "1"),
+                want_fruit(l, "A"),
+                fruit_store(l, "A", "🍎"),
+                sent_coins(l, "A", "B", "1"),
+                sent_envelope_title(l, "A", "1"),
+                sent_fruits(l, "A", "B", "🍎"),
+                thanks(l, "A", "x"),
+                dice_win(l, "A", "1"),
+                sell_button(l, "1"),
+                buy_button(l, "1"),
+                sell_listing(l, "A", "🍎", "1"),
+                buy_listing(l, "A", "🍎", "1"),
+                received_fruit(l, "A", "🍎"),
+                received_coins(l, "A", "1"),
+                bets_for_option(l, "X"),
+                bought_msg(l, "A", "1", "🍎"),
+                bought_toast(l, "🍎"),
+                sold_msg(l, "A", "🍎", "1"),
+                sold_toast(l, "1"),
+                you_dont_have(l, "🍎"),
+                result_header(l, "id", "X"),
+                settle_line(l, "1234", verb_won(l), "5"),
+            ];
+            for s in samples {
+                assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");
+            }
+        }
+    }
+}

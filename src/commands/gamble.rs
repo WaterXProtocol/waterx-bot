@@ -1,6 +1,7 @@
 use crate::commands::tg;
 use crate::commands::util::*;
 use crate::game::BetGame;
+use crate::i18n::{self, Lang};
 use telexide::prelude::*;
 
 #[command(description = "open a betting game (host) or show open ones")]
@@ -9,6 +10,7 @@ pub async fn gamble(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
+    let lang = Lang::from_user(&host);
     let parts = args(&message);
 
     if parts.is_empty() {
@@ -22,7 +24,7 @@ pub async fn gamble(ctx: Context, message: Message) -> CommandResult {
             }
         }
         if chunks.is_empty() {
-            reply(&ctx, &message, "沒有賭博記錄🤗").await?;
+            reply(&ctx, &message, i18n::no_betting_records(lang)).await?;
         } else {
             reply(&ctx, &message, chunks.join("\n")).await?;
         }
@@ -36,7 +38,7 @@ pub async fn gamble(ctx: Context, message: Message) -> CommandResult {
 
     let description = parts[0].clone();
     let option_strs: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
-    let mut game = BetGame::new(host.id, &description, &option_strs);
+    let mut game = BetGame::new(host.id, lang, &description, &option_strs);
 
     let rows = game.get_buttons();
     let sent =

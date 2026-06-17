@@ -1,4 +1,5 @@
 use crate::commands::util::*;
+use crate::i18n;
 use std::time::Duration;
 use telexide::api::types::SendDice;
 use telexide::model::MessageContent;
@@ -25,7 +26,7 @@ pub async fn dice(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     if guess == 0 || guess > 6 {
-        reply(&ctx, &message, "就這麼想輸嗎？🤔").await?;
+        reply(&ctx, &message, i18n::so_eager_to_lose(lang_of(&message))).await?;
         return Ok(());
     }
     let Ok(wager) = parts[1].parse::<i64>() else {
@@ -42,9 +43,10 @@ pub async fn dice(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
 
+    let lang = crate::i18n::Lang::from_user(&user);
     let database = db(&ctx);
     if !database.balance_change(user.id, -wager)? {
-        reply(&ctx, &message, "錢不夠耶😶").await?;
+        reply(&ctx, &message, i18n::not_enough_money(lang)).await?;
         return Ok(());
     }
 
@@ -69,15 +71,11 @@ pub async fn dice(ctx: Context, message: Message) -> CommandResult {
         reply(
             &ctx,
             &message,
-            format!(
-                "猜中了😮 {} 贏得 {} 顆 水幣",
-                full_name(&user),
-                format_number(wager * 5)
-            ),
+            i18n::dice_win(lang, &full_name(&user), &format_number(wager * 5)),
         )
         .await?;
     } else {
-        reply(&ctx, &message, "沒猜中呦😐").await?;
+        reply(&ctx, &message, i18n::wrong_guess(lang)).await?;
     }
     Ok(())
 }

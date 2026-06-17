@@ -56,6 +56,39 @@ The `envelope:` callback prefix is still routed even though the `/envelope` comm
 
 `/gamble <desc> <opt1> <opt2> ...` creates a `BetGame`, stores it under `{chat_id}:{message_id}`, and posts an inline keyboard. All bet activity (place, close, settle, draw) flows through `gamble:` callbacks. Settlement writes balances to `Database` from the callback handler, not from the game struct itself.
 
+### Internationalisation (`src/i18n.rs`)
+
+Every user-facing string is localized into 15 locales (English + Traditional &
+Simplified Chinese + Japanese, Korean, Russian, French, Spanish, German,
+Vietnamese, Indonesian, Filipino, Thai, Dutch, Turkish). The module is
+dependency-free: a `Lang` enum, a `tr!` macro that picks one of 15 literal arms
+in a fixed order (`en, hant, hans, ja, ko, ru, fr, es, de, vi, id, fil, th, nl,
+tr`), and one `pub fn` per message so all locales for a message sit together.
+Parameterised messages leave `{token}` placeholders in every arm and substitute
+with `.replace(...)` (real `format!` can't take a runtime format string).
+
+Language is **auto-detected** from Telegram's `User.language_code` via
+`Lang::from_user` — there is no `/lang` command and no DB column. Unknown /
+unsupported tags fall back to English; bare `zh` → Simplified, `zh-Hant`/`zh-TW`/
+`zh-HK`/`zh-MO` → Traditional. Helper `commands::util::lang_of(&Message)` resolves
+the sender's locale; callbacks use `Lang::from_user(&cb.from)`.
+
+- **Per-user messages** (direct replies, callback toasts) render in the *acting*
+  user's locale.
+- **Shared/edited messages** (the bet-game board, sell/buy listings, the
+  envelope/settlement edits) render in the **creator's** locale. `BetGame`
+  therefore stores a `lang: Lang` field (`#[serde(default)]` so games persisted
+  before i18n load as English) set from the host at creation; `BetGame::new` now
+  takes `lang` as its 2nd arg. `BetState::label(lang)` replaced the old
+  `as_str()`.
+- **Command menu**: `bot::run` registers a localized `setMyCommands` per locale
+  plus a default (English) menu. Telegram only accepts ISO 639-1 codes there, so
+  both Chinese scripts collapse to one `zh` menu (`Lang::menu_code`) and Filipino
+  best-efforts under `tl`; per-locale failures are logged and skipped.
+
+Adding a message: add a `pub fn` with all 15 `tr!` arms; the
+`no_unfilled_placeholders_in_any_locale` test catches any arm that drops a token.
+
 ### Database
 
 `src/database/` wraps a single `rusqlite::Connection` in a `parking_lot::Mutex` so `Database` is `Send + Sync` and can sit behind an `Arc`. Two tables: `balance(user, balance, fruit, cloth)` and `buffer(chat, msg)` — the latter tracks live envelope/sell/buy messages so a callback can detect "someone already took this." The module is split by concern: `mod.rs` (struct + schema + `ensure_row` helper), `user.rs` (balance/cloth/`UserRow`), `fruit.rs`, `buffer.rs`. All sub-files add methods to the same `impl Database` block.

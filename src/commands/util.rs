@@ -97,6 +97,15 @@ pub fn from_id(msg: &Message) -> Option<i64> {
     msg.from.as_ref().map(|u| u.id)
 }
 
+/// Locale for the user who sent `msg`, from their Telegram `language_code`.
+/// Falls back to English when there is no sender or no language tag.
+pub fn lang_of(msg: &Message) -> crate::i18n::Lang {
+    msg.from
+        .as_ref()
+        .map(crate::i18n::Lang::from_user)
+        .unwrap_or(crate::i18n::Lang::En)
+}
+
 pub const ERR_REPLY: &str = "🤯";
 pub const ERR_NEG_REPLY: &str = "😐";
 

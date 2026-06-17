@@ -92,29 +92,45 @@ pub async fn run() -> anyhow::Result<()> {
         data.insert::<BotIdKey>(bot_id);
     }
 
-    // Eagerly set the user-facing command menu (the "/" autocomplete).
+    // Eagerly set the user-facing command menu (the "/" autocomplete), once
+    // per supported locale plus a default (English) menu for everyone else.
+    // Telegram serves each user the menu matching their client language.
     {
+        use crate::i18n::Lang;
+        use telexide::api::types::SetMyCommands;
         use telexide::model::BotCommand;
-        const VISIBLE: &[(&str, &str)] = &[
-            ("start", "嗨？"),
-            ("random", "從參數中隨機挑一個"),
-            ("balance", "查看水幣餘額"),
-            ("fruit", "查看水果"),
-            ("send", "回覆訊息以送出水幣或水果"),
-            ("dice", "/dice <猜1-6> <下注> 中6倍"),
-            ("gamble", "開賭局或查看自己押注"),
-            ("sell", "/sell <水果> <價格>"),
-            ("buy", "/buy <水果> <價格>"),
-        ];
-        let cmds: Vec<BotCommand> = VISIBLE
-            .iter()
-            .map(|(name, desc)| BotCommand {
-                command: (*name).to_string(),
-                description: (*desc).to_string(),
-            })
-            .collect();
-        if let Err(err) = client.api_client.set_my_commands(cmds.into()).await {
-            eprintln!("setMyCommands error (continuing): {err}");
+
+        let menu_for = |lang: Lang| -> Vec<BotCommand> {
+            crate::i18n::command_menu(lang)
+                .iter()
+                .map(|(name, desc)| BotCommand {
+                    command: (*name).to_string(),
+                    description: (*desc).to_string(),
+                })
+                .collect()
+        };
+
+        // Default menu (no language_code) — English.
+        if let Err(err) = client
+            .api_client
+            .set_my_commands(menu_for(Lang::En).into())
+            .await
+        {
+            eprintln!("setMyCommands (default) error (continuing): {err}");
+        }
+
+        // Per-language menus. Telegram only accepts ISO 639-1 codes here, so
+        // the Hant/Hans split both register under their `zh-*` menu_code and a
+        // failure for any one locale is logged and skipped.
+        for lang in Lang::ALL {
+            let mut req = SetMyCommands::new(menu_for(lang));
+            req.language_code = Some(lang.menu_code().to_string());
+            if let Err(err) = client.api_client.set_my_commands(req).await {
+                eprintln!(
+                    "setMyCommands ({}) error (continuing): {err}",
+                    lang.menu_code()
+                );
+            }
         }
     }
 

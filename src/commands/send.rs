@@ -1,6 +1,7 @@
 use crate::bot::BotIdKey;
 use crate::commands::tg;
 use crate::commands::util::*;
+use crate::i18n::{self, Lang};
 use std::time::Duration;
 use telexide::prelude::*;
 
@@ -10,6 +11,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
+    let lang = Lang::from_user(&sender);
 
     let parts = args(&message);
     if parts.is_empty() {
@@ -31,7 +33,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
             return Ok(());
         }
         if !database.balance_change(sender.id, -amount)? {
-            reply(&ctx, &message, "錢不夠耶😶").await?;
+            reply(&ctx, &message, i18n::not_enough_money(lang)).await?;
             return Ok(());
         }
 
@@ -45,11 +47,11 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
             reply(
                 &ctx,
                 &message,
-                format!(
-                    "{} 送給 {}\n{} 顆 水幣",
-                    full_name(&sender),
-                    full_name(&receiver),
-                    format_number(amount),
+                i18n::sent_coins(
+                    lang,
+                    &full_name(&sender),
+                    &full_name(&receiver),
+                    &format_number(amount),
                 ),
             )
             .await?;
@@ -59,20 +61,16 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         // No reply target → bare envelope drop.
         // Reply target is the bot → bot reacts, then drops envelope.
         if reply_target.is_some() {
-            send_text(&ctx, message.chat.get_id(), "莎莉亞不需要錢喔 😎").await?;
+            send_text(&ctx, message.chat.get_id(), i18n::bot_no_money(lang)).await?;
         }
         let rows = vec![vec![(
-            "領取🧧".to_string(),
+            i18n::claim_button(lang).to_string(),
             format!("envelope:{amount}"),
         )]];
         let title = if reply_target.is_some() {
-            "搶紅包囉！".to_string()
+            i18n::grab_envelope_title(lang).to_string()
         } else {
-            format!(
-                "{} 發紅包 {} 水幣！",
-                full_name(&sender),
-                format_number(amount)
-            )
+            i18n::sent_envelope_title(lang, &full_name(&sender), &format_number(amount))
         };
         let sent = tg::send_with_buttons(&ctx, message.chat.get_id(), &title, &rows).await?;
         database.insert_buffer(sent.chat.get_id(), sent.message_id)?;
@@ -81,7 +79,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
 
     // === fruit path === — needs a reply target.
     let Some(receiver) = reply_target else {
-        reply(&ctx, &message, "回覆對方訊息來送水果呦😅").await?;
+        reply(&ctx, &message, i18n::reply_to_send_fruit(lang)).await?;
         return Ok(());
     };
 
@@ -97,7 +95,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
     }
 
     if moved.is_empty() {
-        reply(&ctx, &message, "來亂的嗎🤨").await?;
+        reply(&ctx, &message, i18n::messing_around(lang)).await?;
         return Ok(());
     }
 
@@ -105,11 +103,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         send_text(
             &ctx,
             message.chat.get_id(),
-            format!(
-                "{} 送給 {}\n{moved}",
-                full_name(&sender),
-                full_name(&receiver),
-            ),
+            i18n::sent_fruits(lang, &full_name(&sender), &full_name(&receiver), &moved),
         )
         .await?;
         return Ok(());
@@ -118,24 +112,24 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
     // bot is the receiver → reaction sequence based on how many fruits were eaten
     let chat_id = message.chat.get_id();
     let n = moved.chars().count();
-    let (line, emoji) = match n {
-        1 => ("好吃", "😋"),
-        2 => ("好好吃", "😋"),
-        3 => ("好多好多", "🤩"),
-        4 => ("好幸福", "🥰"),
-        _ => ("幸福到升天", "😇"), // 5+
+    let emoji = match n {
+        1 => "😋",
+        2 => "😋",
+        3 => "🤩",
+        4 => "🥰",
+        _ => "😇", // 5+
     };
     reply(
         &ctx,
         &message,
-        format!("謝謝 {}！\n{line}", full_name(&sender)),
+        i18n::thanks(lang, &full_name(&sender), i18n::eat_reaction(lang, n)),
     )
     .await?;
     send_text(&ctx, chat_id, emoji).await?;
     if n >= 5 {
-        send_text(&ctx, chat_id, "(暫停服務)").await?;
+        send_text(&ctx, chat_id, i18n::service_paused(lang)).await?;
         tokio::time::sleep(Duration::from_secs(60)).await;
-        send_text(&ctx, chat_id, "我回來了🙂").await?;
+        send_text(&ctx, chat_id, i18n::im_back(lang)).await?;
     }
     Ok(())
 }
