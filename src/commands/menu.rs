@@ -4,7 +4,9 @@
 //! these so the keyboards stay in one place.
 
 use crate::commands::tg::Row;
+use crate::commands::util::{db, format_number};
 use crate::i18n::{self, Lang};
+use telexide::prelude::Context;
 
 /// Callback-data prefixes routed in `callbacks::on_callback`.
 pub const SET_LANG: &str = "setlang:";
@@ -27,6 +29,22 @@ pub fn lang_picker_rows() -> Vec<Row> {
                 .collect()
         })
         .collect()
+}
+
+/// The Xaliah main-menu body: intro line followed by the user's current
+/// balance and fruit inventory.
+pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
+    let info = db(ctx).get_user_info(user_id).unwrap_or_default();
+    let fruits = if info.fruit.is_empty() {
+        "—".to_string()
+    } else {
+        info.fruit
+    };
+    format!(
+        "{}\n\n{}",
+        i18n::intro(lang),
+        i18n::menu_status(lang, &format_number(info.balance), &fruits)
+    )
 }
 
 /// The Xaliah main-menu keyboard: today's matches, plus the daily check-in

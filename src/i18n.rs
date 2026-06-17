@@ -834,6 +834,16 @@ pub fn intro(l: Lang) -> &'static str {
         "Hai, aku Xaliah. Senang berkenalan 😊 Mau apa?", "Hi, ako si Xaliah. Ikinagagalak kitang makilala 😊 Ano'ng gusto mo?", "สวัสดี ฉันชื่อ Xaliah ยินดีที่ได้รู้จัก 😊 อยากทำอะไรดี?", "Hoi, ik ben Xaliah. Leuk je te ontmoeten 😊 Wat wil je?", "Selam, ben Xaliah. Tanıştığımıza memnun oldum 😊 Ne istersin?")
 }
 
+/// Balance + fruit summary shown under the menu intro.
+pub fn menu_status(l: Lang, coins: &str, fruits: &str) -> String {
+    tr!(l;
+        "🪙 Balance: {coins}\n🍇 Fruits: {fruits}", "🪙 餘額：{coins}\n🍇 水果：{fruits}", "🪙 余额：{coins}\n🍇 水果：{fruits}", "🪙 残高：{coins}\n🍇 フルーツ：{fruits}", "🪙 잔액: {coins}\n🍇 과일: {fruits}",
+        "🪙 Баланс: {coins}\n🍇 Фрукты: {fruits}", "🪙 Solde : {coins}\n🍇 Fruits : {fruits}", "🪙 Saldo: {coins}\n🍇 Frutas: {fruits}", "🪙 Guthaben: {coins}\n🍇 Obst: {fruits}", "🪙 Số dư: {coins}\n🍇 Trái cây: {fruits}",
+        "🪙 Saldo: {coins}\n🍇 Buah: {fruits}", "🪙 Balanse: {coins}\n🍇 Prutas: {fruits}", "🪙 ยอดเงิน: {coins}\n🍇 ผลไม้: {fruits}", "🪙 Saldo: {coins}\n🍇 Fruit: {fruits}", "🪙 Bakiye: {coins}\n🍇 Meyve: {fruits}")
+    .replace("{coins}", coins)
+    .replace("{fruits}", fruits)
+}
+
 pub fn btn_checkin(l: Lang) -> &'static str {
     tr!(l;
         "🪙 Daily check-in", "🪙 每日簽到", "🪙 每日签到", "🪙 デイリーチェックイン", "🪙 데일리 출석",
@@ -966,6 +976,7 @@ mod tests {
                 checkin_done(l, "10"),
                 minted(l, "A", "10"),
                 broadcast_sent(l, "5"),
+                menu_status(l, "10", "🍎"),
             ];
             for s in samples {
                 assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");

@@ -298,7 +298,7 @@ async fn handle_set_lang(
             ctx,
             message.chat.get_id(),
             message.message_id,
-            i18n::intro(lang),
+            &menu::menu_text(ctx, lang, cb.from.id),
             &menu::main_menu_rows(lang, available),
         )
         .await;
@@ -318,7 +318,7 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
                     ctx,
                     message.chat.get_id(),
                     message.message_id,
-                    i18n::intro(lang),
+                    &menu::menu_text(ctx, lang, cb.from.id),
                     &menu::main_menu_rows(lang, false),
                 )
                 .await;
