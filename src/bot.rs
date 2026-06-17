@@ -39,20 +39,9 @@ pub async fn run() -> anyhow::Result<()> {
         .next()
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| anyhow::anyhow!("malformed bot token (expected `<id>:<secret>`)"))?;
-    let db_path = db_filename(cfg.dev);
-    eprintln!(
-        "using {} database: {db_path}",
-        if cfg.dev { "DEV" } else { "PRODUCTION" }
-    );
-    let db = Arc::new(Database::new(db_path, bot_id)?);
+    let db = Arc::new(Database::new(db_filename(cfg.dev), bot_id)?);
     let games_map: HashMap<String, BetGame> = match db.load_all_bet_games() {
-        Ok(rows) => {
-            let n = rows.len();
-            if n > 0 {
-                eprintln!("loaded {n} bet game(s) from disk");
-            }
-            rows.into_iter().collect()
-        }
+        Ok(rows) => rows.into_iter().collect(),
         Err(err) => {
             eprintln!("bet_games load error (starting with empty map): {err}");
             HashMap::new()
@@ -78,7 +67,6 @@ pub async fn run() -> anyhow::Result<()> {
         .username
         .clone()
         .ok_or_else(|| anyhow::anyhow!("bot has no @username (BotFather should always assign one)"))?;
-    eprintln!("starting as @{bot_username} (id={})", me.id);
 
     let mut builder = ClientBuilder::new();
     builder
@@ -132,10 +120,7 @@ pub async fn run() -> anyhow::Result<()> {
             let mut req = SetMyCommands::new(menu_for(lang));
             req.language_code = Some(lang.menu_code().to_string());
             if let Err(err) = client.api_client.set_my_commands(req).await {
-                eprintln!(
-                    "setMyCommands ({}) error (continuing): {err}",
-                    lang.menu_code()
-                );
+                eprintln!("setMyCommands ({}) error (continuing): {err}", lang.menu_code());
             }
         }
     }
@@ -182,10 +167,7 @@ async fn robust_poll(client: &telexide::client::Client) -> anyhow::Result<()> {
             }
         };
         if !resp.ok {
-            eprintln!(
-                "getUpdates not-ok (sleeping 5s): {:?}",
-                resp.description
-            );
+            eprintln!("getUpdates not-ok (sleeping 5s): {:?}", resp.description);
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         }
@@ -201,13 +183,9 @@ async fn robust_poll(client: &telexide::client::Client) -> anyhow::Result<()> {
             if let Some(id) = raw_id {
                 offset = offset.max(id);
             }
-            match serde_json::from_value::<telexide::model::Update>(item.clone()) {
+            match serde_json::from_value::<telexide::model::Update>(item) {
                 Ok(update) => client.fire_handlers(update),
-                Err(err) => {
-                    eprintln!(
-                        "update parse error (skipping update_id={raw_id:?}): {err}"
-                    );
-                }
+                Err(err) => eprintln!("update parse error (skipping update_id={raw_id:?}): {err}"),
             }
         }
     }

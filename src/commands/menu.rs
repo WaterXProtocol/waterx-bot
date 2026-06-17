@@ -29,10 +29,13 @@ pub fn lang_picker_rows() -> Vec<Row> {
         .collect()
 }
 
-/// The Xaliah main-menu keyboard: daily check-in + today's matches.
-pub fn main_menu_rows(lang: Lang) -> Vec<Row> {
-    vec![vec![
-        (i18n::btn_checkin(lang).to_string(), MENU_CHECKIN.to_string()),
-        (i18n::btn_matches(lang).to_string(), MENU_MATCHES.to_string()),
-    ]]
+/// The Xaliah main-menu keyboard: today's matches, plus the daily check-in
+/// button only when it's actually claimable (`checkin_available`).
+pub fn main_menu_rows(lang: Lang, checkin_available: bool) -> Vec<Row> {
+    let mut row: Row = Vec::new();
+    if checkin_available {
+        row.push((i18n::btn_checkin(lang).to_string(), MENU_CHECKIN.to_string()));
+    }
+    row.push((i18n::btn_matches(lang).to_string(), MENU_MATCHES.to_string()));
+    vec![row]
 }

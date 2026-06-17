@@ -49,14 +49,23 @@ async fn fetch(lang: Lang) -> Result<BrowseResp, reqwest::Error> {
 }
 
 fn render(lang: Lang, items: &[Item]) -> String {
-    // Sport matches with both teams and an open round, soonest (and live) first.
+    // Only matches kicking off within the next 24h (or already live), soonest
+    // (and live) first.
+    let now = Utc::now().timestamp();
+    let horizon = now + 86_400;
     let mut matches: Vec<&Item> = items
         .iter()
         .filter(|i| {
             i.market.display.kind.as_deref() == Some("sport")
                 && i.market.display.team_a.is_some()
                 && i.market.display.team_b.is_some()
-                && i.next_round.is_some()
+        })
+        .filter(|i| match i.next_round.as_ref() {
+            Some(r) => {
+                r.phase.as_deref() == Some("live")
+                    || r.starts_at.is_some_and(|t| t >= now && t <= horizon)
+            }
+            None => false,
         })
         .collect();
     matches.sort_by_key(|i| {

@@ -20,8 +20,14 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
     match database.get_lang(uid)? {
         // Language already chosen → straight to the Xaliah menu.
         Some(lang) => {
-            tg::send_with_buttons(&ctx, chat_id, i18n::intro(lang), &menu::main_menu_rows(lang))
-                .await?;
+            let available = database.checkin_available(uid).unwrap_or(true);
+            tg::send_with_buttons(
+                &ctx,
+                chat_id,
+                i18n::intro(lang),
+                &menu::main_menu_rows(lang, available),
+            )
+            .await?;
         }
         // First time → make them pick a language; the menu opens from the
         // `setlang:` callback once they choose.

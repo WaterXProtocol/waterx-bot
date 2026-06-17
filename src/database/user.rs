@@ -61,6 +61,20 @@ impl Database {
         Ok(())
     }
 
+    /// Whether the user can claim today's check-in (read-only; grants nothing).
+    /// Mirrors [`Database::try_checkin`]'s UTC-day window.
+    pub fn checkin_available(&self, user_id: i64) -> SqlResult<bool> {
+        self.ensure_row(user_id)?;
+        let today = super::current_unix_time() / 86_400;
+        let conn = self.conn.lock();
+        let last: i64 = conn.query_row(
+            "SELECT last_checkin FROM balance WHERE user = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
+        Ok(last < today)
+    }
+
     /// Grants the daily check-in `reward` unless the user already claimed it
     /// today. "Today" is the UTC day index (`unix_secs / 86400`), so the
     /// window resets exactly at 00:00 UTC. Returns true if granted, false if

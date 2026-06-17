@@ -41,11 +41,10 @@ impl Database {
         })?;
         for row in rows {
             let (id, blob) = row?;
+            // Skip (but log) any row that no longer deserializes (schema drift).
             match serde_json::from_str::<BetGame>(&blob) {
                 Ok(g) => out.push((id, g)),
-                Err(e) => {
-                    eprintln!("bet_games load: skipping {id}: {e}");
-                }
+                Err(e) => eprintln!("bet_games load: skipping {id}: {e}"),
             }
         }
         Ok(out)

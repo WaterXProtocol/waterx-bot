@@ -21,7 +21,6 @@ pub async fn on_callback(ctx: Context, update: Update) {
     let Some(data) = cb.data.clone() else {
         return;
     };
-    eprintln!("[cb] {}: {data}", cb.from.first_name);
     // Learn this chat so /broadcast can reach it later.
     if let Some(m) = &cb.message {
         let _ = db_arc(&ctx).touch_chat(m.chat.get_id());
@@ -294,24 +293,36 @@ async fn handle_set_lang(
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
     if let Some(message) = cb.message.clone() {
+        let available = db.checkin_available(cb.from.id).unwrap_or(true);
         let _ = tg::edit_with_buttons(
             ctx,
             message.chat.get_id(),
             message.message_id,
             i18n::intro(lang),
-            &menu::main_menu_rows(lang),
+            &menu::main_menu_rows(lang, available),
         )
         .await;
     }
     answer(ctx, cb, "", false).await
 }
 
-/// `menu:checkin` — grant the daily reward; result shown as an alert so the
-/// menu message stays put for the next tap.
+/// `menu:checkin` — grant the daily reward; result shown as an alert. On a
+/// successful claim the menu is refreshed so the now-unavailable check-in
+/// button drops off, leaving just "today's matches".
 async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     match db_arc(ctx).try_checkin(cb.from.id, crate::commands::checkin::CHECKIN_REWARD) {
         Ok(true) => {
+            if let Some(message) = cb.message.clone() {
+                let _ = tg::edit_with_buttons(
+                    ctx,
+                    message.chat.get_id(),
+                    message.message_id,
+                    i18n::intro(lang),
+                    &menu::main_menu_rows(lang, false),
+                )
+                .await;
+            }
             let amt = format_number(crate::commands::checkin::CHECKIN_REWARD);
             answer(ctx, cb, i18n::checkin_done(lang, &amt), true).await
         }

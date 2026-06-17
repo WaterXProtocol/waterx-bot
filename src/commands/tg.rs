@@ -47,7 +47,6 @@ pub async fn send_with_buttons(
     text: &str,
     rows: &[Row],
 ) -> Result<Message, CommandError> {
-    eprintln!("[out+kb] {text}");
     let payload = json!({
         "chat_id": chat_id,
         "text": text,
@@ -68,7 +67,6 @@ pub async fn edit_with_buttons(
     text: &str,
     rows: &[Row],
 ) -> Result<(), CommandError> {
-    eprintln!("[edit+kb] {text}");
     let payload = json!({
         "chat_id": chat_id,
         "message_id": message_id,
@@ -89,7 +87,6 @@ pub async fn edit_text_only(
     message_id: i64,
     text: &str,
 ) -> Result<(), CommandError> {
-    eprintln!("[edit] {text}");
     let payload = json!({
         "chat_id": chat_id,
         "message_id": message_id,

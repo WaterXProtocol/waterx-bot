@@ -37,7 +37,6 @@ pub async fn reply(
     text: impl Into<String>,
 ) -> Result<(), CommandError> {
     let text = text.into();
-    eprintln!("[out] {text}");
     let mut sm = SendMessage::new(msg.chat.get_id().into(), text);
     sm.reply_to_message_id = Some(msg.message_id);
     ctx.api.send_message(sm).await?;
@@ -50,7 +49,6 @@ pub async fn send_text(
     text: impl Into<String>,
 ) -> Result<Message, CommandError> {
     let text = text.into();
-    eprintln!("[out] {text}");
     Ok(ctx
         .api
         .send_message(SendMessage::new(chat_id.into(), text))
