@@ -1,49 +1,138 @@
+use crate::commands::tg::Row;
 use crate::commands::util::*;
 use crate::i18n::{self, Lang};
 use chrono::{TimeZone, Utc};
 use serde::Deserialize;
 use telexide::prelude::*;
 
-/// waterx prediction-market browse endpoint. The bot only reads it; nothing
-/// here touches the local water-coin ledger — `/markets` is purely a "what's
-/// trading right now" brief in the style of the Jupiter market bot.
+/// waterx prediction-market browse endpoint.
 const BROWSE_URL: &str = "https://api.waterx.app/predict/browse";
 /// Cap so the brief stays well under Telegram's 4096-char message limit; the
 /// overflow is summarised with a "…and N more" tail.
 const MAX_MATCHES: usize = 8;
+
+/// Callback-data prefix: tapping a match number opens the bet flow.
+pub const BET: &str = "bet:";
+
+/// A single sport match, distilled from the browse feed.
+#[derive(Debug, Clone)]
+pub struct MatchInfo {
+    pub market_id: String,
+    pub slug: String,
+    pub team_a: String,
+    pub team_b: String,
+    /// YES odds in cents for each outcome (None if the side is missing).
+    pub odds_a: Option<f64>,
+    pub odds_draw: Option<f64>,
+    pub odds_b: Option<f64>,
+    pub starts_at: Option<i64>,
+    pub ends_at: i64,
+    pub live: bool,
+}
+
+impl MatchInfo {
+    /// YES odds (cents) for one of `teamA`/`teamB`/`draw`.
+    pub fn odds(&self, outcome: &str) -> Option<f64> {
+        match outcome {
+            "teamA" => self.odds_a,
+            "teamB" => self.odds_b,
+            "draw" => self.odds_draw,
+            _ => None,
+        }
+    }
+}
 
 #[command(description = "browse live prediction markets")]
 pub async fn markets(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
     }
-    reply(&ctx, &message, brief(lang_for_msg(&ctx, &message)).await).await?;
+    let (text, rows) = brief(lang_for_msg(&ctx, &message)).await;
+    crate::commands::tg::send_with_buttons(&ctx, message.chat.get_id(), &text, &rows).await?;
     Ok(())
 }
 
-/// Fetch and render the match brief, ready to post. On any fetch/parse failure
-/// this returns the localized "unavailable" line rather than erroring, so both
-/// the `/markets` command and the menu button can post it unconditionally.
-pub(crate) async fn brief(lang: Lang) -> String {
-    match fetch(lang).await {
-        Ok(resp) => render(lang, &resp.data.items),
+/// Build the match brief (text) plus a numbered button per shown match
+/// (`bet:<market_id>`). On any fetch/parse failure returns the localized
+/// "unavailable" line and no buttons.
+pub(crate) async fn brief(lang: Lang) -> (String, Vec<Row>) {
+    let now = Utc::now().timestamp();
+    let matches = match fetch_matches(lang).await {
+        Ok(mut m) => {
+            m.retain(|x| within_window(x, now));
+            m
+        }
         Err(err) => {
             eprintln!("[markets] fetch error: {err}");
-            i18n::markets_unavailable(lang).to_string()
+            return (i18n::markets_unavailable(lang).to_string(), Vec::new());
         }
+    };
+
+    let mut out = format!(
+        "{} — {}\n",
+        i18n::markets_title(lang),
+        Utc::now().format("%b %-d")
+    );
+    if matches.is_empty() {
+        out.push('\n');
+        out.push_str(i18n::markets_empty(lang));
+        return (out, Vec::new());
     }
+
+    out.push('\n');
+    out.push_str(i18n::markets_matches(lang));
+    out.push('\n');
+    let shown = &matches[..matches.len().min(MAX_MATCHES)];
+    for (idx, m) in shown.iter().enumerate() {
+        out.push_str(&render_match(lang, idx + 1, m));
+    }
+    if matches.len() > MAX_MATCHES {
+        out.push_str(&i18n::markets_more(lang, &(matches.len() - MAX_MATCHES).to_string()));
+        out.push('\n');
+    }
+
+    // Numbered bet buttons, four per row.
+    let rows: Vec<Row> = shown
+        .chunks(4)
+        .enumerate()
+        .map(|(row_idx, chunk)| {
+            chunk
+                .iter()
+                .enumerate()
+                .map(|(col, m)| {
+                    let n = row_idx * 4 + col + 1;
+                    (n.to_string(), format!("{BET}{}", m.market_id))
+                })
+                .collect()
+        })
+        .collect();
+
+    (out, rows)
 }
 
-/// Pull the browse feed. Chinese users get `locale=zh` (Chinese team names);
-/// everyone else gets `locale=en` (the API otherwise returns names in the
-/// requested locale, which is undesirable for most). The brief's chrome is
-/// localized separately via `render(lang, …)`.
-async fn fetch(lang: Lang) -> Result<BrowseResp, reqwest::Error> {
+/// Re-fetch the feed and return the current snapshot for one match (fresh odds),
+/// regardless of the display window — used when the user taps a bet button.
+pub(crate) async fn fetch_one(lang: Lang, market_id: &str) -> Option<MatchInfo> {
+    fetch_matches(lang)
+        .await
+        .ok()?
+        .into_iter()
+        .find(|m| m.market_id == market_id)
+}
+
+/// True when a match should appear in the brief: live, or kicking off within 24h.
+fn within_window(m: &MatchInfo, now: i64) -> bool {
+    m.live || m.starts_at.is_some_and(|t| t >= now && t <= now + 86_400)
+}
+
+/// Pull and parse the feed into sport matches, live-first then soonest.
+async fn fetch_matches(lang: Lang) -> Result<Vec<MatchInfo>, reqwest::Error> {
+    // Chinese users get Chinese team names; everyone else English.
     let api_locale = match lang {
         Lang::Hant | Lang::Hans => "zh",
         _ => "en",
     };
-    reqwest::Client::new()
+    let resp = reqwest::Client::new()
         .get(BROWSE_URL)
         .query(&[("locale", api_locale), ("limit", "200")])
         .header("user-agent", "waterx-bot/0.1")
@@ -51,86 +140,51 @@ async fn fetch(lang: Lang) -> Result<BrowseResp, reqwest::Error> {
         .await?
         .error_for_status()?
         .json::<BrowseResp>()
-        .await
+        .await?;
+
+    let mut matches: Vec<MatchInfo> = resp.data.items.iter().filter_map(to_match_info).collect();
+    matches.sort_by_key(|m| (!m.live, m.starts_at.unwrap_or(i64::MAX)));
+    Ok(matches)
 }
 
-fn render(lang: Lang, items: &[Item]) -> String {
-    // Only matches kicking off within the next 24h (or already live), soonest
-    // (and live) first.
-    let now = Utc::now().timestamp();
-    let horizon = now + 86_400;
-    let mut matches: Vec<&Item> = items
-        .iter()
-        .filter(|i| {
-            i.market.display.kind.as_deref() == Some("sport")
-                && i.market.display.team_a.is_some()
-                && i.market.display.team_b.is_some()
-        })
-        .filter(|i| match i.next_round.as_ref() {
-            Some(r) => {
-                r.phase.as_deref() == Some("live")
-                    || r.starts_at.is_some_and(|t| t >= now && t <= horizon)
-            }
-            None => false,
-        })
-        .collect();
-    matches.sort_by_key(|i| {
-        let r = i.next_round.as_ref().unwrap();
-        (r.phase.as_deref() != Some("live"), r.starts_at.unwrap_or(i64::MAX))
-    });
-
-    let mut out = format!(
-        "{} — {}\n",
-        i18n::markets_title(lang),
-        Utc::now().format("%b %-d")
-    );
-
-    if matches.is_empty() {
-        out.push('\n');
-        out.push_str(i18n::markets_empty(lang));
-        return out;
-    }
-
-    out.push('\n');
-    out.push_str(i18n::markets_matches(lang));
-    out.push('\n');
-    for (idx, it) in matches.iter().take(MAX_MATCHES).enumerate() {
-        out.push_str(&render_match(lang, idx + 1, it));
-    }
-    push_more(&mut out, lang, matches.len(), MAX_MATCHES);
-
-    out
-}
-
-fn push_more(out: &mut String, lang: Lang, total: usize, shown: usize) {
-    if total > shown {
-        out.push_str(&i18n::markets_more(lang, &(total - shown).to_string()));
-        out.push('\n');
-    }
-}
-
-fn render_match(lang: Lang, n: usize, it: &Item) -> String {
+fn to_match_info(it: &Item) -> Option<MatchInfo> {
     let d = &it.market.display;
-    let r = it.next_round.as_ref().unwrap();
-    let a = d.team_a.as_ref().unwrap();
-    let b = d.team_b.as_ref().unwrap();
-    let dot = if r.phase.as_deref() == Some("live") { "🔴 " } else { "" };
+    if d.kind.as_deref() != Some("sport") {
+        return None;
+    }
+    let a = d.team_a.as_ref()?;
+    let b = d.team_b.as_ref()?;
+    let r = it.next_round.as_ref()?;
+    Some(MatchInfo {
+        market_id: it.market.id.clone(),
+        slug: it.market.slug.clone(),
+        team_a: a.name.clone(),
+        team_b: b.name.clone(),
+        odds_a: odds(&r.sides, "teamA"),
+        odds_draw: odds(&r.sides, "draw"),
+        odds_b: odds(&r.sides, "teamB"),
+        starts_at: r.starts_at,
+        ends_at: r.ends_at.unwrap_or(0),
+        live: r.phase.as_deref() == Some("live"),
+    })
+}
 
-    let mut s = format!("\n{n}) {dot}{} vs. {}\n", a.name, b.name);
-    if let Some(t) = fmt_time(r.starts_at) {
+fn render_match(lang: Lang, n: usize, m: &MatchInfo) -> String {
+    let dot = if m.live { "🔴 " } else { "" };
+    let mut s = format!("\n{n}) {dot}{} vs. {}\n", m.team_a, m.team_b);
+    if let Some(t) = fmt_time(m.starts_at) {
         s.push_str(&format!("├ {t}\n"));
     }
-    // Home / draw / away — the order the source feed and the brief expect.
+    // Home / draw / away.
     let rows: [(&str, Option<f64>); 3] = [
-        (&a.name, odds(&r.sides, "teamA")),
-        (i18n::draw_label(lang), odds(&r.sides, "draw")),
-        (&b.name, odds(&r.sides, "teamB")),
+        (&m.team_a, m.odds_a),
+        (i18n::draw_label(lang), m.odds_draw),
+        (&m.team_b, m.odds_b),
     ];
     for (i, (label, yes)) in rows.iter().enumerate() {
         let branch = if i == rows.len() - 1 { "└" } else { "├" };
         match yes {
-            // Cents are the implied probability ×100, so decimal odds are
-            // 1 / (cents/100) = 100/cents (e.g. 65¢ → 1.54).
+            // Decimal odds = 100/cents (e.g. 65¢ → 1.54).
             Some(y) if *y > 0.0 => s.push_str(&format!("{branch} {label} — {:.2}\n", 100.0 / *y)),
             _ => s.push_str(&format!("{branch} {label} — —\n")),
         }
@@ -150,8 +204,7 @@ fn fmt_time(ts: Option<i64>) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Browse-endpoint response — only the fields the brief reads are modelled;
-// serde ignores everything else.
+// Browse-endpoint response — only the fields the brief reads are modelled.
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -173,6 +226,9 @@ struct Item {
 
 #[derive(Deserialize)]
 struct Market {
+    id: String,
+    #[serde(default)]
+    slug: String,
     display: Display,
 }
 
@@ -194,6 +250,8 @@ struct Team {
 struct Round {
     #[serde(rename = "startsAt")]
     starts_at: Option<i64>,
+    #[serde(rename = "endsAt")]
+    ends_at: Option<i64>,
     #[serde(default)]
     sides: Vec<Side>,
     phase: Option<String>,

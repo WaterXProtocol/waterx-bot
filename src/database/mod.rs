@@ -5,9 +5,11 @@ mod games;
 mod meta;
 mod referral;
 mod user;
+mod wager;
 
 pub use buffer::OfferOutcome;
 pub use user::UserRow;
+pub use wager::{OpenMarket, Settlement};
 
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, Result as SqlResult};
@@ -98,6 +100,27 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS meta (
                 key   TEXT NOT NULL PRIMARY KEY,
                 value TEXT NOT NULL
+            )",
+            [],
+        )?;
+        // Real-money match bets. `stake` is micro-coins; `odds_cents` is the
+        // YES odds (cents) locked at placement; payout on a win is
+        // `stake * 100 / odds_cents`. Settled manually by an admin.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS wagers (
+                id         INTEGER PRIMARY KEY,
+                user       INTEGER NOT NULL,
+                market_id  TEXT    NOT NULL,
+                slug       TEXT    NOT NULL DEFAULT '',
+                team_a     TEXT    NOT NULL DEFAULT '',
+                team_b     TEXT    NOT NULL DEFAULT '',
+                outcome    TEXT    NOT NULL,
+                stake      INTEGER NOT NULL,
+                odds_cents REAL    NOT NULL,
+                placed_at  INTEGER NOT NULL,
+                ends_at    INTEGER NOT NULL DEFAULT 0,
+                status     TEXT    NOT NULL DEFAULT 'open',
+                settled_at INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
@@ -236,7 +259,8 @@ impl Database {
              DELETE FROM buffer;
              DELETE FROM bet_games;
              DELETE FROM meta;
-             DELETE FROM chats;",
+             DELETE FROM chats;
+             DELETE FROM wagers;",
         )
     }
 

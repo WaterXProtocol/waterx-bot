@@ -4,8 +4,91 @@
 
 use crate::commands::util::*;
 use crate::database::COIN;
-use crate::i18n;
+use crate::i18n::{self, Lang};
 use telexide::prelude::*;
+
+/// Normalize an admin-typed winner token into the stored outcome key.
+fn normalize_winner(s: &str) -> Option<&'static str> {
+    match s.to_ascii_lowercase().as_str() {
+        "a" | "teama" | "team_a" | "home" | "1" => Some("teamA"),
+        "b" | "teamb" | "team_b" | "away" | "2" => Some("teamB"),
+        "draw" | "x" | "d" | "tie" => Some("draw"),
+        _ => None,
+    }
+}
+
+/// `/settle` — owner-only. With no args, lists markets that still have open
+/// wagers (copy a market id). `/settle <market_id|slug> <a|b|draw>` pays out
+/// winners and DMs every bettor their result.
+#[command(description = "owner: settle a match")]
+pub async fn settle(ctx: Context, message: Message) -> CommandResult {
+    let Some(uid) = from_id(&message) else {
+        return Ok(());
+    };
+    if !is_owner(&ctx, uid) {
+        return Ok(());
+    }
+    let database = db(&ctx);
+    let parts = args(&message);
+
+    if parts.len() < 2 {
+        let open = database.list_open_markets().unwrap_or_default();
+        if open.is_empty() {
+            reply(&ctx, &message, "No open wagers.").await?;
+            return Ok(());
+        }
+        let mut s = String::from("Open markets — /settle <id> <a|b|draw>:\n");
+        for m in &open {
+            s.push_str(&format!(
+                "\n{} vs {}\n  {}\n  {} bet(s) · {} staked\n",
+                m.team_a,
+                m.team_b,
+                m.market_id,
+                m.count,
+                fmt_coins(m.stake)
+            ));
+        }
+        reply(&ctx, &message, s).await?;
+        return Ok(());
+    }
+
+    let Some(winner) = normalize_winner(&parts[1]) else {
+        reply(&ctx, &message, "Winner must be one of: a | b | draw").await?;
+        return Ok(());
+    };
+    let open = database.list_open_markets().unwrap_or_default();
+    let Some(target) = open.iter().find(|m| m.market_id == parts[0] || m.slug == parts[0]) else {
+        reply(&ctx, &message, "No open market with that id/slug.").await?;
+        return Ok(());
+    };
+    let market_id = target.market_id.clone();
+    let settlements = database.settle_market(&market_id, winner)?;
+
+    let (mut won, mut lost, mut paid) = (0u32, 0u32, 0i64);
+    for st in &settlements {
+        let blang = database.get_lang(st.user).ok().flatten().unwrap_or(Lang::En);
+        let dm = if st.won {
+            won += 1;
+            paid += st.payout;
+            i18n::bet_won(blang, &fmt_coins(st.payout))
+        } else {
+            lost += 1;
+            i18n::bet_lost(blang).to_string()
+        };
+        let _ = send_text(&ctx, st.user, dm).await;
+    }
+    reply(
+        &ctx,
+        &message,
+        format!(
+            "Settled {} wager(s): {won} won (paid {}), {lost} lost.",
+            settlements.len(),
+            fmt_coins(paid)
+        ),
+    )
+    .await?;
+    Ok(())
+}
 
 /// `/mint <amount>` — credit `amount` whole water-coins to the sender of the
 /// replied-to message (reply required). Positive only (no debt).

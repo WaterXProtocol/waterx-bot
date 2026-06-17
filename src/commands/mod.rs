@@ -4,6 +4,7 @@ pub mod util;
 
 pub mod admin;
 pub mod balance;
+pub mod betting;
 pub mod buy;
 pub mod checkin;
 pub mod callbacks;

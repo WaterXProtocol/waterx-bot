@@ -1073,6 +1073,97 @@ pub fn markets_more(l: Lang, n: &str) -> String {
     .replace("{n}", n)
 }
 
+// ----------------------------------------------------------------------------
+// Match betting
+// ----------------------------------------------------------------------------
+
+pub fn bet_pick(l: Lang) -> &'static str {
+    tr!(l;
+        "Pick your side (valid 1 min):", "選擇你的下注（1分鐘內有效）：", "选择你的下注（1分钟内有效）：", "賭ける側を選んで（1分間有効）：", "베팅할 쪽을 선택 (1분간 유효):",
+        "Выберите сторону (действует 1 мин):", "Choisis ton camp (valable 1 min) :", "Elige tu lado (válido 1 min):", "Wähle deine Seite (1 Min gültig):", "Chọn bên cược (hiệu lực 1 phút):",
+        "Pilih sisi taruhanmu (berlaku 1 menit):", "Piliin ang panig (valid 1 min):", "เลือกฝั่งที่จะเดิมพัน (ใช้ได้ 1 นาที):", "Kies je kant (1 min geldig):", "Tarafını seç (1 dk geçerli):",
+        "Escolha seu lado (válido 1 min):", "अपना पक्ष चुनें (1 मिनट के लिए मान्य):", "اختر جانبك (صالح لمدة دقيقة):")
+}
+
+pub fn bet_unavailable(l: Lang) -> &'static str {
+    tr!(l;
+        "This match isn't open for betting 😶", "這場比賽無法下注 😶", "这场比赛无法下注 😶", "この試合は賭けられないよ 😶", "이 경기는 베팅할 수 없어 😶",
+        "На этот матч ставки закрыты 😶", "Ce match n'est pas ouvert aux paris 😶", "Este partido no está abierto a apuestas 😶", "Auf dieses Spiel kann nicht gewettet werden 😶", "Trận này chưa mở cược 😶",
+        "Pertandingan ini belum bisa ditaruhi 😶", "Hindi pa pwedeng pustahan ang laro 😶", "แมตช์นี้ยังเดิมพันไม่ได้ 😶", "Op deze wedstrijd kan niet worden gewed 😶", "Bu maça bahis yapılamıyor 😶",
+        "Esta partida não está aberta a apostas 😶", "इस मैच पर दांव नहीं लगा सकते 😶", "هذه المباراة غير متاحة للرهان 😶")
+}
+
+pub fn bet_check_dm(l: Lang) -> &'static str {
+    tr!(l;
+        "Check your DM to place your bet 📩", "請查看私訊來下注 📩", "请查看私信来下注 📩", "DMを確認して賭けてね 📩", "DM에서 베팅을 진행해 📩",
+        "Проверьте личные сообщения, чтобы сделать ставку 📩", "Va en privé pour parier 📩", "Revisa tu DM para apostar 📩", "Schau in deine DMs, um zu wetten 📩", "Kiểm tra tin nhắn riêng để đặt cược 📩",
+        "Cek DM untuk pasang taruhan 📩", "Tingnan ang DM para tumaya 📩", "ดู DM เพื่อวางเดิมพัน 📩", "Check je DM om te wedden 📩", "Bahis için DM'ine bak 📩",
+        "Veja sua DM para apostar 📩", "दांव लगाने के लिए अपना DM देखें 📩", "تحقق من رسائلك الخاصة للمراهنة 📩")
+}
+
+pub fn bet_dm_first(l: Lang) -> &'static str {
+    tr!(l;
+        "Start a private chat with me first to place bets 📩", "請先私訊我才能下注 📩", "请先私信我才能下注 📩", "賭けるにはまず私にDMしてね 📩", "베팅하려면 먼저 나에게 DM을 보내줘 📩",
+        "Сначала напишите мне в личку, чтобы делать ставки 📩", "Écris-moi d'abord en privé pour parier 📩", "Primero abre un chat privado conmigo para apostar 📩", "Schreib mir zuerst privat, um zu wetten 📩", "Hãy nhắn riêng cho mình trước để đặt cược 📩",
+        "Mulai chat pribadi dulu untuk bertaruh 📩", "Mag-DM muna sa akin para makataya 📩", "เริ่มแชทส่วนตัวกับฉันก่อนเพื่อเดิมพัน 📩", "Begin eerst een privégesprek met mij om te wedden 📩", "Bahis için önce bana özelden yaz 📩",
+        "Abra um chat privado comigo primeiro para apostar 📩", "दांव लगाने के लिए पहले मुझसे निजी चैट शुरू करें 📩", "ابدأ محادثة خاصة معي أولًا للمراهنة 📩")
+}
+
+pub fn bet_expired(l: Lang) -> &'static str {
+    tr!(l;
+        "⌛ Odds changed — open /matches again.", "⌛ 賠率已變動，請重新開啟 /matches。", "⌛ 赔率已变动，请重新打开 /matches。", "⌛ オッズが変わったよ。/matches をもう一度開いてね。", "⌛ 배당이 변경됐어 — /matches 를 다시 열어줘.",
+        "⌛ Коэффициенты изменились — откройте /matches снова.", "⌛ Les cotes ont changé — rouvre /matches.", "⌛ Las cuotas cambiaron — abre /matches de nuevo.", "⌛ Quoten geändert — öffne /matches erneut.", "⌛ Tỷ lệ đã thay đổi — mở lại /matches.",
+        "⌛ Odds berubah — buka /matches lagi.", "⌛ Nagbago ang odds — buksan ulit ang /matches.", "⌛ อัตราต่อรองเปลี่ยนแล้ว — เปิด /matches อีกครั้ง", "⌛ Odds gewijzigd — open /matches opnieuw.", "⌛ Oranlar değişti — /matches'i tekrar aç.",
+        "⌛ As odds mudaram — abra /matches de novo.", "⌛ ऑड्स बदल गए — /matches फिर से खोलें।", "⌛ تغيّرت الاحتمالات — افتح /matches من جديد.")
+}
+
+pub fn bet_done(l: Lang) -> &'static str {
+    tr!(l;
+        "Bet placed ✅", "已下注 ✅", "已下注 ✅", "賭け完了 ✅", "베팅 완료 ✅",
+        "Ставка принята ✅", "Pari placé ✅", "Apuesta hecha ✅", "Wette platziert ✅", "Đã đặt cược ✅",
+        "Taruhan dipasang ✅", "Tumaya na ✅", "วางเดิมพันแล้ว ✅", "Inzet geplaatst ✅", "Bahis kondu ✅",
+        "Aposta feita ✅", "दांव लगा ✅", "تم وضع الرهان ✅")
+}
+
+pub fn bet_lost(l: Lang) -> &'static str {
+    tr!(l;
+        "😔 Your bet didn't win this time.", "😔 這次下注沒中。", "😔 这次下注没中。", "😔 今回は外れたよ。", "😔 이번 베팅은 졌어.",
+        "😔 В этот раз ставка не сыграла.", "😔 Ton pari n'a pas gagné cette fois.", "😔 Tu apuesta no ganó esta vez.", "😔 Deine Wette hat diesmal nicht gewonnen.", "😔 Lần này cược của bạn không thắng.",
+        "😔 Taruhanmu kali ini kalah.", "😔 Hindi nanalo ang taya mo ngayon.", "😔 ครั้งนี้เดิมพันไม่ชนะ", "😔 Je weddenschap heeft deze keer niet gewonnen.", "😔 Bahsin bu sefer kazanmadı.",
+        "😔 Sua aposta não ganhou desta vez.", "😔 इस बार आपका दांव नहीं जीता।", "😔 لم يفز رهانك هذه المرة.")
+}
+
+pub fn bet_how_much(l: Lang, side: &str, odds: &str) -> String {
+    tr!(l;
+        "How much on {side} @ {odds}?", "在 {side} @ {odds} 上下注多少？", "在 {side} @ {odds} 上下注多少？", "{side} @ {odds} にいくら賭ける？", "{side} @ {odds} 에 얼마 걸까?",
+        "Сколько на {side} @ {odds}?", "Combien sur {side} @ {odds} ?", "¿Cuánto a {side} @ {odds}?", "Wie viel auf {side} @ {odds}?", "Cược bao nhiêu cho {side} @ {odds}?",
+        "Berapa untuk {side} @ {odds}?", "Magkano sa {side} @ {odds}?", "เดิมพันเท่าไรกับ {side} @ {odds}?", "Hoeveel op {side} @ {odds}?", "{side} @ {odds} için ne kadar?",
+        "Quanto em {side} @ {odds}?", "{side} @ {odds} पर कितना?", "كم على {side} @ {odds}؟")
+    .replace("{side}", side)
+    .replace("{odds}", odds)
+}
+
+pub fn bet_placed(l: Lang, stake: &str, side: &str, odds: &str, payout: &str) -> String {
+    tr!(l;
+        "✅ Bet placed: {stake} on {side} @ {odds}\nPotential payout: {payout}", "✅ 已下注：{stake} 於 {side} @ {odds}\n潛在派彩：{payout}", "✅ 已下注：{stake} 于 {side} @ {odds}\n潜在派彩：{payout}", "✅ 賭け完了：{side} @ {odds} に {stake}\n払い戻し見込み：{payout}", "✅ 베팅 완료: {side} @ {odds} 에 {stake}\n예상 수령: {payout}",
+        "✅ Ставка принята: {stake} на {side} @ {odds}\nВозможный выигрыш: {payout}", "✅ Pari placé : {stake} sur {side} @ {odds}\nGain potentiel : {payout}", "✅ Apuesta hecha: {stake} a {side} @ {odds}\nPago potencial: {payout}", "✅ Wette platziert: {stake} auf {side} @ {odds}\nMöglicher Gewinn: {payout}", "✅ Đã đặt cược: {stake} cho {side} @ {odds}\nTiền thắng dự kiến: {payout}",
+        "✅ Taruhan dipasang: {stake} pada {side} @ {odds}\nPotensi bayaran: {payout}", "✅ Tumaya: {stake} sa {side} @ {odds}\nPosibleng panalo: {payout}", "✅ วางเดิมพันแล้ว: {stake} ที่ {side} @ {odds}\nเงินรางวัลที่อาจได้: {payout}", "✅ Inzet geplaatst: {stake} op {side} @ {odds}\nMogelijke uitbetaling: {payout}", "✅ Bahis kondu: {side} @ {odds} için {stake}\nOlası kazanç: {payout}",
+        "✅ Aposta feita: {stake} em {side} @ {odds}\nPagamento potencial: {payout}", "✅ दांव लगा: {side} @ {odds} पर {stake}\nसंभावित भुगतान: {payout}", "✅ تم وضع الرهان: {stake} على {side} @ {odds}\nالعائد المحتمل: {payout}")
+    .replace("{stake}", stake)
+    .replace("{side}", side)
+    .replace("{odds}", odds)
+    .replace("{payout}", payout)
+}
+
+pub fn bet_won(l: Lang, payout: &str) -> String {
+    tr!(l;
+        "🎉 Your bet won! +{payout} water-coins", "🎉 你的下注贏了！+{payout} 水幣", "🎉 你的下注赢了！+{payout} 水币", "🎉 賭けに勝ったよ！+{payout} 水コイン", "🎉 베팅에서 이겼어! +{payout} 물코인",
+        "🎉 Ваша ставка выиграла! +{payout} водных монет", "🎉 Ton pari est gagné ! +{payout} pièces d'eau", "🎉 ¡Tu apuesta ganó! +{payout} monedas de agua", "🎉 Deine Wette hat gewonnen! +{payout} Wassermünzen", "🎉 Cược của bạn đã thắng! +{payout} xu nước",
+        "🎉 Taruhanmu menang! +{payout} koin air", "🎉 Nanalo ang taya mo! +{payout} water-coins", "🎉 เดิมพันของคุณชนะ! +{payout} เหรียญน้ำ", "🎉 Je weddenschap is gewonnen! +{payout} watermunten", "🎉 Bahsin kazandı! +{payout} su parası",
+        "🎉 Sua aposta ganhou! +{payout} moedas de água", "🎉 आपका दांव जीत गया! +{payout} वॉटर-कॉइन", "🎉 فاز رهانك! +{payout} عملة مائية")
+    .replace("{payout}", payout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1137,6 +1228,9 @@ mod tests {
                 checkin_already(l, "1h 2m"),
                 invite_text(l, "link", "3"),
                 referral_bonus(l, "A", "20"),
+                bet_how_much(l, "A", "1.54"),
+                bet_placed(l, "10", "A", "1.54", "15"),
+                bet_won(l, "15"),
             ];
             for s in samples {
                 assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");

@@ -1,7 +1,7 @@
 use crate::bot::{DbKey, GamesKey};
 use crate::commands::util::{fmt_coins, format_number, is_group_chat, SORRY_FRUITS};
 use crate::database::COIN;
-use crate::commands::{markets, menu, referral, tg};
+use crate::commands::{betting, markets, menu, referral, tg};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
 use crate::i18n::{self, Lang};
@@ -73,6 +73,12 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_matches(&ctx, &cb).await
     } else if data == menu::MENU_INVITE {
         handle_menu_invite(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(markets::BET) {
+        betting::handle_bet(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(betting::OPT) {
+        betting::handle_opt(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(betting::SIZE) {
+        betting::handle_size(&ctx, &cb, rest).await
     } else {
         Ok(())
     };
@@ -410,8 +416,8 @@ async fn handle_menu_matches(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         return Ok(());
     };
     answer(ctx, cb, "", false).await?;
-    let brief = markets::brief(lang).await;
-    crate::commands::util::send_text(ctx, message.chat.get_id(), brief).await?;
+    let (text, rows) = markets::brief(lang).await;
+    tg::send_with_buttons(ctx, message.chat.get_id(), &text, &rows).await?;
     Ok(())
 }
 
