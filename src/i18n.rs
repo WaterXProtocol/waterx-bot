@@ -784,7 +784,7 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 10] {
     [
         ("start", hi(l)),
         ("balance", menu_balance(l)),
@@ -795,7 +795,16 @@ pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
         ("buy", menu_buy(l)),
         ("markets", menu_markets(l)),
         ("checkin", menu_checkin(l)),
+        ("language", menu_language(l)),
     ]
+}
+
+fn menu_language(l: Lang) -> &'static str {
+    tr!(l;
+        "Change your language", "更改語言", "更改语言", "言語を変更", "언어 변경",
+        "Сменить язык", "Changer de langue", "Cambiar idioma", "Sprache ändern", "Đổi ngôn ngữ",
+        "Ganti bahasa", "Palitan ang wika", "เปลี่ยนภาษา", "Taal wijzigen", "Dili değiştir",
+        "Mudar idioma", "भाषा बदलें", "تغيير اللغة")
 }
 
 fn menu_checkin(l: Lang) -> &'static str {

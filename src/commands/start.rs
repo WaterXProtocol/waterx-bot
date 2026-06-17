@@ -1,6 +1,6 @@
 use crate::commands::util::*;
 use crate::commands::{menu, referral, tg};
-use crate::i18n;
+use crate::i18n::{self, Lang};
 use telexide::prelude::*;
 
 #[command(description = "say hi and open the menu")]
@@ -25,11 +25,20 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
     database.balance_change(uid, 0)?; // ensure the user row exists
 
     let chat_id = message.chat.get_id();
-    match database.get_lang(uid)? {
-        // Language already chosen → straight to the Xaliah menu.
+    let saved = database.get_lang(uid)?;
+
+    // In a group the menu is a single shared message, so don't push the language
+    // picker — fall back to the sender's Telegram-reported language when they
+    // haven't chosen one. In private chats a first-timer gets the picker so they
+    // set a persistent locale. `/language` re-opens the picker anywhere.
+    let lang = if is_group_chat(chat_id) {
+        Some(saved.unwrap_or_else(|| Lang::from_user(&user)))
+    } else {
+        saved
+    };
+
+    match lang {
         Some(lang) => {
-            // In a group the menu is shared, so always offer the button; in a
-            // private chat hide it once the caller has already claimed today.
             let available =
                 is_group_chat(chat_id) || database.checkin_available(uid).unwrap_or(true);
             tg::send_with_buttons(
@@ -40,16 +49,9 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
             )
             .await?;
         }
-        // First time → make them pick a language; the menu opens from the
-        // `setlang:` callback once they choose.
         None => {
-            tg::send_with_buttons(
-                &ctx,
-                chat_id,
-                i18n::CHOOSE_LANGUAGE,
-                &menu::lang_picker_rows(),
-            )
-            .await?;
+            tg::send_with_buttons(&ctx, chat_id, i18n::CHOOSE_LANGUAGE, &menu::lang_picker_rows())
+                .await?;
         }
     }
     Ok(())
