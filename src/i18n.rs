@@ -568,35 +568,6 @@ pub fn verb_lost(l: Lang) -> &'static str {
 // Parameterised messages — leave {tokens} in every arm, substitute below.
 // ----------------------------------------------------------------------------
 
-pub fn have_coins(l: Lang, name: &str, coins: &str) -> String {
-    tr!(l;
-        "{name}\nhas {coins} water-coins", "{name}\n擁有 {coins} 顆 水幣", "{name}\n拥有 {coins} 颗 水币", "{name}\n水コインを {coins} 枚 持っている", "{name}\n물코인 {coins} 개 보유",
-        "{name}\nимеет {coins} водных монет", "{name}\npossède {coins} pièces d'eau", "{name}\ntiene {coins} monedas de agua", "{name}\nhat {coins} Wassermünzen", "{name}\ncó {coins} xu nước",
-        "{name}\npunya {coins} koin air", "{name}\nmay {coins} water-coins", "{name}\nมีเหรียญน้ำ {coins} เหรียญ", "{name}\nheeft {coins} watermunten", "{name}\n{coins} su parası var",
-        "{name}\ntem {coins} moedas de água", "{name}\nके पास {coins} वॉटर-कॉइन हैं", "{name}\nلديه {coins} عملة مائية")
-    .replace("{name}", name)
-    .replace("{coins}", coins)
-}
-
-pub fn want_fruit(l: Lang, name: &str) -> String {
-    tr!(l;
-        "{name}\nwants some fruit 🤤", "{name}\n想要水果🤤", "{name}\n想要水果🤤", "{name}\nフルーツが欲しい🤤", "{name}\n과일이 먹고 싶어🤤",
-        "{name}\nхочет фруктов 🤤", "{name}\nveut des fruits 🤤", "{name}\nquiere fruta 🤤", "{name}\nmöchte Obst 🤤", "{name}\nthèm trái cây 🤤",
-        "{name}\nmau buah 🤤", "{name}\ngustong-gusto ng prutas 🤤", "{name}\nอยากกินผลไม้ 🤤", "{name}\nwil wat fruit 🤤", "{name}\nbiraz meyve istiyor 🤤",
-        "{name}\nquer um pouco de fruta 🤤", "{name}\nको कुछ फल चाहिए 🤤", "{name}\nيريد بعض الفاكهة 🤤")
-    .replace("{name}", name)
-}
-
-pub fn fruit_store(l: Lang, name: &str, fruits: &str) -> String {
-    tr!(l;
-        "{name}'s fruit stash:\n{fruits}", "{name}\n的水果庫:\n{fruits}", "{name}\n的水果库:\n{fruits}", "{name} のフルーツ庫:\n{fruits}", "{name} 의 과일 창고:\n{fruits}",
-        "Запас фруктов {name}:\n{fruits}", "Réserve de fruits de {name} :\n{fruits}", "Reserva de fruta de {name}:\n{fruits}", "Obstvorrat von {name}:\n{fruits}", "Kho trái cây của {name}:\n{fruits}",
-        "Stok buah {name}:\n{fruits}", "Imbak na prutas ni {name}:\n{fruits}", "คลังผลไม้ของ {name}:\n{fruits}", "Fruitvoorraad van {name}:\n{fruits}", "{name} kullanıcısının meyve deposu:\n{fruits}",
-        "Estoque de frutas de {name}:\n{fruits}", "{name} का फल भंडार:\n{fruits}", "مخزون فاكهة {name}:\n{fruits}")
-    .replace("{name}", name)
-    .replace("{fruits}", fruits)
-}
-
 pub fn sent_coins(l: Lang, sender: &str, recv: &str, coins: &str) -> String {
     tr!(l;
         "{sender} sent {recv}\n{coins} water-coins", "{sender} 送給 {recv}\n{coins} 顆 水幣", "{sender} 送给 {recv}\n{coins} 颗 水币", "{sender} が {recv} に\n水コインを {coins} 枚 送った", "{sender} 님이 {recv} 님에게\n물코인 {coins} 개 보냄",
@@ -784,15 +755,12 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 10] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 7] {
     [
         ("start", hi(l)),
         ("balance", menu_balance(l)),
-        ("fruit", menu_fruit(l)),
         ("send", menu_send(l)),
         ("host", menu_host(l)),
-        ("sell", menu_sell(l)),
-        ("buy", menu_buy(l)),
         ("markets", menu_markets(l)),
         ("checkin", menu_checkin(l)),
         ("language", menu_language(l)),
@@ -831,14 +799,6 @@ fn menu_balance(l: Lang) -> &'static str {
         "Veja seu saldo de moedas de água", "अपना वॉटर-कॉइन बैलेंस देखें", "اطّلع على رصيد عملاتك المائية")
 }
 
-fn menu_fruit(l: Lang) -> &'static str {
-    tr!(l;
-        "Check your fruit", "查看水果", "查看水果", "フルーツを見る", "과일 확인",
-        "Посмотреть фрукты", "Voir tes fruits", "Ver tu fruta", "Dein Obst ansehen", "Xem trái cây",
-        "Cek buahmu", "Tingnan ang iyong prutas", "ดูผลไม้ของคุณ", "Bekijk je fruit", "Meyvelerini gör",
-        "Veja suas frutas", "अपने फल देखें", "اطّلع على فاكهتك")
-}
-
 fn menu_send(l: Lang) -> &'static str {
     tr!(l;
         "Reply to a message to send coins or fruit", "回覆訊息以送出水幣或水果", "回复消息以送出水币或水果", "メッセージに返信してコインや果物を送る", "메시지에 답장해 코인이나 과일 보내기",
@@ -853,22 +813,6 @@ fn menu_host(l: Lang) -> &'static str {
         "Открыть ставку или посмотреть свои", "Ouvrir un pari ou voir tes mises", "Abre una apuesta o mira las tuyas", "Eine Wette eröffnen oder deine Einsätze ansehen", "Mở ván cược hoặc xem cược của bạn",
         "Buka taruhan atau lihat taruhanmu", "Magbukas ng pusta o tingnan ang sa'yo", "เปิดเดิมพันหรือดูเดิมพันของคุณ", "Open een weddenschap of bekijk je inzetten", "Bahis aç ya da bahislerini gör",
         "Abra uma aposta ou veja as suas", "बेट खोलें या अपने दांव देखें", "افتح رهانًا أو اطّلع على رهاناتك")
-}
-
-fn menu_sell(l: Lang) -> &'static str {
-    tr!(l;
-        "/sell <fruit> <price>", "/sell <水果> <價格>", "/sell <水果> <价格>", "/sell <フルーツ> <価格>", "/sell <과일> <가격>",
-        "/sell <фрукт> <цена>", "/sell <fruit> <prix>", "/sell <fruta> <precio>", "/sell <Obst> <Preis>", "/sell <trái cây> <giá>",
-        "/sell <buah> <harga>", "/sell <prutas> <presyo>", "/sell <ผลไม้> <ราคา>", "/sell <fruit> <prijs>", "/sell <meyve> <fiyat>",
-        "/sell <fruta> <preço>", "/sell <फल> <मूल्य>", "/sell <فاكهة> <سعر>")
-}
-
-fn menu_buy(l: Lang) -> &'static str {
-    tr!(l;
-        "/buy <fruit> <price>", "/buy <水果> <價格>", "/buy <水果> <价格>", "/buy <フルーツ> <価格>", "/buy <과일> <가격>",
-        "/buy <фрукт> <цена>", "/buy <fruit> <prix>", "/buy <fruta> <precio>", "/buy <Obst> <Preis>", "/buy <trái cây> <giá>",
-        "/buy <buah> <harga>", "/buy <prutas> <presyo>", "/buy <ผลไม้> <ราคา>", "/buy <fruit> <prijs>", "/buy <meyve> <fiyat>",
-        "/buy <fruta> <preço>", "/buy <फल> <मूल्य>", "/buy <فاكهة> <سعر>")
 }
 
 /// Per-staker settlement line, e.g. `***1234 won 50 water-coins`. `verb` is
@@ -1199,9 +1143,6 @@ mod tests {
         // its tokens — a leftover `{` means an arm forgot a placeholder.
         for l in Lang::ALL {
             let samples = [
-                have_coins(l, "A", "1"),
-                want_fruit(l, "A"),
-                fruit_store(l, "A", "🍎"),
                 sent_coins(l, "A", "B", "1"),
                 sent_envelope_title(l, "A", "1"),
                 sent_fruits(l, "A", "B", "🍎"),

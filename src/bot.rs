@@ -83,7 +83,7 @@ pub async fn run() -> anyhow::Result<()> {
         .set_token(&cfg.token)
         .set_framework(create_framework!(
             bot_username.as_str(),
-            start, balance, fruit, send, host, sell, buy, markets, checkin, language,
+            start, balance, send, host, sell, buy, markets, checkin, language,
             mint, pause, unpause, broadcast, reset, settle
         ))
         .add_handler_func(callbacks::on_callback)

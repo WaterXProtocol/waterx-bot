@@ -13,7 +13,16 @@ pub async fn balance(ctx: Context, message: Message) -> CommandResult {
     };
     let lang = lang_for(&ctx, user);
     let info = db(&ctx).get_user_info(user.id)?;
-    let body = i18n::have_coins(lang, &full_name(user), &fmt_coins(info.balance));
+    let fruits = if info.fruit.is_empty() {
+        "—".to_string()
+    } else {
+        info.fruit
+    };
+    let body = format!(
+        "{}\n{}",
+        full_name(user),
+        i18n::menu_status(lang, &fmt_coins(info.balance), &fruits)
+    );
     reply(&ctx, &message, body).await?;
     Ok(())
 }
