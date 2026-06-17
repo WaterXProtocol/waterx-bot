@@ -16,3 +16,5 @@ rand_distr = "0.4"
 anyhow = "1.0"
 thiserror = "1.0"
 tokio = { version = "1", features = ["full"] }
+chrono = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }

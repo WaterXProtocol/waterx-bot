@@ -80,7 +80,7 @@ pub async fn run() -> anyhow::Result<()> {
         .set_token(&cfg.token)
         .set_framework(create_framework!(
             bot_username.as_str(),
-            start, random, balance, fruit, send, dice, gamble, sell, buy
+            start, random, balance, fruit, send, dice, gamble, sell, buy, markets
         ))
         .add_handler_func(callbacks::on_callback);
     let client = builder.build();

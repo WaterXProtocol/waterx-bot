@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Telegram bot for a small private group, written in Rust on top of [`telexide`](https://docs.rs/telexide). The slash commands are Chinese-language utilities: random picker, balance/fruit ledger, coin/fruit transfers, dice betting, bet games, and fruit trading. State persists in `waterx.db` (a SQLite file in the working directory; constant defined at `database::DB_FILENAME`). Configuration comes from environment variables (loaded from `.env` if present): `BOT_TOKEN`, `BOT_OWNER` (numeric Telegram user id), and optional `BOT_DEV` (default `true`; set `false` for production).
 
-The current command set is `start, random, balance, fruit, send, dice, gamble, sell, buy`. The DB schema is `balance(user, balance, fruit)` + `buffer` + `bet_games`. A vestigial `cloth` column was dropped (a startup migration `ALTER TABLE balance DROP COLUMN cloth` cleans up old data files); a `fruit_pop` helper from the prior larger command set still lingers.
+The current command set is `start, random, balance, fruit, send, dice, gamble, sell, buy, markets`. The DB schema is `balance(user, balance, fruit)` + `buffer` + `bet_games`. A vestigial `cloth` column was dropped (a startup migration `ALTER TABLE balance DROP COLUMN cloth` cleans up old data files); a `fruit_pop` helper from the prior larger command set still lingers.
 
 ## Commands
 
@@ -88,6 +88,21 @@ the sender's locale; callbacks use `Lang::from_user(&cb.from)`.
 
 Adding a message: add a `pub fn` with all 15 `tr!` arms; the
 `no_unfilled_placeholders_in_any_locale` test catches any arm that drops a token.
+
+### `/markets` — read-only external feed
+
+`src/commands/markets.rs` is the one command that talks to an outside service
+rather than the local DB. It `GET`s `https://api.waterx.app/predict/browse`
+(via `reqwest` with `rustls-tls`, reusing the rustls already in the tree) and
+renders a Jupiter-style "market brief": sport matches only (team vs team,
+kickoff time, and per-outcome **decimal odds** = `100/oddsCents`, e.g. 65¢ →
+1.54) — the feed's crypto up/down pools are filtered out. It never touches the
+water-coin ledger. Two gotchas baked into the structs: the response models only
+the fields the brief reads (serde ignores the rest), and `oddsCents` **must** be
+`f64` — some rounds report fractional cents (e.g. `99.9`), which would make an
+`i64` field fail to deserialize the entire feed. The locale query param is the
+caller's `Lang::menu_code()`; the API localizes Chinese and falls back to
+English for anything it doesn't support, so any locale is safe to send.
 
 ### Database
 

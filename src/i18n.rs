@@ -676,7 +676,7 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 10] {
     [
         ("start", hi(l)),
         ("random", menu_random(l)),
@@ -687,7 +687,15 @@ pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
         ("gamble", menu_gamble(l)),
         ("sell", menu_sell(l)),
         ("buy", menu_buy(l)),
+        ("markets", menu_markets(l)),
     ]
+}
+
+fn menu_markets(l: Lang) -> &'static str {
+    tr!(l;
+        "Browse live prediction markets", "瀏覽即時預測市場", "浏览实时预测市场", "予測市場をチェック", "실시간 예측 마켓 보기",
+        "Прогнозные рынки", "Voir les marchés de prédiction", "Ver mercados de predicción", "Prognosemärkte ansehen", "Xem thị trường dự đoán",
+        "Lihat pasar prediksi", "Tingnan ang prediction markets", "ดูตลาดทำนายผล", "Bekijk voorspellingsmarkten", "Tahmin piyasalarını gör")
 }
 
 fn menu_random(l: Lang) -> &'static str {
@@ -758,6 +766,47 @@ pub fn settle_line(l: Lang, tail: &str, verb: &str, amt: &str) -> String {
     .replace("{amt}", amt)
 }
 
+// ----------------------------------------------------------------------------
+// `/markets` brief
+// ----------------------------------------------------------------------------
+
+pub fn markets_title(l: Lang) -> &'static str {
+    tr!(l;
+        "🌍 Market Brief", "🌍 市場速報", "🌍 市场速报", "🌍 マーケット速報", "🌍 마켓 브리핑",
+        "🌍 Сводка рынков", "🌍 Aperçu des marchés", "🌍 Resumen de mercados", "🌍 Markt-Überblick", "🌍 Tổng quan thị trường",
+        "🌍 Ringkasan pasar", "🌍 Buod ng Market", "🌍 สรุปตลาด", "🌍 Marktoverzicht", "🌍 Piyasa Özeti")
+}
+
+pub fn markets_matches(l: Lang) -> &'static str {
+    tr!(l;
+        "⚽ Matches:", "⚽ 比賽：", "⚽ 比赛：", "⚽ 試合：", "⚽ 경기:",
+        "⚽ Матчи:", "⚽ Matchs :", "⚽ Partidos:", "⚽ Spiele:", "⚽ Trận đấu:",
+        "⚽ Pertandingan:", "⚽ Mga Laro:", "⚽ การแข่งขัน:", "⚽ Wedstrijden:", "⚽ Maçlar:")
+}
+
+pub fn markets_empty(l: Lang) -> &'static str {
+    tr!(l;
+        "No open markets right now 🪹", "目前沒有開放的市場 🪹", "目前没有开放的市场 🪹", "今は開いている市場がないよ 🪹", "지금은 열린 마켓이 없어 🪹",
+        "Сейчас нет открытых рынков 🪹", "Aucun marché ouvert pour le moment 🪹", "No hay mercados abiertos ahora 🪹", "Derzeit keine offenen Märkte 🪹", "Hiện chưa có thị trường nào 🪹",
+        "Belum ada pasar yang dibuka 🪹", "Walang bukas na market ngayon 🪹", "ตอนนี้ยังไม่มีตลาดที่เปิด 🪹", "Nu geen open markten 🪹", "Şu an açık piyasa yok 🪹")
+}
+
+pub fn markets_unavailable(l: Lang) -> &'static str {
+    tr!(l;
+        "Couldn't reach the markets 😵‍💫", "無法連線到市場 😵‍💫", "无法连接到市场 😵‍💫", "マーケットに接続できなかったよ 😵‍💫", "마켓에 연결하지 못했어 😵‍💫",
+        "Не удалось получить рынки 😵‍💫", "Impossible de joindre les marchés 😵‍💫", "No se pudo acceder a los mercados 😵‍💫", "Märkte nicht erreichbar 😵‍💫", "Không kết nối được tới thị trường 😵‍💫",
+        "Tidak bisa mengakses pasar 😵‍💫", "Hindi maabot ang market 😵‍💫", "เชื่อมต่อตลาดไม่ได้ 😵‍💫", "Kon de markten niet bereiken 😵‍💫", "Piyasalara ulaşılamadı 😵‍💫")
+}
+
+/// "…and N more" tail when the brief is truncated.
+pub fn markets_more(l: Lang, n: &str) -> String {
+    tr!(l;
+        "…and {n} more", "…還有 {n} 個", "…还有 {n} 个", "…ほか {n} 件", "…외 {n}개",
+        "…и ещё {n}", "…et {n} de plus", "…y {n} más", "…und {n} weitere", "…và {n} nữa",
+        "…dan {n} lagi", "…at {n} pa", "…และอีก {n} รายการ", "…en nog {n}", "…ve {n} tane daha")
+    .replace("{n}", n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -813,6 +862,7 @@ mod tests {
                 you_dont_have(l, "🍎"),
                 result_header(l, "id", "X"),
                 settle_line(l, "1234", verb_won(l), "5"),
+                markets_more(l, "3"),
             ];
             for s in samples {
                 assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");
