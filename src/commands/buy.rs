@@ -6,6 +6,9 @@ use telexide::prelude::*;
 
 #[command(description = "post a buy offer; the seller presses the inline button")]
 pub async fn buy(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     let Some(buyer) = message.from.clone() else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());

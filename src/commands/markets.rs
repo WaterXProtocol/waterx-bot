@@ -14,6 +14,9 @@ const MAX_MATCHES: usize = 8;
 
 #[command(description = "browse live prediction markets")]
 pub async fn markets(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     reply(&ctx, &message, brief(lang_for_msg(&ctx, &message)).await).await?;
     Ok(())
 }

@@ -6,6 +6,9 @@ use telexide::prelude::*;
 
 #[command(description = "say hi and open the menu")]
 pub async fn start(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     let Some(uid) = from_id(&message) else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());

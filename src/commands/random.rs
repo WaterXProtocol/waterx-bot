@@ -4,6 +4,9 @@ use telexide::prelude::*;
 
 #[command(description = "pick a uniformly random option")]
 pub async fn random(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     let opts = args(&message);
     if opts.is_empty() {
         reply(&ctx, &message, ERR_REPLY).await?;

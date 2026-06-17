@@ -7,6 +7,9 @@ use telexide::prelude::*;
 
 #[command(description = "send water-coins or fruit to the replied-to user")]
 pub async fn send(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     let Some(sender) = message.from.clone() else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());

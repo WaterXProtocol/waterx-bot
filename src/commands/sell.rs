@@ -6,6 +6,9 @@ use telexide::prelude::*;
 
 #[command(description = "list fruit for sale; the buyer presses the inline button")]
 pub async fn sell(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     let Some(seller) = message.from.clone() else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());

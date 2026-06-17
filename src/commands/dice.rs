@@ -7,6 +7,9 @@ use telexide::prelude::*;
 
 #[command(description = "/dice <guess 1-6> <wager> — 6x payout on a match")]
 pub async fn dice(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     let parts = args(&message);
 
     // No args → just roll a dice for fun, no betting.

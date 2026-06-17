@@ -22,6 +22,13 @@ pub async fn on_callback(ctx: Context, update: Update) {
         return;
     };
     eprintln!("[cb] {}: {data}", cb.from.first_name);
+    // Admin pause kill-switch: block every non-owner button press while paused.
+    if !crate::commands::util::is_owner(&ctx, cb.from.id)
+        && db_arc(&ctx).is_paused().unwrap_or(false)
+    {
+        let _ = answer(&ctx, &cb, i18n::service_paused(cb_lang(&ctx, &cb)), false).await;
+        return;
+    }
     let result = if let Some(rest) = data.strip_prefix("envelope:") {
         handle_envelope(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gamble:") {

@@ -6,6 +6,9 @@ use telexide::prelude::*;
 
 #[command(description = "open a betting game (host) or show open ones")]
 pub async fn gamble(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     let Some(host) = message.from.clone() else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());

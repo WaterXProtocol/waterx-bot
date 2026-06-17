@@ -1,4 +1,4 @@
-use crate::bot::{DbKey, GamesKey};
+use crate::bot::{ConfigKey, DbKey, GamesKey};
 use crate::database::Database;
 use crate::game::BetGame;
 use std::collections::HashMap;
@@ -123,6 +123,32 @@ pub fn lang_for_msg(ctx: &Context, msg: &Message) -> crate::i18n::Lang {
         .as_ref()
         .map(|u| lang_for(ctx, u))
         .unwrap_or(crate::i18n::Lang::En)
+}
+
+/// True when `user_id` is the configured `BOT_OWNER`. The read guard is dropped
+/// on the same statement (it is not `Send`, so it must not cross an `.await`).
+pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
+    ctx.data
+        .read()
+        .get::<ConfigKey>()
+        .map(|cfg| cfg.owner == user_id)
+        .unwrap_or(false)
+}
+
+/// Gate for the admin pause kill-switch. Returns `true` (and tells the caller
+/// the bot is paused) when the bot is paused and the actor is **not** the
+/// owner; command handlers should early-return when it does. The owner is
+/// always allowed through so they can still `/unpause` and operate.
+pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandError> {
+    let uid = from_id(msg).unwrap_or(0);
+    if is_owner(ctx, uid) {
+        return Ok(false);
+    }
+    if db(ctx).is_paused().unwrap_or(false) {
+        reply(ctx, msg, crate::i18n::service_paused(lang_for_msg(ctx, msg))).await?;
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 pub const ERR_REPLY: &str = "🤯";

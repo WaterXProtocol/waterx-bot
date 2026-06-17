@@ -1,6 +1,7 @@
 mod buffer;
 mod fruit;
 mod games;
+mod meta;
 mod user;
 
 pub use buffer::OfferOutcome;
@@ -78,6 +79,15 @@ impl Database {
                 id         TEXT    NOT NULL PRIMARY KEY,
                 blob       TEXT    NOT NULL,
                 created_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        // Small key/value table for bot-wide flags (currently just the admin
+        // `paused` kill-switch). Persisted so a pause survives restarts.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT NOT NULL PRIMARY KEY,
+                value TEXT NOT NULL
             )",
             [],
         )?;

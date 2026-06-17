@@ -4,6 +4,9 @@ use telexide::prelude::*;
 
 #[command(description = "show the caller's fruit inventory")]
 pub async fn fruit(ctx: Context, message: Message) -> CommandResult {
+    if paused_block(&ctx, &message).await? {
+        return Ok(());
+    }
     let Some(user) = message.from.as_ref() else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());

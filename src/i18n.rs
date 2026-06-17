@@ -825,6 +825,41 @@ pub fn settle_line(l: Lang, tail: &str, verb: &str, amt: &str) -> String {
 }
 
 // ----------------------------------------------------------------------------
+// Admin commands (owner-only)
+// ----------------------------------------------------------------------------
+
+pub fn minted(l: Lang, name: &str, amt: &str) -> String {
+    tr!(l;
+        "🪄 Minted {amt} to {name}", "🪄 已給 {name} 鑄造 {amt}", "🪄 已给 {name} 铸造 {amt}", "🪄 {name} に {amt} を発行したよ", "🪄 {name}에게 {amt} 발행했어",
+        "🪄 Начислено {amt} для {name}", "🪄 {amt} créés pour {name}", "🪄 Acuñado {amt} para {name}", "🪄 {amt} für {name} erzeugt", "🪄 Đã đúc {amt} cho {name}",
+        "🪄 Mint {amt} ke {name}", "🪄 Nag-mint ng {amt} kay {name}", "🪄 มินต์ {amt} ให้ {name} แล้ว", "🪄 {amt} naar {name} gemunt", "🪄 {name} için {amt} basıldı")
+    .replace("{amt}", amt)
+    .replace("{name}", name)
+}
+
+pub fn mint_usage(l: Lang) -> &'static str {
+    tr!(l;
+        "Reply to someone with /mint <amount> 🪄", "回覆對方並輸入 /mint <數量> 🪄", "回复对方并输入 /mint <数量> 🪄", "相手に返信して /mint <数量> 🪄", "상대에게 답장하고 /mint <수량> 🪄",
+        "Ответьте на сообщение: /mint <сумма> 🪄", "Réponds à quelqu'un avec /mint <montant> 🪄", "Responde a alguien con /mint <cantidad> 🪄", "Antworte jemandem mit /mint <Betrag> 🪄", "Trả lời ai đó với /mint <số lượng> 🪄",
+        "Balas seseorang dengan /mint <jumlah> 🪄", "Mag-reply gamit ang /mint <halaga> 🪄", "ตอบกลับใครสักคนด้วย /mint <จำนวน> 🪄", "Reageer met /mint <bedrag> 🪄", "Birine /mint <miktar> ile yanıt ver 🪄")
+}
+
+pub fn broadcast_sent(l: Lang, n: &str) -> String {
+    tr!(l;
+        "📣 Broadcast sent to {n} chats", "📣 已廣播給 {n} 個對話", "📣 已广播给 {n} 个对话", "📣 {n} 件のチャットに配信したよ", "📣 {n}개 채팅에 전송했어",
+        "📣 Рассылка отправлена в {n} чатов", "📣 Diffusé à {n} discussions", "📣 Enviado a {n} chats", "📣 An {n} Chats gesendet", "📣 Đã gửi tới {n} cuộc trò chuyện",
+        "📣 Disiarkan ke {n} chat", "📣 Naipadala sa {n} chat", "📣 ส่งถึง {n} แชทแล้ว", "📣 Verzonden naar {n} chats", "📣 {n} sohbete gönderildi")
+    .replace("{n}", n)
+}
+
+pub fn broadcast_usage(l: Lang) -> &'static str {
+    tr!(l;
+        "/broadcast <message>", "/broadcast <訊息>", "/broadcast <消息>", "/broadcast <メッセージ>", "/broadcast <메시지>",
+        "/broadcast <сообщение>", "/broadcast <message>", "/broadcast <mensaje>", "/broadcast <Nachricht>", "/broadcast <tin nhắn>",
+        "/broadcast <pesan>", "/broadcast <mensahe>", "/broadcast <ข้อความ>", "/broadcast <bericht>", "/broadcast <mesaj>")
+}
+
+// ----------------------------------------------------------------------------
 // `/start` onboarding & main menu
 // ----------------------------------------------------------------------------
 
@@ -969,6 +1004,8 @@ mod tests {
                 settle_line(l, "1234", verb_won(l), "5"),
                 markets_more(l, "3"),
                 checkin_done(l, "10"),
+                minted(l, "A", "10"),
+                broadcast_sent(l, "5"),
             ];
             for s in samples {
                 assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");

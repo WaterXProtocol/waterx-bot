@@ -84,6 +84,17 @@ impl Database {
         Ok(true)
     }
 
+    /// Every known user id (one row per user who has interacted). Used by the
+    /// admin `/broadcast` to DM each user in their private chat.
+    pub fn all_user_ids(&self) -> SqlResult<Vec<i64>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT user FROM balance")?;
+        let ids = stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<SqlResult<Vec<i64>>>()?;
+        Ok(ids)
+    }
+
     /// Owner-only: applies a change without the non-negative guard.
     pub fn force_change(&self, user_id: i64, change: i64) -> SqlResult<()> {
         self.ensure_row(user_id)?;
