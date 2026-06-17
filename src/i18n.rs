@@ -829,9 +829,17 @@ pub const CHOOSE_LANGUAGE: &str = "🌐 Please choose your language\n请选择�
 
 pub fn intro(l: Lang) -> &'static str {
     tr!(l;
-        "Hi, I'm Xaliah. Nice to meet you 😊 What do you want?", "嗨，我是 Xaliah，很高興認識你 😊 想做點什麼呢？", "嗨，我是 Xaliah，很高兴认识你 😊 想做点什么呢？", "やあ、私は Xaliah。会えて嬉しいよ 😊 何がしたい？", "안녕, 나는 Xaliah야. 만나서 반가워 😊 뭘 하고 싶어?",
-        "Привет, я Xaliah. Рада знакомству 😊 Чего хочешь?", "Salut, je suis Xaliah. Ravie de te rencontrer 😊 Que veux-tu ?", "Hola, soy Xaliah. Encantada de conocerte 😊 ¿Qué quieres?", "Hi, ich bin Xaliah. Schön dich kennenzulernen 😊 Was möchtest du?", "Chào, mình là Xaliah. Rất vui được gặp bạn 😊 Bạn muốn gì nào?",
-        "Hai, aku Xaliah. Senang berkenalan 😊 Mau apa?", "Hi, ako si Xaliah. Ikinagagalak kitang makilala 😊 Ano'ng gusto mo?", "สวัสดี ฉันชื่อ Xaliah ยินดีที่ได้รู้จัก 😊 อยากทำอะไรดี?", "Hoi, ik ben Xaliah. Leuk je te ontmoeten 😊 Wat wil je?", "Selam, ben Xaliah. Tanıştığımıza memnun oldum 😊 Ne istersin?")
+        "Hi, I'm Xaliah. Nice to meet you 😊", "嗨，我是 Xaliah，很高興認識你 😊", "嗨，我是 Xaliah，很高兴认识你 😊", "やあ、私は Xaliah。会えて嬉しいよ 😊", "안녕, 나는 Xaliah야. 만나서 반가워 😊",
+        "Привет, я Xaliah. Рада знакомству 😊", "Salut, je suis Xaliah. Ravie de te rencontrer 😊", "Hola, soy Xaliah. Encantada de conocerte 😊", "Hi, ich bin Xaliah. Schön dich kennenzulernen 😊", "Chào, mình là Xaliah. Rất vui được gặp bạn 😊",
+        "Hai, aku Xaliah. Senang berkenalan 😊", "Hi, ako si Xaliah. Ikinagagalak kitang makilala 😊", "สวัสดี ฉันชื่อ Xaliah ยินดีที่ได้รู้จัก 😊", "Hoi, ik ben Xaliah. Leuk je te ontmoeten 😊", "Selam, ben Xaliah. Tanıştığımıza memnun oldum 😊")
+}
+
+/// Closing prompt shown as the last line of the menu, after the status block.
+pub fn menu_prompt(l: Lang) -> &'static str {
+    tr!(l;
+        "What do you want?", "想做點什麼呢？", "想做点什么呢？", "何がしたい？", "뭘 하고 싶어?",
+        "Чего хочешь?", "Que veux-tu ?", "¿Qué quieres?", "Was möchtest du?", "Bạn muốn gì nào?",
+        "Mau apa?", "Ano'ng gusto mo?", "อยากทำอะไรดี?", "Wat wil je?", "Ne istersin?")
 }
 
 /// Balance + fruit summary shown under the menu intro.

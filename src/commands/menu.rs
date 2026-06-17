@@ -41,9 +41,10 @@ pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
         info.fruit
     };
     format!(
-        "{}\n\n{}",
+        "{}\n\n{}\n\n{}",
         i18n::intro(lang),
-        i18n::menu_status(lang, &format_number(info.balance), &fruits)
+        i18n::menu_status(lang, &format_number(info.balance), &fruits),
+        i18n::menu_prompt(lang)
     )
 }
 
