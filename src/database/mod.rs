@@ -10,9 +10,22 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The on-disk SQLite filename. Fixed so the data file is predictable
-/// across deploys and easy to gitignore.
+/// On-disk SQLite filenames. Dev and production keep separate data files so a
+/// development bot never reads or clobbers live balances. Both are covered by
+/// the `*.db` gitignore rule. Selection is by the `BOT_DEV` flag — see
+/// [`db_filename`].
 pub const DB_FILENAME: &str = "waterx.db";
+pub const DB_FILENAME_DEV: &str = "waterx-dev.db";
+
+/// Pick the data file for the current run: `waterx-dev.db` when `dev` is set
+/// (the default), `waterx.db` for production (`BOT_DEV=false`).
+pub fn db_filename(dev: bool) -> &'static str {
+    if dev {
+        DB_FILENAME_DEV
+    } else {
+        DB_FILENAME
+    }
+}
 
 /// Buffer rows are pruned this many seconds after creation, with their escrow
 /// refunded to the original owner. Matches "drop stale offers/envelopes on

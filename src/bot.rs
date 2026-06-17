@@ -1,5 +1,5 @@
 use crate::commands::{callbacks, *};
-use crate::database::{Database, DB_FILENAME};
+use crate::database::{db_filename, Database};
 use crate::game::BetGame;
 use crate::types::BotConfig;
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -39,7 +39,12 @@ pub async fn run() -> anyhow::Result<()> {
         .next()
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| anyhow::anyhow!("malformed bot token (expected `<id>:<secret>`)"))?;
-    let db = Arc::new(Database::new(DB_FILENAME, bot_id)?);
+    let db_path = db_filename(cfg.dev);
+    eprintln!(
+        "using {} database: {db_path}",
+        if cfg.dev { "DEV" } else { "PRODUCTION" }
+    );
+    let db = Arc::new(Database::new(db_path, bot_id)?);
     let games_map: HashMap<String, BetGame> = match db.load_all_bet_games() {
         Ok(rows) => {
             let n = rows.len();
