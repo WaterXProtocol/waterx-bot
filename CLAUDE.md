@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Telegram bot for a small private group, written in Rust on top of [`telexide`](https://docs.rs/telexide). The slash commands are Chinese-language utilities: random picker, balance/fruit ledger, coin/fruit transfers, dice betting, bet games, and fruit trading. State persists in `waterx.db` (a SQLite file in the working directory; constant defined at `database::DB_FILENAME`). Configuration comes from environment variables (loaded from `.env` if present): `BOT_TOKEN`, `BOT_OWNER` (numeric Telegram user id), and optional `BOT_DEV` (default `true`; set `false` for production).
 
-The current command set is `start, random, balance, fruit, send, dice, gamble, sell, buy, markets, checkin`. The DB schema is `balance(user, balance, fruit, last_checkin)` + `buffer` + `bet_games`. `/checkin` grants 10 water-coins once per UTC day — `last_checkin` stores the last claimed UTC day index (`unix_secs / 86400`), so the window resets exactly at 00:00 UTC (see `Database::try_checkin`). A vestigial `cloth` column was dropped (a startup migration `ALTER TABLE balance DROP COLUMN cloth` cleans up old data files); a `fruit_pop` helper from the prior larger command set still lingers.
+The current command set is `start, random, balance, fruit, send, dice, gamble, sell, buy, markets, checkin`. `/start` is the button-driven entry point: a first-time user is shown a language picker, and once a locale is chosen (persisted to `balance.lang`) the bot opens the Xaliah main menu — an intro line plus inline buttons `[daily check-in]` `[today's matches]` that fire the `setlang:` / `menu:` callbacks. The DB schema is `balance(user, balance, fruit, last_checkin, lang)` + `buffer` + `bet_games`. `/checkin` grants 10 water-coins once per UTC day — `last_checkin` stores the last claimed UTC day index (`unix_secs / 86400`), so the window resets exactly at 00:00 UTC (see `Database::try_checkin`). A vestigial `cloth` column was dropped (a startup migration `ALTER TABLE balance DROP COLUMN cloth` cleans up old data files); a `fruit_pop` helper from the prior larger command set still lingers.
 
 ## Commands
 
@@ -46,7 +46,7 @@ These helpers also encapsulate the **Send-across-await gotcha**: `ctx.data.read(
 
 ### Callback queries are routed separately
 
-Telegram callback queries (inline-button presses) are *not* commands. They come through `src/commands/callbacks.rs::on_callback`, a `#[prepare_listener]` registered via `add_handler_func` in `bot.rs`. It matches `UpdateContent::CallbackQuery` and dispatches on the `cb.data` string prefix: `envelope:`, `gamble:`, `sell:`, `buy:`.
+Telegram callback queries (inline-button presses) are *not* commands. They come through `src/commands/callbacks.rs::on_callback`, a `#[prepare_listener]` registered via `add_handler_func` in `bot.rs`. It matches `UpdateContent::CallbackQuery` and dispatches on the `cb.data` string prefix: `envelope:`, `gamble:`, `sell:`, `buy:`, `setlang:`, `menu:checkin`, `menu:matches`. The last three drive the `/start` menu (defined in `src/commands/menu.rs`): `setlang:<store_code>` saves the locale and edits the picker into the main menu in place; `menu:checkin` grants the daily reward as an alert (menu stays); `menu:matches` posts the match brief (via the shared `markets::brief`) as a fresh message.
 
 This matters because `/sell` and `/buy` slash commands **don't transact** — they just post an inline keyboard with a `sell:<seller>:<fruits>:<price>` or `buy:<buyer>:<fruits>:<price>` payload. The actual fruit/coin exchange happens when the counterparty taps the button and the callback fires.
 
@@ -67,11 +67,16 @@ tr`), and one `pub fn` per message so all locales for a message sit together.
 Parameterised messages leave `{token}` placeholders in every arm and substitute
 with `.replace(...)` (real `format!` can't take a runtime format string).
 
-Language is **auto-detected** from Telegram's `User.language_code` via
-`Lang::from_user` — there is no `/lang` command and no DB column. Unknown /
-unsupported tags fall back to English; bare `zh` → Simplified, `zh-Hant`/`zh-TW`/
-`zh-HK`/`zh-MO` → Traditional. Helper `commands::util::lang_of(&Message)` resolves
-the sender's locale; callbacks use `Lang::from_user(&cb.from)`.
+Language resolution is **explicit-choice-wins, auto-detect-fallback**. A user's
+`/start`-chosen locale is persisted in `balance.lang` (stable `Lang::store_code`,
+e.g. `hant`/`hans`, round-tripped via `Lang::from_store_code`; empty = not yet
+chosen). When unset, the bot falls back to Telegram's `User.language_code` via
+`Lang::from_user`: unknown / unsupported tags → English; bare `zh` → Simplified,
+`zh-Hant`/`zh-TW`/`zh-HK`/`zh-MO` → Traditional. Command handlers resolve the
+acting user through `commands::util::lang_for(&ctx, &user)` /
+`lang_for_msg(&ctx, &msg)` (DB-then-detect); callbacks use the equivalent
+`cb_lang`. The detect-only `lang_of(&Message)` remains for sites without DB
+access. `Database::{get_lang, set_lang}` are the persistence accessors.
 
 - **Per-user messages** (direct replies, callback toasts) render in the *acting*
   user's locale.

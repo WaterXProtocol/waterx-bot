@@ -14,19 +14,21 @@ const MAX_MATCHES: usize = 8;
 
 #[command(description = "browse live prediction markets")]
 pub async fn markets(ctx: Context, message: Message) -> CommandResult {
-    let lang = lang_of(&message);
+    reply(&ctx, &message, brief(lang_for_msg(&ctx, &message)).await).await?;
+    Ok(())
+}
 
-    let resp = match fetch(lang).await {
-        Ok(r) => r,
+/// Fetch and render the match brief, ready to post. On any fetch/parse failure
+/// this returns the localized "unavailable" line rather than erroring, so both
+/// the `/markets` command and the menu button can post it unconditionally.
+pub(crate) async fn brief(lang: Lang) -> String {
+    match fetch(lang).await {
+        Ok(resp) => render(lang, &resp.data.items),
         Err(err) => {
             eprintln!("[markets] fetch error: {err}");
-            reply(&ctx, &message, i18n::markets_unavailable(lang)).await?;
-            return Ok(());
+            i18n::markets_unavailable(lang).to_string()
         }
-    };
-
-    reply(&ctx, &message, render(lang, &resp.data.items)).await?;
-    Ok(())
+    }
 }
 
 /// Pull the browse feed, asking the API for the caller's locale. Unsupported

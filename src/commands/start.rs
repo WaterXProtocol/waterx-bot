@@ -1,12 +1,36 @@
+use crate::commands::menu;
+use crate::commands::tg;
 use crate::commands::util::*;
 use crate::i18n;
 use telexide::prelude::*;
 
-#[command(description = "say hi and make sure the user exists in the DB")]
+#[command(description = "say hi and open the menu")]
 pub async fn start(ctx: Context, message: Message) -> CommandResult {
-    if let Some(uid) = from_id(&message) {
-        db(&ctx).balance_change(uid, 0)?;
+    let Some(uid) = from_id(&message) else {
+        reply(&ctx, &message, ERR_REPLY).await?;
+        return Ok(());
+    };
+    let database = db(&ctx);
+    database.balance_change(uid, 0)?; // ensure the user row exists
+
+    let chat_id = message.chat.get_id();
+    match database.get_lang(uid)? {
+        // Language already chosen → straight to the Xaliah menu.
+        Some(lang) => {
+            tg::send_with_buttons(&ctx, chat_id, i18n::intro(lang), &menu::main_menu_rows(lang))
+                .await?;
+        }
+        // First time → make them pick a language; the menu opens from the
+        // `setlang:` callback once they choose.
+        None => {
+            tg::send_with_buttons(
+                &ctx,
+                chat_id,
+                i18n::CHOOSE_LANGUAGE,
+                &menu::lang_picker_rows(),
+            )
+            .await?;
+        }
     }
-    reply(&ctx, &message, i18n::hi(lang_of(&message))).await?;
     Ok(())
 }

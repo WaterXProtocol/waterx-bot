@@ -1,7 +1,7 @@
 use crate::bot::BotIdKey;
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::i18n::{self, Lang};
+use crate::i18n;
 use std::time::Duration;
 use telexide::prelude::*;
 
@@ -11,7 +11,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
-    let lang = Lang::from_user(&sender);
+    let lang = lang_for(&ctx, &sender);
 
     let parts = args(&message);
     if parts.is_empty() {

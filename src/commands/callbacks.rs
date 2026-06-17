@@ -1,6 +1,6 @@
 use crate::bot::{DbKey, GamesKey};
-use crate::commands::tg;
 use crate::commands::util::{format_number, SORRY_FRUITS};
+use crate::commands::{markets, menu, tg};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
 use crate::i18n::{self, Lang};
@@ -30,6 +30,12 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_sell(&ctx, &cb).await
     } else if data.starts_with("buy:") {
         handle_buy(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(menu::SET_LANG) {
+        handle_set_lang(&ctx, &cb, rest).await
+    } else if data == menu::MENU_CHECKIN {
+        handle_menu_checkin(&ctx, &cb).await
+    } else if data == menu::MENU_MATCHES {
+        handle_menu_matches(&ctx, &cb).await
     } else {
         Ok(())
     };
@@ -250,6 +256,70 @@ async fn handle_gamble(
     }
 
     answer(ctx, cb, i18n::system_error(lang), true).await
+}
+
+/// Resolve the locale for a callback presser: their saved choice if any, else
+/// the Telegram-reported language.
+fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
+    db_arc(ctx)
+        .get_lang(cb.from.id)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| Lang::from_user(&cb.from))
+}
+
+/// `setlang:<store_code>` — persist the chosen locale and swap the picker for
+/// the Xaliah main menu in place.
+async fn handle_set_lang(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    rest: &str,
+) -> Result<(), telexide::Error> {
+    let Some(lang) = Lang::from_store_code(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let db = db_arc(ctx);
+    if db.set_lang(cb.from.id, lang).is_err() {
+        return answer(ctx, cb, i18n::db_error(lang), true).await;
+    }
+    if let Some(message) = cb.message.clone() {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            message.chat.get_id(),
+            message.message_id,
+            i18n::intro(lang),
+            &menu::main_menu_rows(lang),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `menu:checkin` — grant the daily reward; result shown as an alert so the
+/// menu message stays put for the next tap.
+async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    match db_arc(ctx).try_checkin(cb.from.id, crate::commands::checkin::CHECKIN_REWARD) {
+        Ok(true) => {
+            let amt = format_number(crate::commands::checkin::CHECKIN_REWARD);
+            answer(ctx, cb, i18n::checkin_done(lang, &amt), true).await
+        }
+        Ok(false) => answer(ctx, cb, i18n::checkin_already(lang), true).await,
+        Err(_) => answer(ctx, cb, i18n::db_error(lang), true).await,
+    }
+}
+
+/// `menu:matches` — post the match brief as a fresh message, leaving the menu
+/// in place.
+async fn handle_menu_matches(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    answer(ctx, cb, "", false).await?;
+    let brief = markets::brief(lang).await;
+    crate::commands::util::send_text(ctx, message.chat.get_id(), brief).await?;
+    Ok(())
 }
 
 async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {

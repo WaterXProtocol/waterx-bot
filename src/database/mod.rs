@@ -42,7 +42,8 @@ impl Database {
                 user         INTEGER PRIMARY KEY,
                 balance      INTEGER NOT NULL DEFAULT 0,
                 fruit        TEXT    NOT NULL DEFAULT '',
-                last_checkin INTEGER NOT NULL DEFAULT 0
+                last_checkin INTEGER NOT NULL DEFAULT 0,
+                lang         TEXT    NOT NULL DEFAULT ''
             )",
             [],
         )?;
@@ -84,6 +85,11 @@ impl Database {
         // that already have it, which we swallow).
         let _ = conn.execute(
             "ALTER TABLE balance ADD COLUMN last_checkin INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // Add the persisted UI locale (empty = not yet chosen via /start).
+        let _ = conn.execute(
+            "ALTER TABLE balance ADD COLUMN lang TEXT NOT NULL DEFAULT ''",
             [],
         );
 

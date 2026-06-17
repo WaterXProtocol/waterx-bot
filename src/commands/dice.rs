@@ -26,7 +26,7 @@ pub async fn dice(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     if guess == 0 || guess > 6 {
-        reply(&ctx, &message, i18n::so_eager_to_lose(lang_of(&message))).await?;
+        reply(&ctx, &message, i18n::so_eager_to_lose(lang_for_msg(&ctx, &message))).await?;
         return Ok(());
     }
     let Ok(wager) = parts[1].parse::<i64>() else {
@@ -43,7 +43,7 @@ pub async fn dice(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
 
-    let lang = crate::i18n::Lang::from_user(&user);
+    let lang = lang_for(&ctx, &user);
     let database = db(&ctx);
     if !database.balance_change(user.id, -wager)? {
         reply(&ctx, &message, i18n::not_enough_money(lang)).await?;

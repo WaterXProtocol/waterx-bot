@@ -1,7 +1,7 @@
 use crate::commands::tg;
 use crate::commands::util::*;
 use crate::game::BetGame;
-use crate::i18n::{self, Lang};
+use crate::i18n;
 use telexide::prelude::*;
 
 #[command(description = "open a betting game (host) or show open ones")]
@@ -10,7 +10,7 @@ pub async fn gamble(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
-    let lang = Lang::from_user(&host);
+    let lang = lang_for(&ctx, &host);
     let parts = args(&message);
 
     if parts.is_empty() {

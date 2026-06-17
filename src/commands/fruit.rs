@@ -1,5 +1,5 @@
 use crate::commands::util::*;
-use crate::i18n::{self, Lang};
+use crate::i18n;
 use telexide::prelude::*;
 
 #[command(description = "show the caller's fruit inventory")]
@@ -8,7 +8,7 @@ pub async fn fruit(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
-    let lang = Lang::from_user(user);
+    let lang = lang_for(&ctx, user);
     let info = db(&ctx).get_user_info(user.id)?;
     let body = if info.fruit.is_empty() {
         i18n::want_fruit(lang, &full_name(user))

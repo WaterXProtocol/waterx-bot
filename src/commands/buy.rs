@@ -1,6 +1,6 @@
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::i18n::{self, Lang};
+use crate::i18n;
 use telexide::api::types::DeleteMessage;
 use telexide::prelude::*;
 
@@ -10,7 +10,7 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
-    let lang = Lang::from_user(&buyer);
+    let lang = lang_for(&ctx, &buyer);
     let parts = args(&message);
     if parts.len() < 2 {
         reply(&ctx, &message, ERR_REPLY).await?;

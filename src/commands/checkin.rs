@@ -4,7 +4,7 @@ use telexide::prelude::*;
 
 /// Daily check-in reward, in water-coins. The claim window resets at 00:00 UTC
 /// (see `Database::try_checkin`).
-const CHECKIN_REWARD: i64 = 10;
+pub(crate) const CHECKIN_REWARD: i64 = 10;
 
 #[command(description = "claim your daily 10 water-coins")]
 pub async fn checkin(ctx: Context, message: Message) -> CommandResult {
@@ -12,7 +12,7 @@ pub async fn checkin(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
-    let lang = lang_of(&message);
+    let lang = lang_for_msg(&ctx, &message);
     if db(&ctx).try_checkin(uid, CHECKIN_REWARD)? {
         let msg = i18n::checkin_done(lang, &format_number(CHECKIN_REWARD));
         reply(&ctx, &message, msg).await?;

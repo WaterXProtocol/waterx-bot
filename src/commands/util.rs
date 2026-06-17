@@ -106,6 +106,25 @@ pub fn lang_of(msg: &Message) -> crate::i18n::Lang {
         .unwrap_or(crate::i18n::Lang::En)
 }
 
+/// Resolved locale for `user`: their `/start`-chosen language if saved,
+/// otherwise the Telegram-reported one. Prefer this over [`lang_of`] in
+/// command handlers so an explicit choice wins everywhere.
+pub fn lang_for(ctx: &Context, user: &User) -> crate::i18n::Lang {
+    db(ctx)
+        .get_lang(user.id)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| crate::i18n::Lang::from_user(user))
+}
+
+/// [`lang_for`] keyed off a message's sender; English if there is no sender.
+pub fn lang_for_msg(ctx: &Context, msg: &Message) -> crate::i18n::Lang {
+    msg.from
+        .as_ref()
+        .map(|u| lang_for(ctx, u))
+        .unwrap_or(crate::i18n::Lang::En)
+}
+
 pub const ERR_REPLY: &str = "🤯";
 pub const ERR_NEG_REPLY: &str = "😐";
 

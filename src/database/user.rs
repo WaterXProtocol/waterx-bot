@@ -1,4 +1,5 @@
 use super::Database;
+use crate::i18n::Lang;
 use rusqlite::{params, Result as SqlResult};
 
 #[derive(Debug, Default, Clone)]
@@ -34,6 +35,30 @@ impl Database {
             params![change, user_id],
         )?;
         Ok(true)
+    }
+
+    /// The user's persisted UI locale, or `None` if they haven't picked one
+    /// via `/start` yet.
+    pub fn get_lang(&self, user_id: i64) -> SqlResult<Option<Lang>> {
+        self.ensure_row(user_id)?;
+        let conn = self.conn.lock();
+        let code: String = conn.query_row(
+            "SELECT lang FROM balance WHERE user = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
+        Ok(Lang::from_store_code(&code))
+    }
+
+    /// Persist the user's chosen UI locale.
+    pub fn set_lang(&self, user_id: i64, lang: Lang) -> SqlResult<()> {
+        self.ensure_row(user_id)?;
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE balance SET lang = ?1 WHERE user = ?2",
+            params![lang.store_code(), user_id],
+        )?;
+        Ok(())
     }
 
     /// Grants the daily check-in `reward` unless the user already claimed it

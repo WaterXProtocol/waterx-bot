@@ -140,6 +140,56 @@ impl Lang {
         }
     }
 
+    /// Stable, unique code used to persist a user's chosen locale in the DB.
+    /// Unlike [`Lang::menu_code`] this never collapses the Hant/Hans split, so
+    /// it round-trips losslessly via [`Lang::from_store_code`].
+    pub fn store_code(self) -> &'static str {
+        match self {
+            Lang::En => "en",
+            Lang::Hant => "hant",
+            Lang::Hans => "hans",
+            Lang::Ja => "ja",
+            Lang::Ko => "ko",
+            Lang::Ru => "ru",
+            Lang::Fr => "fr",
+            Lang::Es => "es",
+            Lang::De => "de",
+            Lang::Vi => "vi",
+            Lang::Id => "id",
+            Lang::Fil => "fil",
+            Lang::Th => "th",
+            Lang::Nl => "nl",
+            Lang::Tr => "tr",
+        }
+    }
+
+    /// Parse a [`Lang::store_code`] back into a `Lang`. Returns `None` for the
+    /// empty string ("not set") or anything unrecognised.
+    pub fn from_store_code(code: &str) -> Option<Lang> {
+        Lang::ALL.into_iter().find(|l| l.store_code() == code)
+    }
+
+    /// Flag + endonym label shown on the `/start` language-picker buttons.
+    pub fn native_label(self) -> &'static str {
+        match self {
+            Lang::En => "🇬🇧 English",
+            Lang::Hant => "🇹🇼 繁體中文",
+            Lang::Hans => "🇨🇳 简体中文",
+            Lang::Ja => "🇯🇵 日本語",
+            Lang::Ko => "🇰🇷 한국어",
+            Lang::Ru => "🇷🇺 Русский",
+            Lang::Fr => "🇫🇷 Français",
+            Lang::Es => "🇪🇸 Español",
+            Lang::De => "🇩🇪 Deutsch",
+            Lang::Vi => "🇻🇳 Tiếng Việt",
+            Lang::Id => "🇮🇩 Bahasa Indonesia",
+            Lang::Fil => "🇵🇭 Filipino",
+            Lang::Th => "🇹🇭 ไทย",
+            Lang::Nl => "🇳🇱 Nederlands",
+            Lang::Tr => "🇹🇷 Türkçe",
+        }
+    }
+
     /// Every locale, for iterating when registering command menus.
     pub const ALL: [Lang; 15] = [
         Lang::En,
@@ -772,6 +822,34 @@ pub fn settle_line(l: Lang, tail: &str, verb: &str, amt: &str) -> String {
     .replace("{tail}", tail)
     .replace("{verb}", verb)
     .replace("{amt}", amt)
+}
+
+// ----------------------------------------------------------------------------
+// `/start` onboarding & main menu
+// ----------------------------------------------------------------------------
+
+/// Neutral, language-agnostic prompt shown before the user has picked a locale.
+pub const CHOOSE_LANGUAGE: &str = "🌐 Please choose your language\n请选择语言 · 言語を選択 · 언어 선택";
+
+pub fn intro(l: Lang) -> &'static str {
+    tr!(l;
+        "Hi, I'm Xaliah. Nice to meet you 😊 What do you want?", "嗨，我是 Xaliah，很高興認識你 😊 想做點什麼呢？", "嗨，我是 Xaliah，很高兴认识你 😊 想做点什么呢？", "やあ、私は Xaliah。会えて嬉しいよ 😊 何がしたい？", "안녕, 나는 Xaliah야. 만나서 반가워 😊 뭘 하고 싶어?",
+        "Привет, я Xaliah. Рада знакомству 😊 Чего хочешь?", "Salut, je suis Xaliah. Ravie de te rencontrer 😊 Que veux-tu ?", "Hola, soy Xaliah. Encantada de conocerte 😊 ¿Qué quieres?", "Hi, ich bin Xaliah. Schön dich kennenzulernen 😊 Was möchtest du?", "Chào, mình là Xaliah. Rất vui được gặp bạn 😊 Bạn muốn gì nào?",
+        "Hai, aku Xaliah. Senang berkenalan 😊 Mau apa?", "Hi, ako si Xaliah. Ikinagagalak kitang makilala 😊 Ano'ng gusto mo?", "สวัสดี ฉันชื่อ Xaliah ยินดีที่ได้รู้จัก 😊 อยากทำอะไรดี?", "Hoi, ik ben Xaliah. Leuk je te ontmoeten 😊 Wat wil je?", "Selam, ben Xaliah. Tanıştığımıza memnun oldum 😊 Ne istersin?")
+}
+
+pub fn btn_checkin(l: Lang) -> &'static str {
+    tr!(l;
+        "🪙 Daily check-in", "🪙 每日簽到", "🪙 每日签到", "🪙 デイリーチェックイン", "🪙 데일리 출석",
+        "🪙 Ежедневный бонус", "🪙 Pointage du jour", "🪙 Registro diario", "🪙 Täglich einchecken", "🪙 Điểm danh hằng ngày",
+        "🪙 Check-in harian", "🪙 Araw-araw na check-in", "🪙 เช็คอินประจำวัน", "🪙 Dagelijks inchecken", "🪙 Günlük giriş")
+}
+
+pub fn btn_matches(l: Lang) -> &'static str {
+    tr!(l;
+        "⚽ Today's matches", "⚽ 今日比賽", "⚽ 今日比赛", "⚽ 今日の試合", "⚽ 오늘의 경기",
+        "⚽ Матчи сегодня", "⚽ Matchs du jour", "⚽ Partidos de hoy", "⚽ Heutige Spiele", "⚽ Trận hôm nay",
+        "⚽ Pertandingan hari ini", "⚽ Mga laro ngayon", "⚽ แมตช์วันนี้", "⚽ Wedstrijden vandaag", "⚽ Bugünkü maçlar")
 }
 
 // ----------------------------------------------------------------------------

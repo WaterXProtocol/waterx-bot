@@ -1,3 +1,4 @@
+pub mod menu;
 pub mod tg;
 pub mod util;
 
