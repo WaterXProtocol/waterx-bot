@@ -42,6 +42,22 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
+/// `/reset` — wipe the database. Owner-only **and** dev-mode-only, so it can
+/// never fire against a production bot. Also clears the in-memory bet games.
+#[command(description = "owner+dev: wipe the database")]
+pub async fn reset(ctx: Context, message: Message) -> CommandResult {
+    let Some(uid) = from_id(&message) else {
+        return Ok(());
+    };
+    if !is_owner(&ctx, uid) || !is_dev(&ctx) {
+        return Ok(());
+    }
+    db(&ctx).reset_all()?;
+    games(&ctx).lock().await.clear();
+    reply(&ctx, &message, "🧹 Database cleared (dev)").await?;
+    Ok(())
+}
+
 /// `/pause` — flip the bot into the paused state (every non-owner action is
 /// blocked by `paused_block` until `/unpause`).
 #[command(description = "owner: pause all actions")]

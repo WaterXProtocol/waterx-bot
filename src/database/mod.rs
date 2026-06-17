@@ -205,6 +205,19 @@ impl Database {
         Ok(())
     }
 
+    /// Wipe every table (dev-only `/reset`). In-memory bet games must be
+    /// cleared separately by the caller (they live in `GamesKey`, not the DB).
+    pub fn reset_all(&self) -> SqlResult<()> {
+        let conn = self.conn.lock();
+        conn.execute_batch(
+            "DELETE FROM balance;
+             DELETE FROM buffer;
+             DELETE FROM bet_games;
+             DELETE FROM meta;
+             DELETE FROM chats;",
+        )
+    }
+
     pub(super) fn ensure_row(&self, user_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock();
         conn.execute(

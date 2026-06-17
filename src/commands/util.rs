@@ -129,6 +129,15 @@ pub fn is_group_chat(chat_id: i64) -> bool {
     chat_id < 0
 }
 
+/// True when the bot is running in development mode (`BOT_DEV` unset/true).
+pub fn is_dev(ctx: &Context) -> bool {
+    ctx.data
+        .read()
+        .get::<ConfigKey>()
+        .map(|cfg| cfg.dev)
+        .unwrap_or(false)
+}
+
 /// True when `user_id` is the configured `BOT_OWNER`. The read guard is dropped
 /// on the same statement (it is not `Send`, so it must not cross an `.await`).
 pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
