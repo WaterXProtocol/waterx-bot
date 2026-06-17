@@ -112,10 +112,9 @@ crypto up/down pools are filtered out. It never touches the
 water-coin ledger. Two gotchas baked into the structs: the response models only
 the fields the brief reads (serde ignores the rest), and `oddsCents` **must** be
 `f64` — some rounds report fractional cents (e.g. `99.9`), which would make an
-`i64` field fail to deserialize the entire feed. The fetch always sends
-`locale=en` (the API otherwise localizes team names, e.g. Chinese for
-`locale=zh`); team names are proper nouns and the brief's chrome is localized
-separately via `render(lang, …)`, so the data stays English for everyone. (Note:
+`i64` field fail to deserialize the entire feed. The fetch sends `locale=zh` for
+Chinese users (Hant/Hans → Chinese team names) and `locale=en` for everyone
+else; the brief's chrome is localized separately via `render(lang, …)`. (Note:
 only the `?locale=` query form works — a `/en/predict/browse` path 404s.)
 
 ### Database
