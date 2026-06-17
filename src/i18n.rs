@@ -44,6 +44,11 @@ pub enum Lang {
     Th,
     Nl,
     Tr,
+    // Added later; message bodies fall back to English until translated, but
+    // the picker label, auto-detect and command menus work immediately.
+    Pt,
+    Hi,
+    Ar,
 }
 
 /// Pick the matching arm for `$lang`. Arms are listed in the fixed order
@@ -70,6 +75,8 @@ macro_rules! tr {
             Lang::Th => $th,
             Lang::Nl => $nl,
             Lang::Tr => $tr,
+            // Not yet translated → English fallback.
+            Lang::Pt | Lang::Hi | Lang::Ar => $en,
         }
     };
 }
@@ -103,6 +110,9 @@ impl Lang {
             "th" => Lang::Th,
             "nl" => Lang::Nl,
             "tr" => Lang::Tr,
+            "pt" => Lang::Pt,
+            "hi" => Lang::Hi,
+            "ar" => Lang::Ar,
             _ => Lang::En,
         }
     }
@@ -137,6 +147,9 @@ impl Lang {
             Lang::Th => "th",
             Lang::Nl => "nl",
             Lang::Tr => "tr",
+            Lang::Pt => "pt",
+            Lang::Hi => "hi",
+            Lang::Ar => "ar",
         }
     }
 
@@ -160,6 +173,9 @@ impl Lang {
             Lang::Th => "th",
             Lang::Nl => "nl",
             Lang::Tr => "tr",
+            Lang::Pt => "pt",
+            Lang::Hi => "hi",
+            Lang::Ar => "ar",
         }
     }
 
@@ -173,40 +189,49 @@ impl Lang {
     pub fn native_label(self) -> &'static str {
         match self {
             Lang::En => "🇬🇧 English",
-            Lang::Hant => "🇹🇼 繁體中文",
+            Lang::Ru => "🇷🇺 Русский",
             Lang::Hans => "🇨🇳 简体中文",
+            Lang::Hant => "🇹🇼 繁體中文",
             Lang::Ja => "🇯🇵 日本語",
             Lang::Ko => "🇰🇷 한국어",
-            Lang::Ru => "🇷🇺 Русский",
-            Lang::Fr => "🇫🇷 Français",
             Lang::Es => "🇪🇸 Español",
+            Lang::Pt => "🇵🇹 Português",
+            Lang::Fr => "🇫🇷 Français",
             Lang::De => "🇩🇪 Deutsch",
+            Lang::Nl => "🇳🇱 Nederlands",
+            Lang::Hi => "🇮🇳 हिन्दी",
+            Lang::Ar => "🇸🇦 العربية",
+            Lang::Tr => "🇹🇷 Türkçe",
             Lang::Vi => "🇻🇳 Tiếng Việt",
             Lang::Id => "🇮🇩 Bahasa Indonesia",
             Lang::Fil => "🇵🇭 Filipino",
             Lang::Th => "🇹🇭 ไทย",
-            Lang::Nl => "🇳🇱 Nederlands",
-            Lang::Tr => "🇹🇷 Türkçe",
         }
     }
 
-    /// Every locale, for iterating when registering command menus.
-    pub const ALL: [Lang; 15] = [
+    /// Every locale. This is also the display order of the `/start` language
+    /// picker (chunked two-per-row), so the sequence here is intentional:
+    /// Español/Português share a row, and Hindi/Arabic form the row directly
+    /// below Nederlands.
+    pub const ALL: [Lang; 18] = [
         Lang::En,
-        Lang::Hant,
+        Lang::Ru,
         Lang::Hans,
+        Lang::Hant,
         Lang::Ja,
         Lang::Ko,
-        Lang::Ru,
-        Lang::Fr,
         Lang::Es,
+        Lang::Pt,
+        Lang::Fr,
         Lang::De,
+        Lang::Nl,
+        Lang::Tr,
+        Lang::Hi,
+        Lang::Ar,
         Lang::Vi,
         Lang::Id,
         Lang::Fil,
         Lang::Th,
-        Lang::Nl,
-        Lang::Tr,
     ];
 }
 
@@ -825,7 +850,8 @@ pub fn broadcast_usage(l: Lang) -> &'static str {
 // ----------------------------------------------------------------------------
 
 /// Neutral, language-agnostic prompt shown before the user has picked a locale.
-pub const CHOOSE_LANGUAGE: &str = "🌐 Please choose your language\n请选择语言 · 言語を選択 · 언어 선택";
+pub const CHOOSE_LANGUAGE: &str =
+    "🌐 Please choose your language\n请选择语言 · 言語を選択 · 언어 선택";
 
 pub fn intro(l: Lang) -> &'static str {
     tr!(l;
@@ -936,7 +962,10 @@ mod tests {
         assert_eq!(Lang::from_code("en-US"), Lang::En);
         assert_eq!(Lang::from_code("JA"), Lang::Ja);
         assert_eq!(Lang::from_code("ru"), Lang::Ru);
-        assert_eq!(Lang::from_code("pt-BR"), Lang::En); // unsupported → fallback
+        assert_eq!(Lang::from_code("pt-BR"), Lang::Pt);
+        assert_eq!(Lang::from_code("hi"), Lang::Hi);
+        assert_eq!(Lang::from_code("ar"), Lang::Ar);
+        assert_eq!(Lang::from_code("sw"), Lang::En); // unsupported → fallback
         assert_eq!(Lang::from_code(""), Lang::En);
         assert_eq!(Lang::from_code("fil"), Lang::Fil);
         assert_eq!(Lang::from_code("tl"), Lang::Fil);

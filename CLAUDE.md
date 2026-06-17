@@ -60,14 +60,23 @@ The `envelope:` callback prefix is still routed even though the `/envelope` comm
 
 ### Internationalisation (`src/i18n.rs`)
 
-Every user-facing string is localized into 15 locales (English + Traditional &
-Simplified Chinese + Japanese, Korean, Russian, French, Spanish, German,
-Vietnamese, Indonesian, Filipino, Thai, Dutch, Turkish). The module is
-dependency-free: a `Lang` enum, a `tr!` macro that picks one of 15 literal arms
-in a fixed order (`en, hant, hans, ja, ko, ru, fr, es, de, vi, id, fil, th, nl,
-tr`), and one `pub fn` per message so all locales for a message sit together.
-Parameterised messages leave `{token}` placeholders in every arm and substitute
-with `.replace(...)` (real `format!` can't take a runtime format string).
+`Lang` has 18 variants. Most user-facing strings are fully localized into 15
+locales (English + Traditional & Simplified Chinese + Japanese, Korean, Russian,
+French, Spanish, German, Vietnamese, Indonesian, Filipino, Thai, Dutch, Turkish).
+The module is dependency-free: a `Lang` enum, a `tr!` macro that picks one of 15
+literal arms in a fixed order (`en, hant, hans, ja, ko, ru, fr, es, de, vi, id,
+fil, th, nl, tr`), and one `pub fn` per message so all locales for a message sit
+together. Parameterised messages leave `{token}` placeholders in every arm and
+substitute with `.replace(...)` (real `format!` can't take a runtime format
+string).
+
+**Português (`pt`), हिन्दी (`hi`) and العربية (`ar`)** were added as `Lang`
+variants for the picker, auto-detect (`from_code`) and command menus, but their
+message bodies are **not translated yet** — the `tr!` macro maps `Pt | Hi | Ar`
+to the English (`$en`) arm as a fallback. To translate, extend the macro arm
+order and add the literals per message (or special-case in `tr!`). The picker
+display order is driven by `Lang::ALL` (chunked two-per-row in
+`menu::lang_picker_rows`), *not* the `tr!`/`native_label` arm order.
 
 Language resolution is **explicit-choice-wins, auto-detect-fallback**. A user's
 `/start`-chosen locale is persisted in `balance.lang` (stable `Lang::store_code`,
