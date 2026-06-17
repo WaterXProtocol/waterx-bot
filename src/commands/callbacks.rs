@@ -1,5 +1,5 @@
 use crate::bot::{DbKey, GamesKey};
-use crate::commands::util::{format_number, SORRY_FRUITS};
+use crate::commands::util::{format_number, is_group_chat, SORRY_FRUITS};
 use crate::commands::{markets, menu, tg};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
@@ -293,7 +293,8 @@ async fn handle_set_lang(
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
     if let Some(message) = cb.message.clone() {
-        let available = db.checkin_available(cb.from.id).unwrap_or(true);
+        let available = is_group_chat(message.chat.get_id())
+            || db.checkin_available(cb.from.id).unwrap_or(true);
         let _ = tg::edit_with_buttons(
             ctx,
             message.chat.get_id(),
@@ -306,22 +307,24 @@ async fn handle_set_lang(
     answer(ctx, cb, "", false).await
 }
 
-/// `menu:checkin` — grant the daily reward; result shown as an alert. On a
-/// successful claim the menu is refreshed so the now-unavailable check-in
-/// button drops off, leaving just "today's matches".
+/// `menu:checkin` — grant the daily reward; result shown as an alert. In a
+/// private chat the menu refreshes so the now-spent button drops off; in a group
+/// the menu is shared, so the button stays for everyone else to claim.
 async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     match db_arc(ctx).try_checkin(cb.from.id, crate::commands::checkin::CHECKIN_REWARD) {
         Ok(true) => {
             if let Some(message) = cb.message.clone() {
-                let _ = tg::edit_with_buttons(
-                    ctx,
-                    message.chat.get_id(),
-                    message.message_id,
-                    &menu::menu_text(ctx, lang, cb.from.id),
-                    &menu::main_menu_rows(lang, false),
-                )
-                .await;
+                if !is_group_chat(message.chat.get_id()) {
+                    let _ = tg::edit_with_buttons(
+                        ctx,
+                        message.chat.get_id(),
+                        message.message_id,
+                        &menu::menu_text(ctx, lang, cb.from.id),
+                        &menu::main_menu_rows(lang, false),
+                    )
+                    .await;
+                }
             }
             let amt = format_number(crate::commands::checkin::CHECKIN_REWARD);
             answer(ctx, cb, i18n::checkin_done(lang, &amt), true).await

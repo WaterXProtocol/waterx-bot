@@ -20,7 +20,10 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
     match database.get_lang(uid)? {
         // Language already chosen → straight to the Xaliah menu.
         Some(lang) => {
-            let available = database.checkin_available(uid).unwrap_or(true);
+            // In a group the menu is shared, so always offer the button; in a
+            // private chat hide it once the caller has already claimed today.
+            let available =
+                is_group_chat(chat_id) || database.checkin_available(uid).unwrap_or(true);
             tg::send_with_buttons(
                 &ctx,
                 chat_id,

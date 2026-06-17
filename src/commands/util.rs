@@ -123,6 +123,12 @@ pub fn lang_for_msg(ctx: &Context, msg: &Message) -> crate::i18n::Lang {
         .unwrap_or(crate::i18n::Lang::En)
 }
 
+/// True for group / supergroup / channel chats. Telegram gives private chats a
+/// positive id (== the user id) and everything else a negative id.
+pub fn is_group_chat(chat_id: i64) -> bool {
+    chat_id < 0
+}
+
 /// True when `user_id` is the configured `BOT_OWNER`. The read guard is dropped
 /// on the same statement (it is not `Send`, so it must not cross an `.await`).
 pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
