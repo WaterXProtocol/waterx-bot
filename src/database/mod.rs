@@ -227,3 +227,40 @@ impl Database {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod reset_tests {
+    use super::*;
+
+    #[test]
+    fn reset_all_clears_every_table() {
+        let db = Database::new(":memory:", 1).unwrap();
+        // Populate balance, buffer, chats (+ group adder) and meta.
+        db.balance_change(100, 50).unwrap();
+        db.set_lang(100, crate::i18n::Lang::Hans).unwrap();
+        db.insert_buffer(-200, 5).unwrap();
+        db.touch_chat(-200).unwrap();
+        db.set_group_adder(-200, 100).unwrap();
+        db.set_paused(true).unwrap();
+
+        let total = |db: &Database| -> i64 {
+            db.conn
+                .lock()
+                .query_row(
+                    "SELECT (SELECT COUNT(*) FROM balance)
+                          + (SELECT COUNT(*) FROM buffer)
+                          + (SELECT COUNT(*) FROM bet_games)
+                          + (SELECT COUNT(*) FROM meta)
+                          + (SELECT COUNT(*) FROM chats)",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+
+        assert!(total(&db) > 0, "expected rows before reset");
+        db.reset_all().unwrap();
+        assert_eq!(total(&db), 0, "every table should be empty after reset");
+        assert!(!db.is_paused().unwrap(), "pause flag cleared");
+    }
+}
