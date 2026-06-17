@@ -22,7 +22,7 @@ pub enum OfferOutcome {
 
 fn ensure_row_locked(conn: &Connection, user_id: i64) -> SqlResult<()> {
     conn.execute(
-        "INSERT OR IGNORE INTO balance (user, balance, fruit, cloth) VALUES (?1, 0, '', '')",
+        "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
         params![user_id],
     )?;
     Ok(())

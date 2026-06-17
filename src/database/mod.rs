@@ -41,8 +41,7 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS balance (
                 user    INTEGER PRIMARY KEY,
                 balance INTEGER NOT NULL DEFAULT 0,
-                fruit   TEXT    NOT NULL DEFAULT '',
-                cloth   TEXT    NOT NULL DEFAULT ''
+                fruit   TEXT    NOT NULL DEFAULT ''
             )",
             [],
         )?;
@@ -75,6 +74,10 @@ impl Database {
         let _ = conn.execute("ALTER TABLE buffer ADD COLUMN fruits TEXT", []);
         let _ = conn.execute("ALTER TABLE buffer ADD COLUMN price INTEGER", []);
         let _ = conn.execute("ALTER TABLE buffer ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0", []);
+        // Drop the vestigial `cloth` column from older `balance` tables. Errors
+        // (column absent on fresh DBs, or SQLite < 3.35 without DROP COLUMN) are
+        // harmless and swallowed — the column simply stays unused if it can't go.
+        let _ = conn.execute("ALTER TABLE balance DROP COLUMN cloth", []);
 
         // Prune buffer rows older than 24h. Pre-TTL rows have created_at=0 and
         // get cleared too, which is what we want — a restart drops all dangling
@@ -108,7 +111,7 @@ impl Database {
                 ("sell", Some(seller), Some(fruits), Some(_)) => {
                     // Return escrowed fruit to the seller.
                     conn.execute(
-                        "INSERT OR IGNORE INTO balance (user, balance, fruit, cloth) VALUES (?1, 0, '', '')",
+                        "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
                         params![seller],
                     )?;
                     let current: String = conn.query_row(
@@ -124,7 +127,7 @@ impl Database {
                 }
                 ("buy", Some(buyer), _, Some(price)) => {
                     conn.execute(
-                        "INSERT OR IGNORE INTO balance (user, balance, fruit, cloth) VALUES (?1, 0, '', '')",
+                        "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
                         params![buyer],
                     )?;
                     conn.execute(
@@ -145,7 +148,7 @@ impl Database {
     pub(super) fn ensure_row(&self, user_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT OR IGNORE INTO balance (user, balance, fruit, cloth) VALUES (?1, 0, '', '')",
+            "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
             params![user_id],
         )?;
         Ok(())

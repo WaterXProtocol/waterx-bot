@@ -5,20 +5,17 @@ use rusqlite::{params, Result as SqlResult};
 pub struct UserRow {
     pub balance: i64,
     pub fruit: String,
-    pub cloth: String,
 }
 
 impl Database {
     pub fn get_user_info(&self, user_id: i64) -> SqlResult<UserRow> {
         self.ensure_row(user_id)?;
         let conn = self.conn.lock();
-        let mut stmt =
-            conn.prepare("SELECT balance, fruit, cloth FROM balance WHERE user = ?1")?;
+        let mut stmt = conn.prepare("SELECT balance, fruit FROM balance WHERE user = ?1")?;
         let row = stmt.query_row(params![user_id], |r| {
             Ok(UserRow {
                 balance: r.get(0)?,
                 fruit: r.get(1)?,
-                cloth: r.get(2)?,
             })
         })?;
         Ok(row)
@@ -46,16 +43,6 @@ impl Database {
         conn.execute(
             "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
             params![change, user_id],
-        )?;
-        Ok(())
-    }
-
-    pub fn set_cloth(&self, user_id: i64, cloth: &str) -> SqlResult<()> {
-        self.ensure_row(user_id)?;
-        let conn = self.conn.lock();
-        conn.execute(
-            "UPDATE balance SET cloth = ?1 WHERE user = ?2",
-            params![cloth, user_id],
         )?;
         Ok(())
     }

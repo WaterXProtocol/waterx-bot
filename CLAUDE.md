@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Telegram bot for a small private group, written in Rust on top of [`telexide`](https://docs.rs/telexide). The slash commands are Chinese-language utilities: random picker, balance/fruit ledger, coin/fruit transfers, dice betting, bet games, and fruit trading. State persists in `waterx.db` (a SQLite file in the working directory; constant defined at `database::DB_FILENAME`). Configuration comes from environment variables (loaded from `.env` if present): `BOT_TOKEN`, `BOT_OWNER` (numeric Telegram user id), and optional `BOT_DEV` (default `true`; set `false` for production).
 
-The current command set is `start, random, balance, fruit, send, dice, gamble, sell, buy`. The DB schema (`balance(user, balance, fruit, cloth)` + `buffer` + `bet_games`) still carries a `cloth` column and a `fruit_pop` helper from the prior larger command set — a future redesign will rework the schema.
+The current command set is `start, random, balance, fruit, send, dice, gamble, sell, buy`. The DB schema is `balance(user, balance, fruit)` + `buffer` + `bet_games`. A vestigial `cloth` column was dropped (a startup migration `ALTER TABLE balance DROP COLUMN cloth` cleans up old data files); a `fruit_pop` helper from the prior larger command set still lingers.
 
 ## Commands
 
@@ -91,7 +91,7 @@ Adding a message: add a `pub fn` with all 15 `tr!` arms; the
 
 ### Database
 
-`src/database/` wraps a single `rusqlite::Connection` in a `parking_lot::Mutex` so `Database` is `Send + Sync` and can sit behind an `Arc`. Two tables: `balance(user, balance, fruit, cloth)` and `buffer(chat, msg)` — the latter tracks live envelope/sell/buy messages so a callback can detect "someone already took this." The module is split by concern: `mod.rs` (struct + schema + `ensure_row` helper), `user.rs` (balance/cloth/`UserRow`), `fruit.rs`, `buffer.rs`. All sub-files add methods to the same `impl Database` block.
+`src/database/` wraps a single `rusqlite::Connection` in a `parking_lot::Mutex` so `Database` is `Send + Sync` and can sit behind an `Arc`. Two tables: `balance(user, balance, fruit)` and `buffer(chat, msg)` — the latter tracks live envelope/sell/buy messages so a callback can detect "someone already took this." The module is split by concern: `mod.rs` (struct + schema + `ensure_row` helper), `user.rs` (balance/`UserRow`), `fruit.rs`, `buffer.rs`. All sub-files add methods to the same `impl Database` block.
 
 ## Non-obvious gotchas
 
