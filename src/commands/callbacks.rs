@@ -326,7 +326,10 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
             let amt = format_number(crate::commands::checkin::CHECKIN_REWARD);
             answer(ctx, cb, i18n::checkin_done(lang, &amt), true).await
         }
-        Ok(false) => answer(ctx, cb, i18n::checkin_already(lang), true).await,
+        Ok(false) => {
+            let t = crate::commands::checkin::time_until_reset();
+            answer(ctx, cb, i18n::checkin_already(lang, &t), true).await
+        }
         Err(_) => answer(ctx, cb, i18n::db_error(lang), true).await,
     }
 }

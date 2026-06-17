@@ -989,12 +989,13 @@ pub fn checkin_done(l: Lang, amt: &str) -> String {
     .replace("{amt}", amt)
 }
 
-pub fn checkin_already(l: Lang) -> &'static str {
+pub fn checkin_already(l: Lang, time: &str) -> String {
     tr!(l;
-        "Already checked in today — come back after 00:00 UTC ⏳", "今天已經簽到了，UTC 00:00 後再來 ⏳", "今天已经签到了，UTC 00:00 后再来 ⏳", "今日はもうチェックイン済み。UTC 00:00 以降にまた来てね ⏳", "오늘은 이미 출석했어 — UTC 00:00 이후에 다시 와 ⏳",
-        "Сегодня уже отмечались — возвращайтесь после 00:00 UTC ⏳", "Déjà pointé aujourd'hui — reviens après 00:00 UTC ⏳", "Ya te registraste hoy — vuelve después de las 00:00 UTC ⏳", "Heute schon eingecheckt — komm nach 00:00 UTC wieder ⏳", "Hôm nay đã điểm danh rồi — quay lại sau 00:00 UTC ⏳",
-        "Sudah check-in hari ini — kembali setelah 00:00 UTC ⏳", "Naka-check in ka na ngayon — balik ka after 00:00 UTC ⏳", "วันนี้เช็คอินแล้ว — กลับมาหลัง 00:00 UTC ⏳", "Vandaag al ingecheckt — kom terug na 00:00 UTC ⏳", "Bugün giriş yapıldı — 00:00 UTC'den sonra tekrar gel ⏳",
-        "Já fez check-in hoje — volte após 00:00 UTC ⏳", "आज चेक-इन हो चुका — 00:00 UTC के बाद आएं ⏳", "سجّلت اليوم بالفعل — عُد بعد 00:00 UTC ⏳")
+        "Already checked in today — come back in {time} ⏳", "今天已經簽到了，{time} 後再來 ⏳", "今天已经签到了，{time} 后再来 ⏳", "今日はもうチェックイン済み。{time} 後にまた来てね ⏳", "오늘은 이미 출석했어 — {time} 후에 다시 와 ⏳",
+        "Сегодня уже отмечались — возвращайтесь через {time} ⏳", "Déjà pointé aujourd'hui — reviens dans {time} ⏳", "Ya te registraste hoy — vuelve en {time} ⏳", "Heute schon eingecheckt — komm in {time} wieder ⏳", "Hôm nay đã điểm danh rồi — quay lại sau {time} ⏳",
+        "Sudah check-in hari ini — kembali dalam {time} ⏳", "Naka-check in ka na ngayon — balik ka sa loob ng {time} ⏳", "วันนี้เช็คอินแล้ว — กลับมาในอีก {time} ⏳", "Vandaag al ingecheckt — kom over {time} terug ⏳", "Bugün giriş yapıldı — {time} sonra tekrar gel ⏳",
+        "Você já fez check-in hoje — volte em {time} ⏳", "आज चेक-इन हो चुका — {time} बाद आएं ⏳", "سجّلت اليوم بالفعل — عُد بعد {time} ⏳")
+    .replace("{time}", time)
 }
 
 // ----------------------------------------------------------------------------
@@ -1105,6 +1106,7 @@ mod tests {
                 minted(l, "A", "10"),
                 broadcast_sent(l, "5"),
                 menu_status(l, "10", "🍎"),
+                checkin_already(l, "1h 2m"),
             ];
             for s in samples {
                 assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");
