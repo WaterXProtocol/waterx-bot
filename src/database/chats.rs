@@ -1,5 +1,5 @@
 use super::{current_unix_time, Database};
-use rusqlite::{params, Result as SqlResult};
+use rusqlite::{params, OptionalExtension, Result as SqlResult};
 
 impl Database {
     /// Record (or refresh) a chat the bot has seen, so `/broadcast` can reach
@@ -13,6 +13,32 @@ impl Database {
             params![chat_id, current_unix_time()],
         )?;
         Ok(())
+    }
+
+    /// Record who added the bot to a group, keeping the **first** adder (the
+    /// referrer for that group's check-in binds). Creates the chat row if new.
+    pub fn set_group_adder(&self, chat_id: i64, user_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO chats (chat, seen_at, added_by) VALUES (?1, ?2, ?3)
+             ON CONFLICT(chat) DO UPDATE SET
+                 added_by = CASE WHEN chats.added_by = 0 THEN excluded.added_by ELSE chats.added_by END",
+            params![chat_id, current_unix_time(), user_id],
+        )?;
+        Ok(())
+    }
+
+    /// The user who first added the bot to `chat_id`, if known.
+    pub fn group_adder(&self, chat_id: i64) -> SqlResult<Option<i64>> {
+        let conn = self.conn.lock();
+        let v: Option<i64> = conn
+            .query_row(
+                "SELECT added_by FROM chats WHERE chat = ?1",
+                params![chat_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(v.filter(|id| *id > 0))
     }
 
     /// Every chat id the bot has seen — private DMs and groups alike.

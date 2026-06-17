@@ -10,6 +10,7 @@ pub mod callbacks;
 pub mod fruit;
 pub mod host;
 pub mod markets;
+pub mod referral;
 pub mod sell;
 pub mod send;
 pub mod start;

@@ -1,11 +1,7 @@
-use crate::commands::menu;
-use crate::commands::tg;
 use crate::commands::util::*;
-use crate::i18n::{self, Lang};
+use crate::commands::{menu, referral, tg};
+use crate::i18n;
 use telexide::prelude::*;
-
-/// Water-coins paid to the referrer when a brand-new user joins via their link.
-pub(crate) const REFERRAL_REWARD: i64 = 20;
 
 #[command(description = "say hi and open the menu")]
 pub async fn start(ctx: Context, message: Message) -> CommandResult {
@@ -23,14 +19,7 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
     // `/start <referrer_id>`. Record it once and pay the referrer.
     if let Some(referrer) = args(&message).first().and_then(|p| p.parse::<i64>().ok()) {
         if database.set_referrer_if_new(uid, referrer)? {
-            database.force_change(referrer, REFERRAL_REWARD)?;
-            let rlang = database.get_lang(referrer).ok().flatten().unwrap_or(Lang::En);
-            let _ = send_text(
-                &ctx,
-                referrer,
-                i18n::referral_bonus(rlang, &full_name(&user), &format_number(REFERRAL_REWARD)),
-            )
-            .await;
+            referral::pay_referral(&ctx, referrer, &user).await;
         }
     }
     database.balance_change(uid, 0)?; // ensure the user row exists

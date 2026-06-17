@@ -1,6 +1,6 @@
 use crate::bot::{DbKey, GamesKey};
 use crate::commands::util::{format_number, is_group_chat, SORRY_FRUITS};
-use crate::commands::{markets, menu, tg};
+use crate::commands::{markets, menu, referral, tg};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
 use crate::i18n::{self, Lang};
@@ -9,9 +9,33 @@ use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::sync::Arc;
 use telexide::api::types::{AnswerCallbackQuery, DeleteMessage};
-use telexide::model::{CallbackQuery, UpdateContent};
+use telexide::model::{CallbackQuery, ChatMember, UpdateContent};
 use telexide::prelude::*;
 use tokio::sync::Mutex;
+
+/// The bot's own membership changed in a chat. When it's *added to a group*,
+/// record the adder so new users who check in there bind to them as a referral.
+#[prepare_listener]
+pub async fn on_my_chat_member(ctx: Context, update: Update) {
+    let UpdateContent::MyChatMember(upd) = update.content else {
+        return;
+    };
+    let chat_id = upd.chat.get_id();
+    if chat_id >= 0 {
+        return; // groups / supergroups only
+    }
+    let now_in = matches!(
+        upd.new_chat_member,
+        ChatMember::Member(_) | ChatMember::Administrator(_) | ChatMember::Creator(_)
+    );
+    let was_out = matches!(
+        upd.old_chat_member,
+        ChatMember::Left(_) | ChatMember::Kicked(_)
+    );
+    if now_in && was_out {
+        let _ = db_arc(&ctx).set_group_adder(chat_id, upd.from.id);
+    }
+}
 
 #[prepare_listener]
 pub async fn on_callback(ctx: Context, update: Update) {
@@ -314,7 +338,24 @@ async fn handle_set_lang(
 /// the menu is shared, so the button stays for everyone else to claim.
 async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    match db_arc(ctx).try_checkin(cb.from.id, crate::commands::checkin::CHECKIN_REWARD) {
+    let db = db_arc(ctx);
+
+    // Group referral bind: a brand-new user checking in inside a group binds to
+    // whoever added the bot there. Must run before try_checkin (which would
+    // create the user's row). pays out once; existing users bind to nothing.
+    if let Some(message) = &cb.message {
+        let chat_id = message.chat.get_id();
+        if is_group_chat(chat_id) {
+            if let Ok(Some(adder)) = db.group_adder(chat_id) {
+                db.force_change(adder, 0).ok(); // ensure the adder has a row
+                if db.set_referrer_if_new(cb.from.id, adder).unwrap_or(false) {
+                    referral::pay_referral(ctx, adder, &cb.from).await;
+                }
+            }
+        }
+    }
+
+    match db.try_checkin(cb.from.id, crate::commands::checkin::CHECKIN_REWARD) {
         Ok(true) => {
             if let Some(message) = cb.message.clone() {
                 if !is_group_chat(message.chat.get_id()) {

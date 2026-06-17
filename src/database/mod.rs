@@ -98,11 +98,17 @@ impl Database {
         // private DMs (positive ids) and groups/channels (negative ids).
         conn.execute(
             "CREATE TABLE IF NOT EXISTS chats (
-                chat    INTEGER NOT NULL PRIMARY KEY,
-                seen_at INTEGER NOT NULL DEFAULT 0
+                chat     INTEGER NOT NULL PRIMARY KEY,
+                seen_at  INTEGER NOT NULL DEFAULT 0,
+                added_by INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
+        // `added_by` (the user who added the bot to this group) for older DBs.
+        let _ = conn.execute(
+            "ALTER TABLE chats ADD COLUMN added_by INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // Best-effort migrations for older buffer tables (predate escrow / TTL).
         // Each statement errors with "duplicate column name" if the column
         // already exists; we swallow those errors.

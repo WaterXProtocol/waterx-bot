@@ -81,7 +81,8 @@ pub async fn run() -> anyhow::Result<()> {
             start, balance, fruit, send, host, sell, buy, markets, checkin,
             mint, pause, unpause, broadcast
         ))
-        .add_handler_func(callbacks::on_callback);
+        .add_handler_func(callbacks::on_callback)
+        .add_handler_func(callbacks::on_my_chat_member);
     let client = builder.build();
     {
         let mut data = client.data.write();
