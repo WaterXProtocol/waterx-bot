@@ -140,6 +140,8 @@ pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
 /// owner; command handlers should early-return when it does. The owner is
 /// always allowed through so they can still `/unpause` and operate.
 pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandError> {
+    // Learn this chat (private or group) so `/broadcast` can reach it later.
+    db(ctx).touch_chat(msg.chat.get_id()).ok();
     let uid = from_id(msg).unwrap_or(0);
     if is_owner(ctx, uid) {
         return Ok(false);

@@ -22,6 +22,10 @@ pub async fn on_callback(ctx: Context, update: Update) {
         return;
     };
     eprintln!("[cb] {}: {data}", cb.from.first_name);
+    // Learn this chat so /broadcast can reach it later.
+    if let Some(m) = &cb.message {
+        let _ = db_arc(&ctx).touch_chat(m.chat.get_id());
+    }
     // Admin pause kill-switch: block every non-owner button press while paused.
     if !crate::commands::util::is_owner(&ctx, cb.from.id)
         && db_arc(&ctx).is_paused().unwrap_or(false)

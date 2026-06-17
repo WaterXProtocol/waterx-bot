@@ -2,7 +2,6 @@
 //! silently ignored (no reply) so the commands stay invisible to regular users.
 //! These are intentionally **not** registered in the public `/` command menu.
 
-use crate::bot::BotIdKey;
 use crate::commands::util::*;
 use crate::i18n;
 use telexide::prelude::*;
@@ -97,13 +96,10 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
 
-    let bot_id: i64 = *ctx.data.read().get::<BotIdKey>().expect("BotIdKey missing");
-    let ids = db(&ctx).all_user_ids().unwrap_or_default();
+    // Every chat the bot knows — private DMs and groups alike.
+    let ids = db(&ctx).all_chat_ids().unwrap_or_default();
     let mut delivered = 0usize;
     for id in ids {
-        if id == bot_id {
-            continue;
-        }
         if send_text(&ctx, id, body).await.is_ok() {
             delivered += 1;
         }

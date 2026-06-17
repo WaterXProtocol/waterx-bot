@@ -1,4 +1,5 @@
 mod buffer;
+mod chats;
 mod fruit;
 mod games;
 mod meta;
@@ -88,6 +89,15 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS meta (
                 key   TEXT NOT NULL PRIMARY KEY,
                 value TEXT NOT NULL
+            )",
+            [],
+        )?;
+        // Every chat the bot has been active in, so `/broadcast` can reach both
+        // private DMs (positive ids) and groups/channels (negative ids).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS chats (
+                chat    INTEGER NOT NULL PRIMARY KEY,
+                seen_at INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
