@@ -3,11 +3,12 @@
 //! These are intentionally **not** registered in the public `/` command menu.
 
 use crate::commands::util::*;
+use crate::database::COIN;
 use crate::i18n;
 use telexide::prelude::*;
 
-/// `/mint <amount>` — credit `amount` water-coins to the sender of the
-/// replied-to message (reply required). `amount` may be negative to burn.
+/// `/mint <amount>` — credit `amount` whole water-coins to the sender of the
+/// replied-to message (reply required). Positive only (no debt).
 #[command(description = "owner: mint coins to the replied-to user")]
 pub async fn mint(ctx: Context, message: Message) -> CommandResult {
     let Some(uid) = from_id(&message) else {
@@ -19,7 +20,7 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
     let lang = lang_for(&ctx, message.from.as_ref().unwrap());
 
     let parts = args(&message);
-    let Some(amount) = parts.first().and_then(|s| s.parse::<i64>().ok()).filter(|n| *n != 0) else {
+    let Some(amount) = parts.first().and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) else {
         reply(&ctx, &message, i18n::mint_usage(lang)).await?;
         return Ok(());
     };
@@ -32,7 +33,7 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
 
-    db(&ctx).force_change(receiver.id, amount)?;
+    db(&ctx).force_change(receiver.id, amount * COIN)?;
     reply(
         &ctx,
         &message,

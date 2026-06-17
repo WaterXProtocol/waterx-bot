@@ -578,16 +578,6 @@ pub fn have_coins(l: Lang, name: &str, coins: &str) -> String {
     .replace("{coins}", coins)
 }
 
-pub fn debt_coins(l: Lang, name: &str, coins: &str) -> String {
-    tr!(l;
-        "{name}\nis in debt {coins} water-coins", "{name}\n欠債 {coins} 顆 水幣", "{name}\n欠债 {coins} 颗 水币", "{name}\n水コインを {coins} 枚 借金している", "{name}\n물코인 {coins} 개 빚짐",
-        "{name}\nдолжен {coins} водных монет", "{name}\ndoit {coins} pièces d'eau", "{name}\ndebe {coins} monedas de agua", "{name}\nschuldet {coins} Wassermünzen", "{name}\nđang nợ {coins} xu nước",
-        "{name}\nberutang {coins} koin air", "{name}\nmay utang na {coins} water-coins", "{name}\nเป็นหนี้เหรียญน้ำ {coins} เหรียญ", "{name}\nstaat {coins} watermunten in het rood", "{name}\n{coins} su parası borçlu",
-        "{name}\nestá devendo {coins} moedas de água", "{name}\nपर {coins} वॉटर-कॉइन का कर्ज़ है", "{name}\nمَدين بـ {coins} عملة مائية")
-    .replace("{name}", name)
-    .replace("{coins}", coins)
-}
-
 pub fn want_fruit(l: Lang, name: &str) -> String {
     tr!(l;
         "{name}\nwants some fruit 🤤", "{name}\n想要水果🤤", "{name}\n想要水果🤤", "{name}\nフルーツが欲しい🤤", "{name}\n과일이 먹고 싶어🤤",
@@ -1110,7 +1100,6 @@ mod tests {
         for l in Lang::ALL {
             let samples = [
                 have_coins(l, "A", "1"),
-                debt_coins(l, "A", "1"),
                 want_fruit(l, "A"),
                 fruit_store(l, "A", "🍎"),
                 sent_coins(l, "A", "B", "1"),

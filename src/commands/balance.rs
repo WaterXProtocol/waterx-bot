@@ -13,12 +13,7 @@ pub async fn balance(ctx: Context, message: Message) -> CommandResult {
     };
     let lang = lang_for(&ctx, user);
     let info = db(&ctx).get_user_info(user.id)?;
-    let coins = format_number(info.balance);
-    let body = if info.balance >= 0 {
-        i18n::have_coins(lang, &full_name(user), &coins)
-    } else {
-        i18n::debt_coins(lang, &full_name(user), &coins)
-    };
+    let body = i18n::have_coins(lang, &full_name(user), &fmt_coins(info.balance));
     reply(&ctx, &message, body).await?;
     Ok(())
 }

@@ -2,9 +2,9 @@ use crate::commands::util::*;
 use crate::i18n;
 use telexide::prelude::*;
 
-/// Daily check-in reward, in water-coins. The claim window resets at 00:00 UTC
-/// (see `Database::try_checkin`).
-pub(crate) const CHECKIN_REWARD: i64 = 10;
+/// Daily check-in reward, in micro-coins (10 coins). The claim window resets at
+/// 00:00 UTC (see `Database::try_checkin`).
+pub(crate) const CHECKIN_REWARD: i64 = 10 * crate::database::COIN;
 
 /// Compact countdown to the next reset (next 00:00 UTC), e.g. `"5h 23m"`.
 /// Shown instead of an absolute clock time because Telegram doesn't expose the
@@ -30,7 +30,7 @@ pub async fn checkin(ctx: Context, message: Message) -> CommandResult {
     };
     let lang = lang_for_msg(&ctx, &message);
     if db(&ctx).try_checkin(uid, CHECKIN_REWARD)? {
-        let msg = i18n::checkin_done(lang, &format_number(CHECKIN_REWARD));
+        let msg = i18n::checkin_done(lang, &fmt_coins(CHECKIN_REWARD));
         reply(&ctx, &message, msg).await?;
     } else {
         reply(&ctx, &message, i18n::checkin_already(lang, &time_until_reset())).await?;

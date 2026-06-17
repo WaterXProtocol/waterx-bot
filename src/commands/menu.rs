@@ -4,7 +4,7 @@
 //! these so the keyboards stay in one place.
 
 use crate::commands::tg::Row;
-use crate::commands::util::{db, format_number};
+use crate::commands::util::{db, fmt_coins};
 use crate::i18n::{self, Lang};
 use telexide::prelude::Context;
 
@@ -49,7 +49,7 @@ pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
     format!(
         "{}\n\n{}\n\n{}",
         i18n::intro(lang),
-        i18n::menu_status(lang, &format_number(info.balance), &fruits),
+        i18n::menu_status(lang, &fmt_coins(info.balance), &fruits),
         i18n::menu_prompt(lang)
     )
 }

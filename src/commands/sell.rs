@@ -39,8 +39,13 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
         tg::send_with_buttons(&ctx, message.chat.get_id(), i18n::loading(lang), &rows).await?;
 
     let database = db(&ctx);
-    let escrowed =
-        database.open_sell_offer(sent.chat.get_id(), sent.message_id, seller.id, &fruits, price)?;
+    let escrowed = database.open_sell_offer(
+        sent.chat.get_id(),
+        sent.message_id,
+        seller.id,
+        &fruits,
+        price * crate::database::COIN,
+    )?;
     if escrowed.is_empty() {
         // Nothing to escrow — clean up the placeholder.
         let _ = ctx

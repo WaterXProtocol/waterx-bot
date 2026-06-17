@@ -47,7 +47,13 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
         tg::send_with_buttons(&ctx, message.chat.get_id(), i18n::loading(lang), &rows).await?;
 
     let database = db(&ctx);
-    if !database.open_buy_offer(sent.chat.get_id(), sent.message_id, buyer.id, &fruits, price)? {
+    if !database.open_buy_offer(
+        sent.chat.get_id(),
+        sent.message_id,
+        buyer.id,
+        &fruits,
+        price * crate::database::COIN,
+    )? {
         let _ = ctx
             .api
             .delete_message(DeleteMessage::new(

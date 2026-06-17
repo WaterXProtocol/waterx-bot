@@ -1,9 +1,14 @@
 use super::Database;
 use crate::i18n::Lang;
-use rusqlite::{params, Result as SqlResult};
+use rusqlite::{params, OptionalExtension, Result as SqlResult};
+
+/// Micro-coins paid up the referral chain on each successful check-in: direct
+/// referrer 1 coin, then 0.1 and 0.01 for the two levels above.
+const CHECKIN_UPLINE: [i64; 3] = [super::COIN, super::COIN / 10, super::COIN / 100];
 
 #[derive(Debug, Default, Clone)]
 pub struct UserRow {
+    /// Balance in micro-coins (6-decimal fixed-point; see `database::COIN`).
     pub balance: i64,
     pub fruit: String,
 }
@@ -95,6 +100,29 @@ impl Database {
             "UPDATE balance SET balance = balance + ?1, last_checkin = ?2 WHERE user = ?3",
             params![reward, today, user_id],
         )?;
+        // Referral cascade: pay the direct referrer and up to two levels above.
+        let mut up: i64 = conn.query_row(
+            "SELECT referrer FROM balance WHERE user = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
+        for bonus in CHECKIN_UPLINE {
+            if up == 0 {
+                break;
+            }
+            conn.execute(
+                "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+                params![bonus, up],
+            )?;
+            up = conn
+                .query_row(
+                    "SELECT referrer FROM balance WHERE user = ?1",
+                    params![up],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .unwrap_or(0);
+        }
         Ok(true)
     }
 

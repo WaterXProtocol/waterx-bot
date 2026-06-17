@@ -78,6 +78,32 @@ pub fn args(msg: &Message) -> Vec<String> {
         .collect()
 }
 
+/// Format a micro-coin balance (6-decimal fixed-point; see `database::COIN`)
+/// as coins, trailing zeros trimmed, thousands separators on the whole part.
+/// `1_000_000 → "1"`, `1_500_000 → "1.5"`, `10_000 → "0.01"`, `-5_000_000 → "-5"`.
+pub fn fmt_coins(units: i64) -> String {
+    let coin = crate::database::COIN;
+    let neg = units < 0;
+    let u = units.abs();
+    let int_str = format_number(u / coin);
+    let frac = u % coin; // 0..COIN
+    let body = if frac == 0 {
+        int_str
+    } else {
+        // Six-digit fractional part, trailing zeros trimmed.
+        let mut f = format!("{frac:06}");
+        while f.ends_with('0') {
+            f.pop();
+        }
+        format!("{int_str}.{f}")
+    };
+    if neg {
+        format!("-{body}")
+    } else {
+        body
+    }
+}
+
 pub fn format_number(n: i64) -> String {
     let mut s = n.abs().to_string();
     if s.len() <= 3 {
@@ -173,3 +199,21 @@ pub const ERR_NEG_REPLY: &str = "😐";
 /// fruit-set restriction enforced on `/buy`. Matches the original Python
 /// `sorry_reply` array.
 pub const SORRY_FRUITS: &[char] = &['🍑', '🍓', '🍎', '🍊', '🥭', '🍍', '🍅', '🍈', '🍋', '🍐'];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::COIN;
+
+    #[test]
+    fn fmt_coins_formats_fixed_point() {
+        assert_eq!(fmt_coins(0), "0");
+        assert_eq!(fmt_coins(COIN), "1");
+        assert_eq!(fmt_coins(COIN * 1234), "1,234");
+        assert_eq!(fmt_coins(COIN / 2), "0.5");
+        assert_eq!(fmt_coins(COIN / 10), "0.1");
+        assert_eq!(fmt_coins(COIN / 100), "0.01");
+        assert_eq!(fmt_coins(COIN + COIN / 100), "1.01");
+        assert_eq!(fmt_coins(-(COIN * 5)), "-5");
+    }
+}

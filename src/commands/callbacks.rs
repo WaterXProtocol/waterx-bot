@@ -1,5 +1,6 @@
 use crate::bot::{DbKey, GamesKey};
-use crate::commands::util::{format_number, is_group_chat, SORRY_FRUITS};
+use crate::commands::util::{fmt_coins, format_number, is_group_chat, SORRY_FRUITS};
+use crate::database::COIN;
 use crate::commands::{markets, menu, referral, tg};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
@@ -158,7 +159,7 @@ async fn handle_envelope(
             Err(_) => return answer(ctx, cb, i18n::db_error(lang), true).await,
         }
     }
-    if db.balance_change(cb.from.id, amount).is_err() {
+    if db.balance_change(cb.from.id, amount * COIN).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
     db.delete_buffer(chat_id, msg_id).ok();
@@ -232,17 +233,17 @@ async fn handle_gamble(
         if stake <= 0 {
             return answer(ctx, cb, i18n::bad_stake(lang), true).await;
         }
-        if !db.balance_change(cb.from.id, -stake).unwrap_or(false) {
+        if !db.balance_change(cb.from.id, -stake * COIN).unwrap_or(false) {
             return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
         }
         let (text, rows) = {
             let mut g = games.lock().await;
             let Some(game) = g.get_mut(&key) else {
-                db.force_change(cb.from.id, stake).ok();
+                db.force_change(cb.from.id, stake * COIN).ok();
                 return answer(ctx, cb, i18n::game_invalid(lang), true).await;
             };
             if !game.stake(cb.from.id, option, stake) {
-                db.force_change(cb.from.id, stake).ok();
+                db.force_change(cb.from.id, stake * COIN).ok();
                 return answer(ctx, cb, i18n::bet_failed(lang), true).await;
             }
             if let Err(err) = db.save_bet_game(game) {
@@ -278,7 +279,7 @@ async fn handle_gamble(
         };
         for (user, win) in &outputs {
             if *win > 0 {
-                db.force_change(*user, *win).ok();
+                db.force_change(*user, *win * COIN).ok();
             }
         }
         let _ = tg::edit_text_only(
@@ -369,7 +370,7 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
                     .await;
                 }
             }
-            let amt = format_number(crate::commands::checkin::CHECKIN_REWARD);
+            let amt = fmt_coins(crate::commands::checkin::CHECKIN_REWARD);
             answer(ctx, cb, i18n::checkin_done(lang, &amt), true).await
         }
         Ok(false) => {
@@ -437,7 +438,7 @@ async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::
                 ctx,
                 chat_id,
                 msg_id,
-                &i18n::bought_msg(lang, &cb.from.first_name, &format_number(price), &fruits),
+                &i18n::bought_msg(lang, &cb.from.first_name, &fmt_coins(price), &fruits),
             )
             .await;
             answer(ctx, cb, i18n::bought_toast(lang, &fruits), true).await
@@ -473,10 +474,10 @@ async fn handle_buy(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::E
                 ctx,
                 chat_id,
                 msg_id,
-                &i18n::sold_msg(lang, &cb.from.first_name, &fruits, &format_number(price)),
+                &i18n::sold_msg(lang, &cb.from.first_name, &fruits, &fmt_coins(price)),
             )
             .await;
-            answer(ctx, cb, i18n::sold_toast(lang, &format_number(price)), true).await
+            answer(ctx, cb, i18n::sold_toast(lang, &fmt_coins(price)), true).await
         }
         OfferOutcome::TakerMissingFruit(ch) => {
             answer(ctx, cb, i18n::you_dont_have(lang, &ch.to_string()), true).await

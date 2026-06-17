@@ -40,3 +40,34 @@ impl Database {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::COIN;
+    use super::*;
+
+    #[test]
+    fn checkin_cascade_pays_three_levels_up() {
+        let db = Database::new(":memory:", 1).unwrap();
+        // Chain: 1 <- 2 <- 3 <- 4  (4 referred by 3, 3 by 2, 2 by 1)
+        db.force_change(1, 0).unwrap(); // user 1 exists (top referrer)
+        assert!(db.set_referrer_if_new(2, 1).unwrap());
+        assert!(db.set_referrer_if_new(3, 2).unwrap());
+        assert!(db.set_referrer_if_new(4, 3).unwrap());
+
+        assert!(db.try_checkin(4, 10 * COIN).unwrap());
+        assert_eq!(db.get_user_info(4).unwrap().balance, 10 * COIN); // own reward
+        assert_eq!(db.get_user_info(3).unwrap().balance, COIN); // direct referrer +1
+        assert_eq!(db.get_user_info(2).unwrap().balance, COIN / 10); // +0.1
+        assert_eq!(db.get_user_info(1).unwrap().balance, COIN / 100); // +0.01
+    }
+
+    #[test]
+    fn existing_user_does_not_rebind() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 0).unwrap();
+        db.force_change(2, 0).unwrap(); // user 2 already exists
+        assert!(!db.set_referrer_if_new(2, 1).unwrap()); // not new → no bind
+        assert!(!db.set_referrer_if_new(1, 1).unwrap()); // self → no bind
+    }
+}

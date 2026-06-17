@@ -20,6 +20,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const DB_FILENAME: &str = "waterx.db";
 pub const DB_FILENAME_DEV: &str = "waterx-dev.db";
 
+/// Balances are stored as integer micro-coins (6-decimal fixed-point): the DB
+/// value `1_000_000` means 1 coin. `i64` (not `u64`) because balances can go
+/// negative (debt / the overdraw guard). User-typed whole-coin amounts are
+/// multiplied by `COIN` at the ledger boundary; balances are displayed with
+/// `util::fmt_coins`.
+pub const COIN: i64 = 1_000_000;
+
 /// Pick the data file for the current run: `waterx-dev.db` when `dev` is set
 /// (the default), `waterx.db` for production (`BOT_DEV=false`).
 pub fn db_filename(dev: bool) -> &'static str {
@@ -147,6 +154,21 @@ impl Database {
         // pruning would silently delete escrowed fruit/coin. Refund instead.
         let cutoff = current_unix_time() - BUFFER_TTL_SECS;
         Self::refund_and_prune_old_buffer(&conn, cutoff)?;
+
+        // One-time: legacy balances were whole coins; scale them to micro-coin
+        // units (×COIN). Guarded by a meta flag so it runs at most once.
+        let already_scaled: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM meta WHERE key = 'balance_scaled')",
+            [],
+            |r| r.get(0),
+        )?;
+        if !already_scaled {
+            conn.execute("UPDATE balance SET balance = balance * ?1", params![COIN])?;
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('balance_scaled', '1')",
+                [],
+            )?;
+        }
 
         Ok(Self {
             conn: Mutex::new(conn),
