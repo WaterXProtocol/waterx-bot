@@ -263,20 +263,6 @@ pub fn claim_button(l: Lang) -> &'static str {
         "Ambil 🧧", "Kunin 🧧", "รับ 🧧", "Pak 🧧", "Al 🧧")
 }
 
-pub fn so_eager_to_lose(l: Lang) -> &'static str {
-    tr!(l;
-        "So eager to lose? 🤔", "就這麼想輸嗎？🤔", "就这么想输吗？🤔", "そんなに負けたいの？🤔", "그렇게 지고 싶어?🤔",
-        "Так хочешь проиграть? 🤔", "Tu veux tant perdre ? 🤔", "¿Tantas ganas de perder? 🤔", "Willst du so gerne verlieren? 🤔", "Muốn thua đến thế à? 🤔",
-        "Pengen banget kalah? 🤔", "Gusto mo bang matalo agad? 🤔", "อยากแพ้ขนาดนั้นเลยเหรอ 🤔", "Wil je zo graag verliezen? 🤔", "Kaybetmeye bu kadar hevesli misin? 🤔")
-}
-
-pub fn wrong_guess(l: Lang) -> &'static str {
-    tr!(l;
-        "Wrong guess 😐", "沒猜中呦😐", "没猜中哟😐", "外れたよ😐", "못 맞췄어😐",
-        "Не угадал 😐", "Raté 😐", "Fallaste 😐", "Daneben 😐", "Đoán sai rồi 😐",
-        "Tebakan salah 😐", "Mali ang hula 😐", "ทายผิด 😐", "Mis geraden 😐", "Yanlış tahmin 😐")
-}
-
 pub fn loading(l: Lang) -> &'static str {
     tr!(l;
         "(loading…)", "(載入中…)", "(加载中…)", "(読み込み中…)", "(불러오는 중…)",
@@ -586,15 +572,6 @@ pub fn thanks(l: Lang, sender: &str, line: &str) -> String {
     .replace("{line}", line)
 }
 
-pub fn dice_win(l: Lang, name: &str, coins: &str) -> String {
-    tr!(l;
-        "Correct! 😮 {name} won {coins} water-coins", "猜中了😮 {name} 贏得 {coins} 顆 水幣", "猜中了😮 {name} 赢得 {coins} 颗 水币", "的中！😮 {name} が水コインを {coins} 枚 獲得", "정답! 😮 {name} 님이 물코인 {coins} 개 획득",
-        "Угадал! 😮 {name} выиграл {coins} водных монет", "Gagné ! 😮 {name} remporte {coins} pièces d'eau", "¡Correcto! 😮 {name} ganó {coins} monedas de agua", "Richtig! 😮 {name} gewann {coins} Wassermünzen", "Đoán đúng! 😮 {name} thắng {coins} xu nước",
-        "Tepat! 😮 {name} menang {coins} koin air", "Tama! 😮 Nanalo si {name} ng {coins} water-coins", "ทายถูก! 😮 {name} ได้ {coins} เหรียญน้ำ", "Correct! 😮 {name} won {coins} watermunten", "Bildin! 😮 {name}, {coins} su parası kazandı")
-    .replace("{name}", name)
-    .replace("{coins}", coins)
-}
-
 pub fn sell_button(l: Lang, price: &str) -> String {
     tr!(l;
         "Buy for ${price}", "${price} 買入", "${price} 买入", "${price} で買う", "${price} 에 구매",
@@ -726,15 +703,13 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 11] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
     [
         ("start", hi(l)),
-        ("random", menu_random(l)),
         ("balance", menu_balance(l)),
         ("fruit", menu_fruit(l)),
         ("send", menu_send(l)),
-        ("dice", menu_dice(l)),
-        ("gamble", menu_gamble(l)),
+        ("host", menu_host(l)),
         ("sell", menu_sell(l)),
         ("buy", menu_buy(l)),
         ("markets", menu_markets(l)),
@@ -754,13 +729,6 @@ fn menu_markets(l: Lang) -> &'static str {
         "Browse live prediction markets", "瀏覽即時預測市場", "浏览实时预测市场", "予測市場をチェック", "실시간 예측 마켓 보기",
         "Прогнозные рынки", "Voir les marchés de prédiction", "Ver mercados de predicción", "Prognosemärkte ansehen", "Xem thị trường dự đoán",
         "Lihat pasar prediksi", "Tingnan ang prediction markets", "ดูตลาดทำนายผล", "Bekijk voorspellingsmarkten", "Tahmin piyasalarını gör")
-}
-
-fn menu_random(l: Lang) -> &'static str {
-    tr!(l;
-        "Pick one of the arguments at random", "從參數中隨機挑一個", "从参数中随机挑一个", "引数からランダムに1つ選ぶ", "인자 중 하나를 무작위로 선택",
-        "Выбрать случайный из аргументов", "Choisir un argument au hasard", "Elige un argumento al azar", "Eines der Argumente zufällig wählen", "Chọn ngẫu nhiên một tham số",
-        "Pilih satu argumen secara acak", "Pumili ng isa nang random", "สุ่มเลือกหนึ่งจากตัวเลือก", "Kies willekeurig een argument", "Argümanlardan birini rastgele seç")
 }
 
 fn menu_balance(l: Lang) -> &'static str {
@@ -784,16 +752,9 @@ fn menu_send(l: Lang) -> &'static str {
         "Balas pesan untuk mengirim koin atau buah", "Mag-reply para magpadala ng coins o prutas", "ตอบกลับข้อความเพื่อส่งเหรียญหรือผลไม้", "Reageer op een bericht om munten of fruit te sturen", "Coin veya meyve göndermek için bir mesaja yanıt ver")
 }
 
-fn menu_dice(l: Lang) -> &'static str {
+fn menu_host(l: Lang) -> &'static str {
     tr!(l;
-        "/dice <guess 1-6> <wager> — 6x on a hit", "/dice <猜1-6> <下注> 中6倍", "/dice <猜1-6> <下注> 中6倍", "/dice <予想1-6> <掛け金> 当たれば6倍", "/dice <예상 1-6> <베팅> 적중 시 6배",
-        "/dice <число 1-6> <ставка> — 6x при попадании", "/dice <pari 1-6> <mise> — 6x si ça tombe", "/dice <adivina 1-6> <apuesta> — 6x si aciertas", "/dice <Tipp 1-6> <Einsatz> — 6x bei Treffer", "/dice <đoán 1-6> <tiền cược> — trúng x6",
-        "/dice <tebak 1-6> <taruhan> — 6x kalau tepat", "/dice <hula 1-6> <pusta> — 6x kapag tama", "/dice <ทาย 1-6> <เดิมพัน> — ถูก 6 เท่า", "/dice <gok 1-6> <inzet> — 6x bij een treffer", "/dice <tahmin 1-6> <bahis> — tutarsa 6 kat")
-}
-
-fn menu_gamble(l: Lang) -> &'static str {
-    tr!(l;
-        "Open a bet or view your stakes", "開賭局或查看自己押注", "开赌局或查看自己押注", "賭けを開くか自分の賭けを見る", "베팅을 열거나 내 베팅 보기",
+        "Host a bet or view your stakes", "開賭局或查看自己押注", "开赌局或查看自己押注", "賭けを開くか自分の賭けを見る", "베팅을 열거나 내 베팅 보기",
         "Открыть ставку или посмотреть свои", "Ouvrir un pari ou voir tes mises", "Abre una apuesta o mira las tuyas", "Eine Wette eröffnen oder deine Einsätze ansehen", "Mở ván cược hoặc xem cược của bạn",
         "Buka taruhan atau lihat taruhanmu", "Magbukas ng pusta o tingnan ang sa'yo", "เปิดเดิมพันหรือดูเดิมพันของคุณ", "Open een weddenschap of bekijk je inzetten", "Bahis aç ya da bahislerini gör")
 }
@@ -987,7 +948,6 @@ mod tests {
                 sent_envelope_title(l, "A", "1"),
                 sent_fruits(l, "A", "B", "🍎"),
                 thanks(l, "A", "x"),
-                dice_win(l, "A", "1"),
                 sell_button(l, "1"),
                 buy_button(l, "1"),
                 sell_listing(l, "A", "🍎", "1"),

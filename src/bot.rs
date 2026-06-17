@@ -52,7 +52,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     // Resolve the bot's real @username via getMe BEFORE building the framework
     // — telexide's command router compares group-chat command suffixes against
-    // this string (e.g. `/gamble@BotUsername`). Using anything other than the
+    // this string (e.g. `/host@BotUsername`). Using anything other than the
     // actual username makes group commands silently no-op when Telegram
     // appends the @suffix. The call also serves as a token sanity check.
     let probe = telexide::api::APIClient::new(None, &cfg.token);
@@ -73,7 +73,7 @@ pub async fn run() -> anyhow::Result<()> {
         .set_token(&cfg.token)
         .set_framework(create_framework!(
             bot_username.as_str(),
-            start, random, balance, fruit, send, dice, gamble, sell, buy, markets, checkin,
+            start, balance, fruit, send, host, sell, buy, markets, checkin,
             mint, pause, unpause, broadcast
         ))
         .add_handler_func(callbacks::on_callback);
