@@ -46,6 +46,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_checkin(&ctx, &cb).await
     } else if data == menu::MENU_MATCHES {
         handle_menu_matches(&ctx, &cb).await
+    } else if data == menu::MENU_INVITE {
+        handle_menu_invite(&ctx, &cb).await
     } else {
         Ok(())
     };
@@ -335,6 +337,27 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         }
         Err(_) => answer(ctx, cb, i18n::db_error(lang), true).await,
     }
+}
+
+/// `menu:invite` — post the presser's personal referral link and their current
+/// referral count as a fresh message.
+async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    let username = ctx
+        .data
+        .read()
+        .get::<crate::bot::BotUsernameKey>()
+        .cloned()
+        .unwrap_or_default();
+    let link = menu::referral_link(&username, cb.from.id);
+    let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
+    answer(ctx, cb, "", false).await?;
+    let text = i18n::invite_text(lang, &link, &count.to_string());
+    crate::commands::util::send_text(ctx, message.chat.get_id(), text).await?;
+    Ok(())
 }
 
 /// `menu:matches` — post the match brief as a fresh message, leaving the menu

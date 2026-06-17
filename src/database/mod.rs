@@ -3,6 +3,7 @@ mod chats;
 mod fruit;
 mod games;
 mod meta;
+mod referral;
 mod user;
 
 pub use buffer::OfferOutcome;
@@ -58,7 +59,8 @@ impl Database {
                 balance      INTEGER NOT NULL DEFAULT 0,
                 fruit        TEXT    NOT NULL DEFAULT '',
                 last_checkin INTEGER NOT NULL DEFAULT 0,
-                lang         TEXT    NOT NULL DEFAULT ''
+                lang         TEXT    NOT NULL DEFAULT '',
+                referrer     INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
@@ -123,6 +125,11 @@ impl Database {
         // Add the persisted UI locale (empty = not yet chosen via /start).
         let _ = conn.execute(
             "ALTER TABLE balance ADD COLUMN lang TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        // Add the referrer link (0 = joined without a referral).
+        let _ = conn.execute(
+            "ALTER TABLE balance ADD COLUMN referrer INTEGER NOT NULL DEFAULT 0",
             [],
         );
 

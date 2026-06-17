@@ -31,6 +31,11 @@ impl TypeMapKey for BotIdKey {
     type Value = i64;
 }
 
+pub struct BotUsernameKey;
+impl TypeMapKey for BotUsernameKey {
+    type Value = String;
+}
+
 pub async fn run() -> anyhow::Result<()> {
     let cfg = BotConfig::from_env()?;
     let bot_id: i64 = cfg
@@ -84,6 +89,7 @@ pub async fn run() -> anyhow::Result<()> {
         data.insert::<GamesKey>(games);
         data.insert::<ConfigKey>(cfg_arc);
         data.insert::<BotIdKey>(bot_id);
+        data.insert::<BotUsernameKey>(bot_username.clone());
     }
 
     // Eagerly set the user-facing command menu (the "/" autocomplete), once

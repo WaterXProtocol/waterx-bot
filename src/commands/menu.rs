@@ -12,6 +12,12 @@ use telexide::prelude::Context;
 pub const SET_LANG: &str = "setlang:";
 pub const MENU_CHECKIN: &str = "menu:checkin";
 pub const MENU_MATCHES: &str = "menu:matches";
+pub const MENU_INVITE: &str = "menu:invite";
+
+/// A user's personal referral deep link: opening it sends `/start <user_id>`.
+pub fn referral_link(bot_username: &str, user_id: i64) -> String {
+    format!("https://t.me/{bot_username}?start={user_id}")
+}
 
 /// Language-picker keyboard: every supported locale, two per row, labelled with
 /// its flag + endonym. Payload is `setlang:<store_code>`.
@@ -56,5 +62,8 @@ pub fn main_menu_rows(lang: Lang, checkin_available: bool) -> Vec<Row> {
         row.push((i18n::btn_checkin(lang).to_string(), MENU_CHECKIN.to_string()));
     }
     row.push((i18n::btn_matches(lang).to_string(), MENU_MATCHES.to_string()));
-    vec![row]
+    vec![
+        row,
+        vec![(i18n::btn_invite(lang).to_string(), MENU_INVITE.to_string())],
+    ]
 }

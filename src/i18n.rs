@@ -976,6 +976,36 @@ pub fn btn_matches(l: Lang) -> &'static str {
         "⚽ Jogos de hoje", "⚽ आज के मैच", "⚽ مباريات اليوم")
 }
 
+pub fn btn_invite(l: Lang) -> &'static str {
+    tr!(l;
+        "🔗 Invite friends", "🔗 邀請好友", "🔗 邀请好友", "🔗 友達を招待", "🔗 친구 초대",
+        "🔗 Пригласить друзей", "🔗 Inviter des amis", "🔗 Invitar amigos", "🔗 Freunde einladen", "🔗 Mời bạn bè",
+        "🔗 Undang teman", "🔗 Mag-imbita ng kaibigan", "🔗 ชวนเพื่อน", "🔗 Vrienden uitnodigen", "🔗 Arkadaş davet et",
+        "🔗 Convidar amigos", "🔗 दोस्तों को बुलाएं", "🔗 ادعُ أصدقاءك")
+}
+
+/// Invite-link message: the user's referral link plus how many they've referred.
+pub fn invite_text(l: Lang, link: &str, count: &str) -> String {
+    tr!(l;
+        "🔗 Invite friends with your link:\n{link}\n\nReferrals: {count} 🎉", "🔗 用你的連結邀請好友：\n{link}\n\n已邀請：{count} 人 🎉", "🔗 用你的链接邀请好友：\n{link}\n\n已邀请：{count} 人 🎉", "🔗 あなたのリンクで友達を招待：\n{link}\n\n招待数：{count} 🎉", "🔗 내 링크로 친구 초대:\n{link}\n\n초대 수: {count} 🎉",
+        "🔗 Приглашайте друзей по ссылке:\n{link}\n\nПриглашено: {count} 🎉", "🔗 Invite des amis avec ton lien :\n{link}\n\nParrainages : {count} 🎉", "🔗 Invita amigos con tu enlace:\n{link}\n\nReferidos: {count} 🎉", "🔗 Lade Freunde mit deinem Link ein:\n{link}\n\nEinladungen: {count} 🎉", "🔗 Mời bạn bè bằng liên kết của bạn:\n{link}\n\nĐã mời: {count} 🎉",
+        "🔗 Undang teman dengan tautanmu:\n{link}\n\nReferral: {count} 🎉", "🔗 Mag-imbita gamit ang iyong link:\n{link}\n\nReferrals: {count} 🎉", "🔗 ชวนเพื่อนด้วยลิงก์ของคุณ:\n{link}\n\nผู้ที่ชวนมา: {count} 🎉", "🔗 Nodig vrienden uit met je link:\n{link}\n\nVerwijzingen: {count} 🎉", "🔗 Bağlantınla arkadaşlarını davet et:\n{link}\n\nDavetler: {count} 🎉",
+        "🔗 Convide amigos com seu link:\n{link}\n\nIndicações: {count} 🎉", "🔗 अपने लिंक से दोस्तों को बुलाएं:\n{link}\n\nरेफ़रल: {count} 🎉", "🔗 ادعُ أصدقاءك عبر رابطك:\n{link}\n\nالإحالات: {count} 🎉")
+    .replace("{link}", link)
+    .replace("{count}", count)
+}
+
+/// DM to the referrer when a new user joins through their link.
+pub fn referral_bonus(l: Lang, name: &str, amt: &str) -> String {
+    tr!(l;
+        "🎉 {name} joined via your link! +{amt} water-coins", "🎉 {name} 透過你的連結加入了！+{amt} 水幣", "🎉 {name} 通过你的链接加入了！+{amt} 水币", "🎉 {name} があなたのリンクから参加！+{amt} 水コイン", "🎉 {name} 님이 내 링크로 가입! +{amt} 물코인",
+        "🎉 {name} присоединился по вашей ссылке! +{amt} водных монет", "🎉 {name} a rejoint via ton lien ! +{amt} pièces d'eau", "🎉 ¡{name} se unió con tu enlace! +{amt} monedas de agua", "🎉 {name} ist über deinen Link beigetreten! +{amt} Wassermünzen", "🎉 {name} đã tham gia qua liên kết của bạn! +{amt} xu nước",
+        "🎉 {name} bergabung lewat tautanmu! +{amt} koin air", "🎉 Sumali si {name} gamit ang link mo! +{amt} water-coins", "🎉 {name} เข้าร่วมผ่านลิงก์ของคุณ! +{amt} เหรียญน้ำ", "🎉 {name} is via jouw link lid geworden! +{amt} watermunten", "🎉 {name} bağlantınla katıldı! +{amt} su parası",
+        "🎉 {name} entrou pelo seu link! +{amt} moedas de água", "🎉 {name} आपके लिंक से जुड़े! +{amt} वॉटर-कॉइन", "🎉 انضم {name} عبر رابطك! +{amt} عملة مائية")
+    .replace("{name}", name)
+    .replace("{amt}", amt)
+}
+
 // ----------------------------------------------------------------------------
 // `/checkin` daily reward
 // ----------------------------------------------------------------------------
@@ -1107,6 +1137,8 @@ mod tests {
                 broadcast_sent(l, "5"),
                 menu_status(l, "10", "🍎"),
                 checkin_already(l, "1h 2m"),
+                invite_text(l, "link", "3"),
+                referral_bonus(l, "A", "20"),
             ];
             for s in samples {
                 assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");
