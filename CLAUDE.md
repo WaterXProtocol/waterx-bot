@@ -60,23 +60,21 @@ The `envelope:` callback prefix is still routed even though the `/envelope` comm
 
 ### Internationalisation (`src/i18n.rs`)
 
-`Lang` has 18 variants. Most user-facing strings are fully localized into 15
-locales (English + Traditional & Simplified Chinese + Japanese, Korean, Russian,
-French, Spanish, German, Vietnamese, Indonesian, Filipino, Thai, Dutch, Turkish).
-The module is dependency-free: a `Lang` enum, a `tr!` macro that picks one of 15
-literal arms in a fixed order (`en, hant, hans, ja, ko, ru, fr, es, de, vi, id,
-fil, th, nl, tr`), and one `pub fn` per message so all locales for a message sit
-together. Parameterised messages leave `{token}` placeholders in every arm and
-substitute with `.replace(...)` (real `format!` can't take a runtime format
-string).
+Every user-facing string is localized into 18 locales (English + Traditional &
+Simplified Chinese + Japanese, Korean, Russian, French, Spanish, German,
+Vietnamese, Indonesian, Filipino, Thai, Dutch, Turkish, Português, हिन्दी,
+العربية). The module is dependency-free: a `Lang` enum, a `tr!` macro that picks
+one of 18 literal arms in a fixed order (`en, hant, hans, ja, ko, ru, fr, es, de,
+vi, id, fil, th, nl, tr, pt, hi, ar`), and one `pub fn` per message so all locales
+for a message sit together. Parameterised messages leave `{token}` placeholders
+in every arm and substitute with `.replace(...)` (real `format!` can't take a
+runtime format string). The `tr!` match is exhaustive over all 18 variants, so a
+new message that omits an arm fails to compile. The picker display order is driven
+by `Lang::ALL` (chunked two-per-row in `menu::lang_picker_rows`), *not* the
+`tr!`/`native_label` arm order.
 
-**Português (`pt`), हिन्दी (`hi`) and العربية (`ar`)** were added as `Lang`
-variants for the picker, auto-detect (`from_code`) and command menus, but their
-message bodies are **not translated yet** — the `tr!` macro maps `Pt | Hi | Ar`
-to the English (`$en`) arm as a fallback. To translate, extend the macro arm
-order and add the literals per message (or special-case in `tr!`). The picker
-display order is driven by `Lang::ALL` (chunked two-per-row in
-`menu::lang_picker_rows`), *not* the `tr!`/`native_label` arm order.
+Adding a message: add a `pub fn` with all 18 `tr!` arms in the order above; the
+`no_unfilled_placeholders_in_any_locale` test catches any arm that drops a token.
 
 Language resolution is **explicit-choice-wins, auto-detect-fallback**. A user's
 `/start`-chosen locale is persisted in `balance.lang` (stable `Lang::store_code`,
@@ -101,9 +99,6 @@ access. `Database::{get_lang, set_lang}` are the persistence accessors.
   plus a default (English) menu. Telegram only accepts ISO 639-1 codes there, so
   both Chinese scripts collapse to one `zh` menu (`Lang::menu_code`) and Filipino
   best-efforts under `tl`; per-locale failures are logged and skipped.
-
-Adding a message: add a `pub fn` with all 15 `tr!` arms; the
-`no_unfilled_placeholders_in_any_locale` test catches any arm that drops a token.
 
 ### `/markets` — read-only external feed
 
