@@ -25,7 +25,7 @@ pub async fn markets(ctx: Context, message: Message) -> CommandResult {
 /// this returns the localized "unavailable" line rather than erroring, so both
 /// the `/markets` command and the menu button can post it unconditionally.
 pub(crate) async fn brief(lang: Lang) -> String {
-    match fetch(lang).await {
+    match fetch().await {
         Ok(resp) => render(lang, &resp.data.items),
         Err(err) => {
             eprintln!("[markets] fetch error: {err}");
@@ -34,12 +34,14 @@ pub(crate) async fn brief(lang: Lang) -> String {
     }
 }
 
-/// Pull the browse feed, asking the API for the caller's locale. Unsupported
-/// locales fall back to English server-side, so any `Lang` is safe to send.
-async fn fetch(lang: Lang) -> Result<BrowseResp, reqwest::Error> {
+/// Pull the browse feed. Always requests English (`locale=en`): team names are
+/// proper nouns and the surrounding brief chrome is localized separately, so a
+/// single English fetch keeps the data consistent regardless of the caller's
+/// locale (the API otherwise returns e.g. Chinese team names for `locale=zh`).
+async fn fetch() -> Result<BrowseResp, reqwest::Error> {
     reqwest::Client::new()
         .get(BROWSE_URL)
-        .query(&[("locale", lang.menu_code()), ("limit", "200")])
+        .query(&[("locale", "en"), ("limit", "200")])
         .header("user-agent", "waterx-bot/0.1")
         .send()
         .await?
