@@ -765,13 +765,12 @@ pub fn you_dont_have(l: Lang, ch: &str) -> String {
 
 // --- bet-game settlement display (rendered in the host's language) ---
 
-pub fn result_header(l: Lang, id: &str, outcome: &str) -> String {
+pub fn result_header(l: Lang, outcome: &str) -> String {
     tr!(l;
-        "{id}\nHost's result: {outcome}", "{id}\n莊家指定結果：{outcome}", "{id}\n庄家指定结果：{outcome}", "{id}\n親の指定結果：{outcome}", "{id}\n딜러 지정 결과: {outcome}",
-        "{id}\nИтог от ведущего: {outcome}", "{id}\nRésultat de l'organisateur : {outcome}", "{id}\nResultado del anfitrión: {outcome}", "{id}\nErgebnis des Gastgebers: {outcome}", "{id}\nKết quả nhà cái: {outcome}",
-        "{id}\nHasil dari bandar: {outcome}", "{id}\nResulta ng host: {outcome}", "{id}\nผลที่เจ้ามือกำหนด: {outcome}", "{id}\nUitslag van spelleider: {outcome}", "{id}\nEv sahibinin sonucu: {outcome}",
-        "{id}\nResultado do anfitrião: {outcome}", "{id}\nहोस्ट का परिणाम: {outcome}", "{id}\nنتيجة المُضيف: {outcome}")
-    .replace("{id}", id)
+        "Host's result: {outcome}", "莊家指定結果：{outcome}", "庄家指定结果：{outcome}", "親の指定結果：{outcome}", "딜러 지정 결과: {outcome}",
+        "Итог от ведущего: {outcome}", "Résultat de l'organisateur : {outcome}", "Resultado del anfitrión: {outcome}", "Ergebnis des Gastgebers: {outcome}", "Kết quả nhà cái: {outcome}",
+        "Hasil dari bandar: {outcome}", "Resulta ng host: {outcome}", "ผลที่เจ้ามือกำหนด: {outcome}", "Uitslag van spelleider: {outcome}", "Ev sahibinin sonucu: {outcome}",
+        "Resultado do anfitrião: {outcome}", "होस्ट का परिणाम: {outcome}", "نتيجة المُضيف: {outcome}")
     .replace("{outcome}", outcome)
 }
 
@@ -867,13 +866,13 @@ fn menu_predict(l: Lang) -> &'static str {
 
 /// Per-staker settlement line, e.g. `***1234 won 50 coins`. `verb` is
 /// already localized via [`verb_won`] / [`verb_lost`].
-pub fn settle_line(l: Lang, tail: &str, verb: &str, amt: &str) -> String {
+pub fn settle_line(l: Lang, name: &str, verb: &str, amt: &str) -> String {
     tr!(l;
-        "\n***{tail} {verb} {amt} coins", "\n***{tail} {verb}{amt}顆 金幣", "\n***{tail} {verb}{amt}颗 金币", "\n***{tail} コイン{amt}枚{verb}", "\n***{tail} 코인 {amt}개 {verb}",
-        "\n***{tail} {verb} {amt} монет", "\n***{tail} {verb} {amt} pièces", "\n***{tail} {verb} {amt} monedas", "\n***{tail} {verb} {amt} Münzen", "\n***{tail} {verb} {amt} xu",
-        "\n***{tail} {verb} {amt} koin", "\n***{tail} {verb} {amt} coins", "\n***{tail} {verb} {amt} เหรียญ", "\n***{tail} {verb} {amt} munten", "\n***{tail} {amt} para {verb}",
-        "\n***{tail} {verb} {amt} moedas", "\n***{tail} {amt} कॉइन {verb}", "\n***{tail} {verb} {amt} عملة")
-    .replace("{tail}", tail)
+        "\n{name} {verb} {amt} coins", "\n{name} {verb}{amt}顆 金幣", "\n{name} {verb}{amt}颗 金币", "\n{name} コイン{amt}枚{verb}", "\n{name} 코인 {amt}개 {verb}",
+        "\n{name} {verb} {amt} монет", "\n{name} {verb} {amt} pièces", "\n{name} {verb} {amt} monedas", "\n{name} {verb} {amt} Münzen", "\n{name} {verb} {amt} xu",
+        "\n{name} {verb} {amt} koin", "\n{name} {verb} {amt} coins", "\n{name} {verb} {amt} เหรียญ", "\n{name} {verb} {amt} munten", "\n{name} {amt} para {verb}",
+        "\n{name} {verb} {amt} moedas", "\n{name} {amt} कॉइन {verb}", "\n{name} {verb} {amt} عملة")
+    .replace("{name}", name)
     .replace("{verb}", verb)
     .replace("{amt}", amt)
 }
@@ -1423,8 +1422,8 @@ mod tests {
                 sold_msg(l, "A", "🍎", "1"),
                 sold_toast(l, "1"),
                 you_dont_have(l, "🍎"),
-                result_header(l, "id", "X"),
-                settle_line(l, "1234", verb_won(l), "5"),
+                result_header(l, "X"),
+                settle_line(l, "Alice", verb_won(l), "5"),
                 board_footer_open(l, "35"),
                 board_footer_closed(l, "35"),
                 markets_more(l, "3"),

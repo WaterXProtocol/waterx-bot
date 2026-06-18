@@ -431,7 +431,7 @@ async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Res
             db.force_change(cb.from.id, total * COIN).ok();
             return answer(ctx, cb, i18n::bet_failed(lang), true).await;
         };
-        if !game.stake(cb.from.id, &option, total) {
+        if !game.stake(cb.from.id, &option, total, &full_name(&cb.from)) {
             db.force_change(cb.from.id, total * COIN).ok();
             return answer(ctx, cb, i18n::bet_failed(lang), true).await;
         }

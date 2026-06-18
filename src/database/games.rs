@@ -64,8 +64,8 @@ mod tests {
         let db = mk_db();
         let mut g = BetGame::new(123, crate::i18n::Lang::Hant, "晚餐吃啥", &["麵", "飯"]);
         g.set_id(100, 200);
-        g.stake(1, "麵", 10);
-        g.stake(2, "飯", 5);
+        g.stake(1, "麵", 10, "Alice");
+        g.stake(2, "飯", 5, "Bob");
         db.save_bet_game(&g).unwrap();
 
         let loaded = db.load_all_bet_games().unwrap();
@@ -85,9 +85,9 @@ mod tests {
         let db = mk_db();
         let mut g = BetGame::new(123, crate::i18n::Lang::En, "t", &["A", "B"]);
         g.set_id(100, 200);
-        g.stake(1, "A", 5);
+        g.stake(1, "A", 5, "Alice");
         db.save_bet_game(&g).unwrap();
-        g.stake(1, "A", 3);
+        g.stake(1, "A", 3, "Alice");
         db.save_bet_game(&g).unwrap();
         let loaded = db.load_all_bet_games().unwrap();
         assert_eq!(loaded.len(), 1);
@@ -109,7 +109,7 @@ mod tests {
         let db = mk_db();
         let mut g = BetGame::new(123, crate::i18n::Lang::En, "t", &["A", "B"]);
         g.set_id(100, 200);
-        g.stake(1, "A", 10);
+        g.stake(1, "A", 10, "Alice");
         g.close();
         let (_outputs, _display) = g.settle("A");
         db.save_bet_game(&g).unwrap();

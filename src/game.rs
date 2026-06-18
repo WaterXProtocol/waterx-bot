@@ -35,6 +35,11 @@ pub struct BetGame {
     pub inputs: HashMap<i64, i64>,
     pub outputs: HashMap<i64, i64>,
     pub changes: HashMap<i64, i64>,
+    /// Bettor display names captured at stake time, so the settlement readout can
+    /// show names instead of opaque id tails. `#[serde(default)]` keeps games
+    /// persisted before this field loaded (they fall back to the id tail).
+    #[serde(default)]
+    pub names: HashMap<i64, String>,
 }
 
 impl BetGame {
@@ -57,6 +62,7 @@ impl BetGame {
             inputs: HashMap::new(),
             outputs: HashMap::new(),
             changes: HashMap::new(),
+            names: HashMap::new(),
         }
     }
 
@@ -168,7 +174,7 @@ impl BetGame {
     // precision loss at the bot's magnitudes — same tradeoff as
     // `database::wager::decimal_payout`.
     #[allow(clippy::cast_precision_loss)]
-    pub fn stake(&mut self, user: i64, option: &str, amount: i64) -> bool {
+    pub fn stake(&mut self, user: i64, option: &str, amount: i64, name: &str) -> bool {
         if self.state != BetState::betting {
             return false;
         }
@@ -179,6 +185,7 @@ impl BetGame {
             d.bet += amount;
             *d.detail.entry(user).or_insert(0) += amount;
         }
+        self.names.insert(user, name.to_string());
         *self.inputs.entry(user).or_insert(0) += amount;
         self.total += amount;
         // Recompute the odd for *every* option that has bets — total moved,
@@ -215,7 +222,7 @@ impl BetGame {
             self.state = BetState::draw;
             return (
                 self.inputs.clone(),
-                i18n::result_header(self.lang, &self.id, i18n::draw_label(self.lang)),
+                i18n::result_header(self.lang, i18n::draw_label(self.lang)),
             );
         }
         let mut outputs = HashMap::new();
@@ -238,16 +245,15 @@ impl BetGame {
         if changes.is_empty() {
             // Nobody bet at all.
             self.state = BetState::draw;
-            let display = i18n::result_header(self.lang, &self.id, outcome)
+            let display = i18n::result_header(self.lang, outcome)
                 + i18n::no_one_bet_suffix(self.lang);
             return (outputs, display);
         }
 
         self.state = BetState::settled;
-        let mut display = i18n::result_header(self.lang, &self.id, outcome);
+        let mut display = i18n::result_header(self.lang, outcome);
         for (user, diff) in &changes {
-            let s = format!("{user:0>4}");
-            let tail = &s[s.len().saturating_sub(4)..];
+            let name = self.display_name(*user);
             let verb = if *diff >= 0 {
                 i18n::verb_won(self.lang)
             } else {
@@ -255,12 +261,21 @@ impl BetGame {
             };
             display.push_str(&i18n::settle_line(
                 self.lang,
-                tail,
+                &name,
                 verb,
                 &diff.abs().to_string(),
             ));
         }
         (outputs, display)
+    }
+
+    /// A bettor's captured display name, falling back to a masked id tail
+    /// (`***1234`) for games staked before names were recorded.
+    fn display_name(&self, user: i64) -> String {
+        self.names.get(&user).cloned().unwrap_or_else(|| {
+            let s = format!("{user:0>4}");
+            format!("***{}", &s[s.len().saturating_sub(4)..])
+        })
     }
 
     pub fn reverse(&self) -> Option<HashMap<i64, i64>> {
@@ -321,13 +336,13 @@ mod tests {
     #[test]
     fn stake_updates_all_odds() {
         let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
-        g.stake(1, "A", 10);
-        g.stake(2, "B", 5);
+        g.stake(1, "A", 10, "Alice");
+        g.stake(2, "B", 5, "Bob");
         // total = 15. A.bet = 10 → odd = 1.50. B.bet = 5 → odd = 3.00.
         assert_eq!(g.options["A"].odd, "1.50");
         assert_eq!(g.options["B"].odd, "3.00");
         // Another bet on A should update B's odd too.
-        g.stake(3, "A", 15);
+        g.stake(3, "A", 15, "Cara");
         // total = 30. A.bet = 25 → odd = 1.20. B.bet = 5 → odd = 6.00.
         assert_eq!(g.options["A"].odd, "1.20");
         assert_eq!(g.options["B"].odd, "6.00");
@@ -336,9 +351,9 @@ mod tests {
     #[test]
     fn settle_pays_winners_proportionally() {
         let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
-        g.stake(1, "A", 10);
-        g.stake(2, "A", 30);
-        g.stake(3, "B", 10);
+        g.stake(1, "A", 10, "Alice");
+        g.stake(2, "A", 30, "Bob");
+        g.stake(3, "B", 10, "Cara");
         g.close();
         // total=50, winning bet=40 → ratio=1.25. user 1 → 12, user 2 → 37.
         let (out, _) = g.settle("A");
@@ -354,8 +369,8 @@ mod tests {
     #[test]
     fn settle_draw_refunds_inputs() {
         let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
-        g.stake(1, "A", 10);
-        g.stake(2, "B", 7);
+        g.stake(1, "A", 10, "Alice");
+        g.stake(2, "B", 7, "Bob");
         g.close();
         let (out, display) = g.settle("$draw$");
         assert_eq!(out[&1], 10);
@@ -379,7 +394,7 @@ mod tests {
     #[test]
     fn check_skips_users_with_no_record() {
         let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
-        g.stake(1, "A", 10);
+        g.stake(1, "A", 10, "Alice");
         assert!(!g.check(1).is_empty()); // bettor sees their row
         assert!(g.check(99).is_empty()); // someone who didn't bet sees nothing
     }
@@ -387,8 +402,8 @@ mod tests {
     #[test]
     fn check_shows_settled_result() {
         let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
-        g.stake(1, "A", 10);
-        g.stake(2, "B", 10);
+        g.stake(1, "A", 10, "Alice");
+        g.stake(2, "B", 10, "Bob");
         g.close();
         g.settle("A");
         let s1 = g.check(1);
