@@ -532,6 +532,15 @@ pub fn draw_label(l: Lang) -> &'static str {
         "Empate", "ड्रॉ", "تعادل")
 }
 
+/// Section heading above the caller's open (unsettled) bets in `/status`.
+pub fn positions_title(l: Lang) -> &'static str {
+    tr!(l;
+        "📊 Open bets", "📊 未結算下注", "📊 未结算下注", "📊 未決済のベット", "📊 미정산 베팅",
+        "📊 Открытые ставки", "📊 Paris en cours", "📊 Apuestas abiertas", "📊 Offene Wetten", "📊 Cược đang mở",
+        "📊 Taruhan terbuka", "📊 Bukas na taya", "📊 เดิมพันที่เปิดอยู่", "📊 Open weddenschappen", "📊 Açık bahisler",
+        "📊 Apostas abertas", "📊 खुले दांव", "📊 الرهانات المفتوحة")
+}
+
 pub fn close_button(l: Lang) -> &'static str {
     tr!(l;
         "Close", "收盤", "收盘", "締め切る", "마감",
@@ -750,7 +759,7 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 5] {
     [
         ("start", menu_start(l)),
-        ("balance", menu_balance(l)),
+        ("status", menu_balance(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
         ("language", menu_language(l)),

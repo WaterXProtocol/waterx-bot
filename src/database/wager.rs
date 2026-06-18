@@ -12,6 +12,23 @@ pub struct OpenMarket {
     pub stake: i64,
 }
 
+/// One of a user's open (unsettled) wagers, for the `/status` positions list.
+#[derive(Debug, Clone)]
+pub struct Position {
+    pub team_a: String,
+    pub team_b: String,
+    pub outcome: String,
+    pub stake: i64,
+    pub odds_cents: f64,
+}
+
+impl Position {
+    /// Micro-coins this position pays out if it wins (stake × decimal odds).
+    pub fn potential_payout(&self) -> i64 {
+        payout_units(self.stake, self.odds_cents)
+    }
+}
+
 /// One settled wager, returned so the caller can notify the bettor.
 #[derive(Debug, Clone)]
 pub struct Settlement {
@@ -66,6 +83,28 @@ impl Database {
             ],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    /// A user's open (unsettled) wagers, newest last, for `/status`.
+    pub fn list_open_wagers(&self, user: i64) -> SqlResult<Vec<Position>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT team_a, team_b, outcome, stake, odds_cents
+             FROM wagers WHERE user = ?1 AND status = 'open'
+             ORDER BY placed_at",
+        )?;
+        let rows = stmt
+            .query_map(params![user], |r| {
+                Ok(Position {
+                    team_a: r.get(0)?,
+                    team_b: r.get(1)?,
+                    outcome: r.get(2)?,
+                    stake: r.get(3)?,
+                    odds_cents: r.get(4)?,
+                })
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(rows)
     }
 
     /// Markets that still have open wagers, grouped for the admin `/settle`
@@ -157,5 +196,23 @@ mod tests {
         assert_eq!(db.get_user_info(20).unwrap().balance, 0); // lost
         // Idempotent: nothing open left to settle.
         assert!(db.settle_market("m1", "teamA").unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_open_wagers_returns_only_users_open_bets() {
+        let db = Database::new(":memory:", 1).unwrap();
+        // user 10: one bet at 50¢ (decimal 2.0) — potential payout = 2× stake.
+        db.place_wager(10, "m1", "s", "A", "B", "teamA", 5 * COIN, 50.0, 0).unwrap();
+        // user 20: a different bet, must not show up for user 10.
+        db.place_wager(20, "m2", "s", "C", "D", "teamB", 3 * COIN, 25.0, 0).unwrap();
+
+        let open = db.list_open_wagers(10).unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].outcome, "teamA");
+        assert_eq!(open[0].potential_payout(), 10 * COIN);
+
+        // Settled bets drop out of the open list.
+        db.settle_market("m1", "teamB").unwrap();
+        assert!(db.list_open_wagers(10).unwrap().is_empty());
     }
 }
