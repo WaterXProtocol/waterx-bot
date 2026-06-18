@@ -50,3 +50,6 @@ waterx.db-shm
 *.db-journal
 *.db-wal
 *.db-shm
+
+# /redeploy marker (runtime, holds the chat id to notify on next startup)
+redeploy.notify

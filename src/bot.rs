@@ -145,6 +145,26 @@ pub async fn run() -> anyhow::Result<()> {
         if cfg.dev { "dev" } else { "production" }
     );
 
+    // Post-redeploy notice: if `/redeploy` left a marker (the chat to notify),
+    // confirm we're back online here, then remove it. (The process that ran
+    // `/redeploy` died in the restart, so this is the only place to report it.)
+    {
+        use telexide::api::types::SendMessage;
+        let marker = crate::commands::admin::REDEPLOY_MARKER;
+        if let Ok(contents) = std::fs::read_to_string(marker) {
+            if let Ok(chat) = contents.trim().parse::<i64>() {
+                if let Err(err) = client
+                    .api_client
+                    .send_message(SendMessage::new(chat.into(), "✅ Redeploy complete — back online.".to_string()))
+                    .await
+                {
+                    eprintln!("redeploy notify error: {err}");
+                }
+            }
+            let _ = std::fs::remove_file(marker);
+        }
+    }
+
     // Custom polling loop: robust to per-update deserialization errors and
     // transient HTTP errors. The default telexide stream bails the whole bot
     // on the first malformed update, which kills the process whenever

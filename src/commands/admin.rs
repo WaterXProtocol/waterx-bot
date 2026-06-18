@@ -13,6 +13,11 @@ use telexide::prelude::*;
 /// Callback-data prefix for the button-driven settle flow (owner-only).
 pub const SETTLE_CB: &str = "stl:";
 
+/// Marker file written by `/redeploy` (holds the chat id to notify) and read by
+/// `bot::run` on the next startup to confirm the bot is back online. Relative to
+/// the working directory (same place as the SQLite file).
+pub const REDEPLOY_MARKER: &str = "redeploy.notify";
+
 /// Normalize an admin-typed winner token into the stored outcome key.
 fn normalize_winner(s: &str) -> Option<&'static str> {
     match s.to_ascii_lowercase().as_str() {
@@ -281,10 +286,13 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
     // build/restart happens in waterx-deploy.service, not this process.
     match std::process::Command::new("sh").arg("-c").arg(&cmd).spawn() {
         Ok(_) => {
+            // Drop a marker so the *freshly restarted* bot can report "back
+            // online" here on startup (this process won't survive the restart).
+            let _ = std::fs::write(REDEPLOY_MARKER, message.chat.get_id().to_string());
             reply(
                 &ctx,
                 &message,
-                "🚀 Deploying — pull + build + restart triggered. I'll be back in a moment.",
+                "🚀 Deploying — pull + build + restart triggered. I'll message here when it's back.",
             )
             .await?;
         }
