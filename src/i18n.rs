@@ -242,14 +242,6 @@ impl Lang {
 // Parameter-free messages
 // ----------------------------------------------------------------------------
 
-pub fn hi(l: Lang) -> &'static str {
-    tr!(l;
-        "Hi?", "嗨？", "嗨？", "やあ？", "안녕?",
-        "Привет?", "Salut ?", "¿Hola?", "Hallo?", "Chào?",
-        "Hai?", "Kumusta?", "หวัดดี?", "Hoi?", "Selam?",
-        "Olá?", "नमस्ते?", "مرحبا؟")
-}
-
 pub fn not_enough_money(l: Lang) -> &'static str {
     tr!(l;
         "Not enough money 😶", "錢不夠耶😶", "钱不够耶😶", "お金が足りないよ😶", "돈이 부족해😶",
@@ -755,64 +747,54 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 7] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 5] {
     [
-        ("start", hi(l)),
+        ("start", menu_start(l)),
         ("balance", menu_balance(l)),
         ("send", menu_send(l)),
         ("host", menu_host(l)),
-        ("markets", menu_markets(l)),
-        ("checkin", menu_checkin(l)),
         ("language", menu_language(l)),
     ]
 }
 
+fn menu_start(l: Lang) -> &'static str {
+    tr!(l;
+        "Menu", "選單", "菜单", "メニュー", "메뉴",
+        "Меню", "Menu", "Menú", "Menü", "Menu",
+        "Menu", "Menu", "เมนู", "Menu", "Menü",
+        "Menu", "मेन्यू", "القائمة")
+}
+
 fn menu_language(l: Lang) -> &'static str {
     tr!(l;
-        "Change your language", "更改語言", "更改语言", "言語を変更", "언어 변경",
-        "Сменить язык", "Changer de langue", "Cambiar idioma", "Sprache ändern", "Đổi ngôn ngữ",
-        "Ganti bahasa", "Palitan ang wika", "เปลี่ยนภาษา", "Taal wijzigen", "Dili değiştir",
-        "Mudar idioma", "भाषा बदलें", "تغيير اللغة")
-}
-
-fn menu_checkin(l: Lang) -> &'static str {
-    tr!(l;
-        "Claim your daily 10 water-coins", "領取每日 10 水幣", "领取每日 10 水币", "毎日10水コインを受け取る", "매일 10 물코인 받기",
-        "Ежедневные 10 водных монет", "Réclame tes 10 pièces d'eau du jour", "Reclama tus 10 monedas de agua diarias", "Tägliche 10 Wassermünzen abholen", "Nhận 10 xu nước mỗi ngày",
-        "Klaim 10 koin air harian", "Kunin ang araw-araw na 10 water-coins", "รับ 10 เหรียญน้ำประจำวัน", "Claim je dagelijkse 10 watermunten", "Günlük 10 su paranı al",
-        "Resgate 10 moedas de água diárias", "रोज़ाना 10 वॉटर-कॉइन लें", "احصل على 10 عملات مائية يوميًا")
-}
-
-fn menu_markets(l: Lang) -> &'static str {
-    tr!(l;
-        "Browse live prediction markets", "瀏覽即時預測市場", "浏览实时预测市场", "予測市場をチェック", "실시간 예측 마켓 보기",
-        "Прогнозные рынки", "Voir les marchés de prédiction", "Ver mercados de predicción", "Prognosemärkte ansehen", "Xem thị trường dự đoán",
-        "Lihat pasar prediksi", "Tingnan ang prediction markets", "ดูตลาดทำนายผล", "Bekijk voorspellingsmarkten", "Tahmin piyasalarını gör",
-        "Ver mercados de previsão", "प्रिडिक्शन मार्केट देखें", "تصفّح أسواق التنبؤ")
+        "Set language", "設定語言", "设置语言", "言語を設定", "언어 설정",
+        "Выбрать язык", "Définir la langue", "Configurar idioma", "Sprache wählen", "Đặt ngôn ngữ",
+        "Atur bahasa", "Itakda ang wika", "ตั้งค่าภาษา", "Taal instellen", "Dili ayarla",
+        "Definir idioma", "भाषा सेट करें", "تعيين اللغة")
 }
 
 fn menu_balance(l: Lang) -> &'static str {
     tr!(l;
-        "Check your water-coin balance", "查看水幣餘額", "查看水币余额", "水コインの残高を見る", "물코인 잔액 확인",
-        "Посмотреть баланс водных монет", "Voir ton solde de pièces d'eau", "Ver tu saldo de monedas de agua", "Wassermünzen-Guthaben ansehen", "Xem số dư xu nước",
-        "Cek saldo koin air", "Tingnan ang water-coin balance", "ดูยอดเหรียญน้ำ", "Bekijk je watermunten-saldo", "Su parası bakiyeni gör",
-        "Veja seu saldo de moedas de água", "अपना वॉटर-कॉइन बैलेंस देखें", "اطّلع على رصيد عملاتك المائية")
+        "Balance", "餘額", "余额", "残高", "잔액",
+        "Баланс", "Solde", "Saldo", "Guthaben", "Số dư",
+        "Saldo", "Balanse", "ยอดเงิน", "Saldo", "Bakiye",
+        "Saldo", "बैलेंस", "الرصيد")
 }
 
 fn menu_send(l: Lang) -> &'static str {
     tr!(l;
-        "Reply to a message to send coins or fruit", "回覆訊息以送出水幣或水果", "回复消息以送出水币或水果", "メッセージに返信してコインや果物を送る", "메시지에 답장해 코인이나 과일 보내기",
-        "Ответьте на сообщение, чтобы отправить монеты или фрукты", "Réponds à un message pour envoyer pièces ou fruits", "Responde a un mensaje para enviar monedas o fruta", "Auf eine Nachricht antworten, um Münzen oder Obst zu senden", "Trả lời tin nhắn để gửi xu hoặc trái cây",
-        "Balas pesan untuk mengirim koin atau buah", "Mag-reply para magpadala ng coins o prutas", "ตอบกลับข้อความเพื่อส่งเหรียญหรือผลไม้", "Reageer op een bericht om munten of fruit te sturen", "Coin veya meyve göndermek için bir mesaja yanıt ver",
-        "Responda a uma mensagem para enviar moedas ou frutas", "सिक्के या फल भेजने के लिए संदेश का जवाब दें", "ردّ على رسالة لإرسال عملات أو فاكهة")
+        "Reply and transfer", "回覆並轉帳", "回复并转账", "返信して送金", "답장해서 송금",
+        "Ответить и перевести", "Répondre et transférer", "Responder y transferir", "Antworten und überweisen", "Trả lời và chuyển",
+        "Balas dan transfer", "Mag-reply at maglipat", "ตอบกลับและโอน", "Reageren en overmaken", "Yanıtla ve aktar",
+        "Responder e transferir", "जवाब देकर भेजें", "ردّ وحوّل")
 }
 
 fn menu_host(l: Lang) -> &'static str {
     tr!(l;
-        "Host a bet or view your stakes", "開賭局或查看自己押注", "开赌局或查看自己押注", "賭けを開くか自分の賭けを見る", "베팅을 열거나 내 베팅 보기",
-        "Открыть ставку или посмотреть свои", "Ouvrir un pari ou voir tes mises", "Abre una apuesta o mira las tuyas", "Eine Wette eröffnen oder deine Einsätze ansehen", "Mở ván cược hoặc xem cược của bạn",
-        "Buka taruhan atau lihat taruhanmu", "Magbukas ng pusta o tingnan ang sa'yo", "เปิดเดิมพันหรือดูเดิมพันของคุณ", "Open een weddenschap of bekijk je inzetten", "Bahis aç ya da bahislerini gör",
-        "Abra uma aposta ou veja as suas", "बेट खोलें या अपने दांव देखें", "افتح رهانًا أو اطّلع على رهاناتك")
+        "Host a game", "開設賭局", "开设赌局", "ゲームを開く", "게임 열기",
+        "Создать игру", "Lancer un jeu", "Crear un juego", "Spiel starten", "Mở ván cược",
+        "Buat permainan", "Mag-host ng laro", "เปิดเกม", "Spel starten", "Oyun başlat",
+        "Criar um jogo", "गेम होस्ट करें", "استضف لعبة")
 }
 
 /// Per-staker settlement line, e.g. `***1234 won 50 water-coins`. `verb` is
