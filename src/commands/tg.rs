@@ -101,7 +101,12 @@ pub async fn edit_with_buttons(
         .api
         .post(APIEndpoint::EditMessageText, Some(payload))
         .await?;
-    let _: telexide::Result<serde_json::Value> = resp.into();
+    // Telegram returns HTTP 200 with `{"ok":false}` for logical rejections
+    // (e.g. message too long, BUTTON_DATA_INVALID) — surface those instead of
+    // silently leaving the message unchanged.
+    if let Err(e) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
+        eprintln!("[tg] editMessageText failed (chat {chat_id}, msg {message_id}): {e}");
+    }
     Ok(())
 }
 
