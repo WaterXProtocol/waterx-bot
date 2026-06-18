@@ -93,14 +93,14 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_invite_qr(&ctx, &cb).await
     } else if let Some(rest) = data.strip_prefix(markets::BET) {
         betting::handle_bet(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix(betting::MB_ADD) {
-        betting::handle_match_add(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix(betting::MB_CONFIRM) {
-        betting::handle_match_confirm(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix(betting::MB_CLEAR) {
-        betting::handle_match_clear(&ctx, &cb, rest).await
-    } else if data == betting::MB_BACK {
-        betting::handle_match_back(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(betting::OPT) {
+        betting::handle_opt(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(betting::SIZE_CONFIRM) {
+        betting::handle_size_confirm(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(betting::SIZE_PLACE) {
+        betting::handle_size_place(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(betting::SIZE) {
+        betting::handle_size(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(admin::SETTLE_CB) {
         admin::handle_settle_cb(&ctx, &cb, rest).await
     } else {

@@ -36,6 +36,11 @@ impl TypeMapKey for BotUsernameKey {
     type Value = String;
 }
 
+pub struct QuotesKey;
+impl TypeMapKey for QuotesKey {
+    type Value = Arc<parking_lot::Mutex<crate::commands::betting::QuoteStore>>;
+}
+
 pub async fn run() -> anyhow::Result<()> {
     let cfg = BotConfig::from_env()?;
     let bot_id: i64 = cfg
@@ -91,6 +96,9 @@ pub async fn run() -> anyhow::Result<()> {
         data.insert::<ConfigKey>(cfg_arc);
         data.insert::<BotIdKey>(bot_id);
         data.insert::<BotUsernameKey>(bot_username.clone());
+        data.insert::<QuotesKey>(Arc::new(parking_lot::Mutex::new(
+            crate::commands::betting::QuoteStore::default(),
+        )));
     }
 
     // Eagerly set the user-facing command menu (the "/" autocomplete), once

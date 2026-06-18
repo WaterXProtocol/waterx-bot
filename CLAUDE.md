@@ -148,26 +148,31 @@ and `fetch_one(market_id)` re-fetches a single match's fresh odds at bet time.
 `src/commands/betting.rs` drives a callback-only bet flow funded by the
 coin balance:
 
-It's a **no-DM, in-group shared board** (same model as self-host `/predict`):
-1. Tapping a match number (`bet:`) re-fetches the match and **edits the list
-   message in place** into that match's board (`board_text`/`board_rows`): the
-   teams + decimal odds, one **amount row per priced outcome**
-   (`[Arsenal +1][+5][+10][+50][+100]` → `mba:<market_id>:<a|d|b>:<amt>`), a
-   `[✅ Confirm] [🗑 Clear]` row, and `[⬅ Back]` (`mbb` → re-render the list).
-2. `mba:…` adds to the tapper's **per-(market_id, user) pending** stake
-   (`betting::match_drafts`, in-memory; switching outcome resets) and replies a
-   **private toast** (`bet_pending` — a shared message can't show per-user
-   totals). `mbx:<market_id>` clears it (`bet_cleared`). Nothing is debited yet.
-3. `mbc:<market_id>` (Confirm) is the only money-moving step: it **re-fetches the
-   match's current odds** (so the locked price is fresh — no quote TTL), debits
-   `pending × COIN` via `balance_change`, records the wager
-   (`Database::place_wager`) with the **locked** `odds_cents`, and posts a
-   third-person announcement to the board's chat (`i18n::bet_announce` — "🎟️ Name
-   bet N on Side @ odds") plus a private `bet_placed` toast. Payout on a win is
-   `stake × 100 / odds_cents` (= stake × the decimal odds shown). Self-host
-   `/predict` betting uses the same accumulate-then-confirm-via-toast model on its
-   own shared board (see the bet-games section). (The earlier DM quote/builder and
-   the `Quote`/`QuoteStore`/`QuotesKey` machinery were removed.)
+1. Tapping a match number (`bet:`) re-fetches that match's **current** odds and
+   **DMs** the user a quote with one button per priced outcome
+   (`opt:<qid>:<outcome>`) — the build flow is private so it never clobbers a
+   shared message. The chat the button was tapped in (the **group brief**) is
+   saved on the quote as `origin_chat` so the *placed* bet can be announced back
+   there. The quote is stored in-memory (`bot::QuotesKey` → `QuoteStore`) under a
+   short id, valid for `QUOTE_TTL_SECS` (60s). If the user has no DM open, a toast
+   (`bet_dm_first`) tells them to start the bot privately.
+2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder**: whole-coin
+   preset buttons that **accumulate** (`sz:<qid>:<outcome>:<total>` — each preset
+   re-renders the builder at `total + preset`; `Clear` → `…:0`), plus a
+   `[✅ Confirm] [🗑 Clear]` row. The running total rides in the callback data, so
+   there is **no server-side per-user stake state**.
+3. `Confirm` (`szc:<qid>:<outcome>:<total>`) shows a **confirmation screen** (the
+   "modal": `[✅ Place bet] [⬅ Back]`). Only `Place` (`szp:<qid>:<outcome>:<total>`)
+   moves money — it re-checks the quote is still fresh (else "open /matches
+   again"), debits `total × COIN` via `balance_change`, and records the wager
+   (`Database::place_wager`) with the **locked** `odds_cents`. Payout on a win is
+   `stake × 100 / odds_cents` (= stake × the decimal odds shown). After placing,
+   it confirms in the DM (`bet_placed`) **and**, if `origin_chat` is a group,
+   posts a third-person announcement there (`i18n::bet_announce` — "🎟️ Name bet N
+   on Side @ odds") so the group sees the action. Self-host
+   `/predict` betting uses the same accumulate-then-confirm idea but on the
+   **shared group board with no DM** (in-memory per-user drafts + private toasts;
+   see the bet-games section).
 
 Settlement is **manual** (no results endpoint exists on the API — browse only
 lists scheduled/live matches, and resolution is on-chain Polymarket), owner-only,
