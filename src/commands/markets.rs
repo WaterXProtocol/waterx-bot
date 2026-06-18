@@ -185,7 +185,9 @@ fn render_match(lang: Lang, n: usize, m: &MatchInfo) -> String {
         let branch = if i == rows.len() - 1 { "└" } else { "├" };
         match yes {
             // Decimal odds = 100/cents (e.g. 65¢ → 1.54).
-            Some(y) if *y > 0.0 => s.push_str(&format!("{branch} {label} — {:.2}\n", 100.0 / *y)),
+            Some(y) if *y > 0.0 => {
+                s.push_str(&format!("{branch} {label} — {:.2}\n", decimal_odds(*y)));
+            }
             _ => s.push_str(&format!("{branch} {label} — —\n")),
         }
     }

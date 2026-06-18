@@ -210,6 +210,14 @@ pub const ERR_NEG_REPLY: &str = "😐";
 /// `sorry_reply` array.
 pub const SORRY_FRUITS: &[char] = &['🍑', '🍓', '🍎', '🍊', '🥭', '🍍', '🍅', '🍈', '🍋', '🍐'];
 
+/// Convert the feed's YES odds in cents to **decimal odds** for display
+/// (e.g. 65¢ → 1.54). Shared by the `/markets` brief and the bet quote so
+/// both render the same number. Display-only — payout uses
+/// [`crate::database::decimal_payout`].
+pub fn decimal_odds(cents: f64) -> f64 {
+    100.0 / cents
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +233,12 @@ mod tests {
         assert_eq!(fmt_coins(COIN / 100), "0.01");
         assert_eq!(fmt_coins(COIN + COIN / 100), "1.01");
         assert_eq!(fmt_coins(-(COIN * 5)), "-5");
+    }
+
+    #[test]
+    fn decimal_odds_converts_cents() {
+        assert!((decimal_odds(65.0) - 1.538_461).abs() < 1e-6); // 65¢ → ~1.54
+        assert!((decimal_odds(50.0) - 2.0).abs() < 1e-9);
+        assert!((decimal_odds(100.0) - 1.0).abs() < 1e-9);
     }
 }

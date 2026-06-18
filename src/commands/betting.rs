@@ -121,16 +121,12 @@ async fn answer(
     Ok(())
 }
 
-fn decimal(cents: f64) -> f64 {
-    100.0 / cents
-}
-
 /// `[outcome]` rows (one per priced outcome) labelled `name 1.54`.
 fn option_rows(lang: Lang, q: &Quote, qid: u64) -> Vec<tg::Row> {
     let mut rows = Vec::new();
     for outcome in ["teamA", "draw", "teamB"] {
         if let Some(c) = q.odds(outcome).filter(|c| *c > 0.0) {
-            let label = format!("{} {:.2}", q.side_name(lang, outcome), decimal(c));
+            let label = format!("{} {:.2}", q.side_name(lang, outcome), decimal_odds(c));
             rows.push(vec![(label, format!("{OPT}{qid}:{outcome}"))]);
         }
     }
@@ -141,7 +137,7 @@ fn quote_text(lang: Lang, q: &Quote) -> String {
     let mut s = format!("{} vs. {}\n", q.team_a, q.team_b);
     for outcome in ["teamA", "draw", "teamB"] {
         if let Some(c) = q.odds(outcome).filter(|c| *c > 0.0) {
-            s.push_str(&format!("· {} — {:.2}\n", q.side_name(lang, outcome), decimal(c)));
+            s.push_str(&format!("· {} — {:.2}\n", q.side_name(lang, outcome), decimal_odds(c)));
         }
     }
     s.push('\n');
@@ -209,7 +205,7 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     edit(
         ctx,
         cb,
-        &i18n::bet_how_much(lang, &side, &format!("{:.2}", decimal(odds))),
+        &i18n::bet_how_much(lang, &side, &format!("{:.2}", decimal_odds(odds))),
         &rows,
     )
     .await?;
@@ -262,7 +258,7 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
         lang,
         &fmt_coins(stake_units),
         &side,
-        &format!("{:.2}", decimal(odds)),
+        &format!("{:.2}", decimal_odds(odds)),
         &fmt_coins(payout),
     );
     let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &text).await;
