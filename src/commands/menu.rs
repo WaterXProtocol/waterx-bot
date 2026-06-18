@@ -40,11 +40,11 @@ pub fn lang_picker_rows() -> Vec<Row> {
 
 /// The Xaliah main-menu body: intro line followed by the user's current
 /// balance. (Fruit is hidden until the fruit feature is designed.)
-pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
+pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64, name: &str) -> String {
     let info = db(ctx).get_user_info(user_id).unwrap_or_default();
     format!(
         "{}\n\n{}",
-        i18n::intro(lang),
+        i18n::intro(lang, name),
         i18n::menu_status(lang, &fmt_coins(info.balance))
     )
 }
@@ -55,6 +55,7 @@ pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
 /// the `[Play]` URL button lives only in the `menu:invite` output, which has no
 /// private info and is meant to be shared.
 pub fn main_menu_rows(_ctx: &Context, lang: Lang, _user_id: i64, checkin_available: bool) -> Vec<Row> {
+    // One button per row (vertical stack), check-in on top only when claimable.
     let mut rows: Vec<Row> = Vec::new();
     if checkin_available {
         rows.push(vec![(
@@ -62,10 +63,14 @@ pub fn main_menu_rows(_ctx: &Context, lang: Lang, _user_id: i64, checkin_availab
             MENU_CHECKIN.to_string(),
         )]);
     }
-    rows.push(vec![
-        (i18n::btn_balance(lang).to_string(), MENU_BALANCE.to_string()),
-        (i18n::btn_matches(lang).to_string(), MENU_MATCHES.to_string()),
-    ]);
+    rows.push(vec![(
+        i18n::btn_balance(lang).to_string(),
+        MENU_BALANCE.to_string(),
+    )]);
+    rows.push(vec![(
+        i18n::btn_matches(lang).to_string(),
+        MENU_MATCHES.to_string(),
+    )]);
     rows.push(vec![(
         i18n::btn_invite(lang).to_string(),
         MENU_INVITE.to_string(),

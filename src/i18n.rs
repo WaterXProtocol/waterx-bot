@@ -904,12 +904,13 @@ pub fn usage_predict(l: Lang) -> &'static str {
 pub const CHOOSE_LANGUAGE: &str =
     "🌐 Please choose your language\n请选择语言 · 言語を選択 · 언어 선택";
 
-pub fn intro(l: Lang) -> &'static str {
+pub fn intro(l: Lang, name: &str) -> String {
     tr!(l;
-        "Hi, I'm Xaliah! 😊\nNice to meet you. What can I do for you?", "嗨，我是 Xaliah！😊\n很高興認識你，有什麼可以幫你的嗎？", "嗨，我是 Xaliah！😊\n很高兴认识你，有什么可以帮你的吗？", "やあ、私は Xaliah！😊\n会えて嬉しいよ。何かできることはある？", "안녕, 나는 Xaliah! 😊\n만나서 반가워. 뭘 도와줄까?",
-        "Привет, я Xaliah! 😊\nРада знакомству. Чем могу помочь?", "Salut, je suis Xaliah ! 😊\nRavie de te rencontrer. Que puis-je faire pour toi ?", "¡Hola, soy Xaliah! 😊\nEncantada de conocerte. ¿Qué puedo hacer por ti?", "Hi, ich bin Xaliah! 😊\nSchön dich kennenzulernen. Was kann ich für dich tun?", "Chào, mình là Xaliah! 😊\nRất vui được gặp bạn. Mình giúp gì được nào?",
-        "Hai, aku Xaliah! 😊\nSenang berkenalan. Ada yang bisa kubantu?", "Hi, ako si Xaliah! 😊\nIkinagagalak kitang makilala. Ano'ng maitutulong ko?", "สวัสดี ฉันชื่อ Xaliah! 😊\nยินดีที่ได้รู้จัก มีอะไรให้ช่วยไหม?", "Hoi, ik ben Xaliah! 😊\nLeuk je te ontmoeten. Wat kan ik voor je doen?", "Selam, ben Xaliah! 😊\nTanıştığımıza memnun oldum. Senin için ne yapabilirim?",
-        "Oi, eu sou a Xaliah! 😊\nPrazer em conhecer. O que posso fazer por você?", "नमस्ते, मैं Xaliah हूँ! 😊\nआपसे मिलकर अच्छा लगा। मैं आपके लिए क्या कर सकती हूँ?", "مرحبًا، أنا Xaliah! 😊\nسررت بلقائك. كيف يمكنني مساعدتك؟")
+        "Hi, {name}. I'm Xaliah! 😊\nWhat can I do for you?", "嗨，{name}。我是 Xaliah！😊\n有什麼可以幫你的嗎？", "嗨，{name}。我是 Xaliah！😊\n有什么可以帮你的吗？", "やあ、{name}。私は Xaliah！😊\n何かできることはある？", "안녕, {name}. 나는 Xaliah! 😊\n뭘 도와줄까?",
+        "Привет, {name}. Я Xaliah! 😊\nЧем могу помочь?", "Salut, {name}. Je suis Xaliah ! 😊\nQue puis-je faire pour toi ?", "Hola, {name}. ¡Soy Xaliah! 😊\n¿Qué puedo hacer por ti?", "Hi, {name}. Ich bin Xaliah! 😊\nWas kann ich für dich tun?", "Chào, {name}. Mình là Xaliah! 😊\nMình giúp gì được nào?",
+        "Hai, {name}. Aku Xaliah! 😊\nAda yang bisa kubantu?", "Hi, {name}. Ako si Xaliah! 😊\nAno'ng maitutulong ko?", "สวัสดี {name} ฉันชื่อ Xaliah! 😊\nมีอะไรให้ช่วยไหม?", "Hoi, {name}. Ik ben Xaliah! 😊\nWat kan ik voor je doen?", "Selam, {name}. Ben Xaliah! 😊\nSenin için ne yapabilirim?",
+        "Oi, {name}. Eu sou a Xaliah! 😊\nO que posso fazer por você?", "नमस्ते, {name}। मैं Xaliah हूँ! 😊\nमैं आपके लिए क्या कर सकती हूँ?", "مرحبًا {name}. أنا Xaliah! 😊\nكيف يمكنني مساعدتك؟")
+    .replace("{name}", name)
 }
 
 /// Closing prompt shown as the last line of the menu, after the status block.
@@ -934,10 +935,10 @@ pub fn btn_checkin(l: Lang) -> &'static str {
 
 pub fn btn_balance(l: Lang) -> &'static str {
     tr!(l;
-        "💰 Balance", "💰 餘額", "💰 余额", "💰 残高", "💰 잔액",
-        "💰 Баланс", "💰 Solde", "💰 Saldo", "💰 Guthaben", "💰 Số dư",
-        "💰 Saldo", "💰 Balanse", "💰 ยอดเงิน", "💰 Saldo", "💰 Bakiye",
-        "💰 Saldo", "💰 बैलेंस", "💰 الرصيد")
+        "💰 Check balance", "💰 查看餘額", "💰 查看余额", "💰 残高を確認", "💰 잔액 확인",
+        "💰 Проверить баланс", "💰 Voir le solde", "💰 Ver saldo", "💰 Guthaben ansehen", "💰 Xem số dư",
+        "💰 Cek saldo", "💰 Tingnan ang balanse", "💰 ดูยอดเงิน", "💰 Saldo bekijken", "💰 Bakiyeyi gör",
+        "💰 Ver saldo", "💰 बैलेंस देखें", "💰 عرض الرصيد")
 }
 
 pub fn btn_matches(l: Lang) -> &'static str {

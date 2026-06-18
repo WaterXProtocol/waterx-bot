@@ -1,5 +1,7 @@
 use crate::bot::{DbKey, GamesKey};
-use crate::commands::util::{bot_token, fmt_coins, format_number, is_group_chat, SORRY_FRUITS};
+use crate::commands::util::{
+    bot_token, fmt_coins, format_number, full_name, is_group_chat, SORRY_FRUITS,
+};
 use crate::database::COIN;
 use crate::commands::{balance, betting, markets, menu, referral, tg};
 use crate::database::OfferOutcome;
@@ -334,7 +336,7 @@ async fn handle_set_lang(
             ctx,
             message.chat.get_id(),
             message.message_id,
-            &menu::menu_text(ctx, lang, cb.from.id),
+            &menu::menu_text(ctx, lang, cb.from.id, &full_name(&cb.from)),
             &menu::main_menu_rows(ctx, lang, cb.from.id, available),
         )
         .await;
@@ -372,7 +374,7 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
                         ctx,
                         message.chat.get_id(),
                         message.message_id,
-                        &menu::menu_text(ctx, lang, cb.from.id),
+                        &menu::menu_text(ctx, lang, cb.from.id, &full_name(&cb.from)),
                         &menu::main_menu_rows(ctx, lang, cb.from.id, false),
                     )
                     .await;
