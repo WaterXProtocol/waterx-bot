@@ -392,24 +392,26 @@ async fn handle_set_lang(
     if let Some(message) = cb.message.clone() {
         let chat = message.chat.get_id();
         let in_group = is_group_chat(chat);
-        // Private first-timers pick a timezone next; groups go straight to the menu.
-        if !in_group && db.get_tz(cb.from.id).ok().flatten().is_none() {
-            let _ = tg::edit_with_buttons(
-                ctx,
-                chat,
-                message.message_id,
-                i18n::choose_timezone(lang),
-                &menu::tz_picker_rows(),
-            )
-            .await;
-        } else {
-            let available = in_group || db.checkin_available(cb.from.id).unwrap_or(true);
+        // Private chats then pick a timezone — always, so `/language` doubles as
+        // "change my timezone too" (first-timers and returning users alike).
+        // Groups skip it (shared message) and go straight to the menu.
+        if in_group {
+            let available = true;
             let _ = tg::edit_with_buttons(
                 ctx,
                 chat,
                 message.message_id,
                 &menu::menu_text(lang, &full_name(&cb.from)),
                 &menu::main_menu_rows(lang, available, in_group),
+            )
+            .await;
+        } else {
+            let _ = tg::edit_with_buttons(
+                ctx,
+                chat,
+                message.message_id,
+                i18n::choose_timezone(lang),
+                &menu::tz_picker_rows(),
             )
             .await;
         }
