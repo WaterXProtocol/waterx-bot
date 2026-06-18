@@ -536,13 +536,15 @@ async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
         return Ok(());
     };
     answer(ctx, cb, "", false).await?;
-    let available = db_arc(ctx).checkin_available(cb.from.id).unwrap_or(true);
+    let chat = message.chat.get_id();
+    let in_group = is_group_chat(chat);
+    let available = in_group || db_arc(ctx).checkin_available(cb.from.id).unwrap_or(true);
     let _ = tg::edit_with_buttons(
         ctx,
-        message.chat.get_id(),
+        chat,
         message.message_id,
         &menu::menu_text(lang, &full_name(&cb.from)),
-        &menu::main_menu_rows(lang, available, false),
+        &menu::main_menu_rows(lang, available, in_group),
     )
     .await;
     Ok(())
@@ -664,7 +666,8 @@ async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     };
     answer(ctx, cb, "", false).await?;
     let text = assets::assets_text(ctx, lang, &cb.from).await;
-    crate::commands::util::send_text(ctx, message.chat.get_id(), text).await?;
+    let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
+    let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
     Ok(())
 }
 
@@ -682,8 +685,9 @@ async fn handle_menu_matches(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     } else {
         db_arc(ctx).get_tz(cb.from.id).ok().flatten().unwrap_or(0)
     };
-    let (text, rows) = markets::brief(lang, tz).await;
-    tg::send_with_buttons(ctx, chat, &text, &rows).await?;
+    let (text, mut rows) = markets::brief(lang, tz).await;
+    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
+    let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &text, &rows).await;
     Ok(())
 }
 
