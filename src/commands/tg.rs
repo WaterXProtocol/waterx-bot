@@ -29,10 +29,16 @@ fn build_keyboard(rows: &[Row]) -> Value {
             let cells: Vec<Value> = row
                 .iter()
                 .map(|(label, data)| {
-                    json!({
-                        "text": label,
-                        "callback_data": data,
-                    })
+                    // A `data` that looks like a link becomes a URL button
+                    // (these survive message forwarding; callback buttons don't).
+                    if data.starts_with("https://")
+                        || data.starts_with("http://")
+                        || data.starts_with("tg://")
+                    {
+                        json!({ "text": label, "url": data })
+                    } else {
+                        json!({ "text": label, "callback_data": data })
+                    }
                 })
                 .collect();
             Value::Array(cells)

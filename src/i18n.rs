@@ -945,6 +945,16 @@ pub fn btn_invite(l: Lang) -> &'static str {
         "🔗 Convidar amigos", "🔗 दोस्तों को बुलाएं", "🔗 ادعُ أصدقاءك")
 }
 
+/// Forward-safe deep-link button on the home page (URL button → survives
+/// forwarding; a recipient who taps it joins via the sharer's referral link).
+pub fn btn_join(l: Lang) -> &'static str {
+    tr!(l;
+        "🎮 Play now", "🎮 立即遊玩", "🎮 立即游玩", "🎮 今すぐプレイ", "🎮 지금 플레이",
+        "🎮 Играть", "🎮 Jouer", "🎮 Jugar", "🎮 Jetzt spielen", "🎮 Chơi ngay",
+        "🎮 Main sekarang", "🎮 Maglaro", "🎮 เล่นเลย", "🎮 Speel nu", "🎮 Hemen oyna",
+        "🎮 Jogar agora", "🎮 अभी खेलें", "🎮 العب الآن")
+}
+
 /// Invite-link message: the user's referral link plus how many they've referred.
 pub fn invite_text(l: Lang, link: &str, count: &str) -> String {
     tr!(l;

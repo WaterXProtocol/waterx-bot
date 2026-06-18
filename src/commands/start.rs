@@ -45,7 +45,7 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
                 &ctx,
                 chat_id,
                 &menu::menu_text(&ctx, lang, uid),
-                &menu::main_menu_rows(lang, available),
+                &menu::main_menu_rows(&ctx, lang, uid, available),
             )
             .await?;
         }
