@@ -1321,6 +1321,48 @@ pub fn bet_announce(l: Lang, name: &str, stake: &str, side: &str, odds: &str) ->
     .replace("{odds}", odds)
 }
 
+/// Self-host (`/predict`) DM stake builder — no odds (pari-mutuel).
+pub fn game_build(l: Lang, option: &str, stake: &str) -> String {
+    tr!(l;
+        "🎲 Bet on {option}\nStake: {stake} 🪙\nTap to add:", "🎲 押 {option}\n下注：{stake} 🪙\n點擊加注：", "🎲 押 {option}\n下注：{stake} 🪙\n点击加注：", "🎲 {option} に賭ける\nステーク：{stake} 🪙\nタップで追加：", "🎲 {option} 에 베팅\n베팅: {stake} 🪙\n탭하여 추가:",
+        "🎲 Ставка на {option}\nСтавка: {stake} 🪙\nНажмите, чтобы добавить:", "🎲 Parier sur {option}\nMise : {stake} 🪙\nAppuyez pour ajouter :", "🎲 Apostar a {option}\nApuesta: {stake} 🪙\nToca para añadir:", "🎲 Auf {option} wetten\nEinsatz: {stake} 🪙\nZum Hinzufügen tippen:", "🎲 Cược cho {option}\nĐặt: {stake} 🪙\nChạm để thêm:",
+        "🎲 Bertaruh pada {option}\nTaruhan: {stake} 🪙\nKetuk untuk menambah:", "🎲 Tumaya sa {option}\nTaya: {stake} 🪙\nI-tap para magdagdag:", "🎲 เดิมพัน {option}\nเดิมพัน: {stake} 🪙\nแตะเพื่อเพิ่ม:", "🎲 Inzetten op {option}\nInzet: {stake} 🪙\nTik om toe te voegen:", "🎲 {option} için bahis\nBahis: {stake} 🪙\nEklemek için dokun:",
+        "🎲 Apostar em {option}\nAposta: {stake} 🪙\nToque para adicionar:", "🎲 {option} पर दांव\nदांव: {stake} 🪙\nजोड़ने के लिए टैप करें:", "🎲 الرهان على {option}\nالرهان: {stake} 🪙\nانقر للإضافة:")
+    .replace("{option}", option)
+    .replace("{stake}", stake)
+}
+
+pub fn game_confirm(l: Lang, stake: &str, option: &str) -> String {
+    tr!(l;
+        "Place {stake} 🪙 on {option}?", "確定下注 {stake} 🪙 押 {option}？", "确定下注 {stake} 🪙 押 {option}？", "{option} に {stake} 🪙 を賭けますか？", "{option} 에 {stake} 🪙 베팅할까요?",
+        "Поставить {stake} 🪙 на {option}?", "Miser {stake} 🪙 sur {option} ?", "¿Apostar {stake} 🪙 a {option}?", "{stake} 🪙 auf {option} setzen?", "Đặt {stake} 🪙 cho {option}?",
+        "Pasang {stake} 🪙 pada {option}?", "Itaya ang {stake} 🪙 sa {option}?", "วางเดิมพัน {stake} 🪙 ที่ {option}?", "{stake} 🪙 op {option} inzetten?", "{option} için {stake} 🪙 yatırılsın mı?",
+        "Apostar {stake} 🪙 em {option}?", "{option} पर {stake} 🪙 लगाएं?", "وضع {stake} 🪙 على {option}؟")
+    .replace("{stake}", stake)
+    .replace("{option}", option)
+}
+
+pub fn game_placed(l: Lang, stake: &str, option: &str) -> String {
+    tr!(l;
+        "✅ Bet placed: {stake} 🪙 on {option}", "✅ 已下注：{stake} 🪙 押 {option}", "✅ 已下注：{stake} 🪙 押 {option}", "✅ 賭け完了：{option} に {stake} 🪙", "✅ 베팅 완료: {option} 에 {stake} 🪙",
+        "✅ Ставка принята: {stake} 🪙 на {option}", "✅ Pari placé : {stake} 🪙 sur {option}", "✅ Apuesta hecha: {stake} 🪙 a {option}", "✅ Wette platziert: {stake} 🪙 auf {option}", "✅ Đã đặt cược: {stake} 🪙 cho {option}",
+        "✅ Taruhan dipasang: {stake} 🪙 pada {option}", "✅ Tumaya: {stake} 🪙 sa {option}", "✅ วางเดิมพันแล้ว: {stake} 🪙 ที่ {option}", "✅ Inzet geplaatst: {stake} 🪙 op {option}", "✅ Bahis kondu: {option} için {stake} 🪙",
+        "✅ Aposta feita: {stake} 🪙 em {option}", "✅ दांव लगा: {option} पर {stake} 🪙", "✅ تم وضع الرهان: {stake} 🪙 على {option}")
+    .replace("{stake}", stake)
+    .replace("{option}", option)
+}
+
+pub fn game_announce(l: Lang, name: &str, stake: &str, option: &str) -> String {
+    tr!(l;
+        "🎲 {name} bet {stake} 🪙 on {option}", "🎲 {name} 下注 {stake} 🪙 押 {option}", "🎲 {name} 下注 {stake} 🪙 押 {option}", "🎲 {name} が {option} に {stake} 🪙 を賭けた", "🎲 {name} 님이 {option} 에 {stake} 🪙 베팅",
+        "🎲 {name} поставил {stake} 🪙 на {option}", "🎲 {name} a misé {stake} 🪙 sur {option}", "🎲 {name} apostó {stake} 🪙 a {option}", "🎲 {name} hat {stake} 🪙 auf {option} gesetzt", "🎲 {name} đã đặt {stake} 🪙 cho {option}",
+        "🎲 {name} bertaruh {stake} 🪙 pada {option}", "🎲 {name} tumaya ng {stake} 🪙 sa {option}", "🎲 {name} เดิมพัน {stake} 🪙 ที่ {option}", "🎲 {name} zette {stake} 🪙 op {option}", "🎲 {name}, {option} için {stake} 🪙 yatırdı",
+        "🎲 {name} apostou {stake} 🪙 em {option}", "🎲 {name} ने {option} पर {stake} 🪙 लगाए", "🎲 {name} راهن {stake} 🪙 على {option}")
+    .replace("{name}", name)
+    .replace("{stake}", stake)
+    .replace("{option}", option)
+}
+
 pub fn bet_won(l: Lang, payout: &str) -> String {
     tr!(l;
         "🎉 Your bet won! +{payout} coins", "🎉 你的下注贏了！+{payout} 金幣", "🎉 你的下注赢了！+{payout} 金币", "🎉 賭けに勝ったよ！+{payout} コイン", "🎉 베팅에서 이겼어! +{payout} 코인",

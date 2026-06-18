@@ -130,17 +130,11 @@ impl BetGame {
         let mut rows: Vec<Vec<(String, String)>> = Vec::new();
         match self.state {
             BetState::betting => {
+                // One button per option; tapping it DMs that user a private stake
+                // builder (the bet flow happens in DM, like match betting).
                 for (i, opt) in self.option_order.iter().enumerate() {
-                    let row: Vec<(String, String)> = STAKE_AMOUNTS
-                        .iter()
-                        .map(|amt| (format!("{opt} +{amt}"), format!("gamble:add:{i}:{amt}")))
-                        .collect();
-                    rows.push(row);
+                    rows.push(vec![(opt.clone(), format!("gamble:pick:{i}"))]);
                 }
-                rows.push(vec![
-                    (i18n::bet_btn_confirm(self.lang).to_string(), "gamble:confirm".to_string()),
-                    (i18n::bet_btn_clear(self.lang).to_string(), "gamble:clear".to_string()),
-                ]);
                 rows.push(vec![(
                     i18n::close_button(self.lang).to_string(),
                     "gamble:".to_string(),

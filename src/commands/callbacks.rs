@@ -67,6 +67,12 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_envelope(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gamble:") {
         handle_gamble(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix("gsz:") {
+        handle_game_size(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix("gsc:") {
+        handle_game_confirm(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix("gsp:") {
+        handle_game_place(&ctx, &cb, rest).await
     } else if data.starts_with("sell:") {
         handle_sell(&ctx, &cb).await
     } else if data.starts_with("buy:") {
@@ -242,15 +248,10 @@ async fn handle_gamble(
         return answer(ctx, cb, i18n::close_game_toast(lang), false).await;
     }
 
-    // accumulate: gamble:add:<idx>:<amt> — add to the tapper's pending stake.
-    // Nothing is debited; feedback is a private toast (only the tapper sees it),
-    // so the shared board isn't edited. Pending is per (game, user).
-    if let Some(spec) = rest.strip_prefix("add:") {
-        let parts: Vec<&str> = spec.split(':').collect();
-        let [idx_s, amt_s] = parts.as_slice() else {
-            return answer(ctx, cb, "", false).await;
-        };
-        let (Ok(idx), Ok(amt)) = (idx_s.parse::<usize>(), amt_s.parse::<i64>()) else {
+    // pick: gamble:pick:<idx> — DM the tapper a private stake builder for that
+    // option (the bet flow happens in DM; the placed bet is announced back here).
+    if let Some(idx_s) = rest.strip_prefix("pick:") {
+        let Ok(idx) = idx_s.parse::<usize>() else {
             return answer(ctx, cb, "", false).await;
         };
         let opt = {
@@ -266,59 +267,12 @@ async fn handle_gamble(
                 None => return answer(ctx, cb, "", false).await,
             }
         };
-        let pending = {
-            let mut drafts = bet_drafts().lock();
-            let entry = drafts.entry((key.clone(), cb.from.id)).or_insert((idx, 0));
-            if entry.0 != idx {
-                *entry = (idx, 0); // switched option → start fresh on the new one
-            }
-            entry.1 += amt;
-            entry.1
+        let text = i18n::game_build(lang, &opt, "0");
+        let rows = game_builder_rows(lang, &key, idx, 0);
+        return match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
+            Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
+            Err(_) => answer(ctx, cb, i18n::bet_dm_first(lang), true).await,
         };
-        return answer(ctx, cb, &i18n::bet_pending(lang, &pending.to_string(), &opt), false).await;
-    }
-
-    // clear: gamble:clear — drop the tapper's pending stake
-    if rest == "clear" {
-        bet_drafts().lock().remove(&(key.clone(), cb.from.id));
-        return answer(ctx, cb, i18n::bet_cleared(lang), false).await;
-    }
-
-    // confirm: gamble:confirm — commit the tapper's pending stake (the only step
-    // that moves money) and edit the shared board with the new pool/odds.
-    if rest == "confirm" {
-        let Some((idx, amount)) = bet_drafts().lock().remove(&(key.clone(), cb.from.id)) else {
-            return answer(ctx, cb, i18n::bad_stake(lang), true).await;
-        };
-        if amount <= 0 {
-            return answer(ctx, cb, i18n::bad_stake(lang), true).await;
-        }
-        if !db.balance_change(cb.from.id, -amount * COIN).unwrap_or(false) {
-            // Keep the draft so the user can adjust or clear it.
-            bet_drafts().lock().insert((key.clone(), cb.from.id), (idx, amount));
-            return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
-        }
-        let (text, rows) = {
-            let mut g = games.lock().await;
-            let Some(game) = g.get_mut(&key) else {
-                db.force_change(cb.from.id, amount * COIN).ok();
-                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
-            };
-            let Some(option) = game.option_order.get(idx).cloned() else {
-                db.force_change(cb.from.id, amount * COIN).ok();
-                return answer(ctx, cb, i18n::bet_failed(lang), true).await;
-            };
-            if !game.stake(cb.from.id, &option, amount) {
-                db.force_change(cb.from.id, amount * COIN).ok();
-                return answer(ctx, cb, i18n::bet_failed(lang), true).await;
-            }
-            if let Err(err) = db.save_bet_game(game) {
-                eprintln!("save_bet_game(stake) error: {err}");
-            }
-            (game.get_text(), game.get_buttons())
-        };
-        let _ = tg::edit_with_buttons(ctx, chat_id, msg_id, &text, &rows).await;
-        return answer(ctx, cb, i18n::bet_success(lang), false).await;
     }
 
     // settle: gamble:<outcome>  (host only, after close). The settled board is
@@ -356,15 +310,157 @@ async fn handle_gamble(
     answer(ctx, cb, i18n::settle_success(lang), false).await
 }
 
-/// `(game_key, user_id) → (option_index, accumulated_whole_coins)`.
-type BetDrafts = HashMap<(String, i64), (usize, i64)>;
+/// DM stake-builder keyboard for a `/predict` option at `total` whole coins. The
+/// game ref + total ride in the callback data (`gsz/gsc/gsp:<chat>:<msg>:<idx>:
+/// <total>`) — no server-side per-user state.
+fn game_builder_rows(lang: Lang, key: &str, idx: usize, total: i64) -> Vec<Vec<(String, String)>> {
+    let add: Vec<(String, String)> = crate::game::STAKE_AMOUNTS
+        .iter()
+        .map(|p| (format!("+{p}"), format!("gsz:{key}:{idx}:{}", total + p)))
+        .collect();
+    vec![
+        add,
+        vec![
+            (i18n::bet_btn_confirm(lang).to_string(), format!("gsc:{key}:{idx}:{total}")),
+            (i18n::bet_btn_clear(lang).to_string(), format!("gsz:{key}:{idx}:0")),
+        ],
+    ]
+}
 
-/// Per-(game, user) pending stake for the shared `/predict` board. In memory —
-/// nothing is debited until the user taps Confirm, so a restart just drops
-/// uncommitted drafts. parking_lot Mutex; never locked across an `.await`.
-fn bet_drafts() -> &'static parking_lot::Mutex<BetDrafts> {
-    static D: std::sync::OnceLock<parking_lot::Mutex<BetDrafts>> = std::sync::OnceLock::new();
-    D.get_or_init(|| parking_lot::Mutex::new(BetDrafts::new()))
+/// Parse `<chat>:<msg>:<idx>:<total>` → (game key `"chat:msg"`, option idx, total).
+fn parse_game_draft(rest: &str) -> Option<(String, usize, i64)> {
+    let parts: Vec<&str> = rest.split(':').collect();
+    let [chat, msg, idx, total] = parts.as_slice() else {
+        return None;
+    };
+    Some((format!("{chat}:{msg}"), idx.parse().ok()?, total.parse().ok()?))
+}
+
+/// The option's name for `(key, idx)` if the game is still open; else the toast
+/// to show (`game_invalid`/`already_closed`).
+async fn game_option(ctx: &Context, lang: Lang, key: &str, idx: usize) -> Result<String, &'static str> {
+    let games = games_arc(ctx);
+    let g = games.lock().await;
+    let Some(game) = g.get(key) else {
+        return Err(i18n::game_invalid(lang));
+    };
+    if game.state != BetState::betting {
+        return Err(i18n::already_closed(lang));
+    }
+    game.option_order.get(idx).cloned().ok_or_else(|| i18n::game_invalid(lang))
+}
+
+/// `gsz:…` — re-render the DM builder at the accumulated total.
+async fn handle_game_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((key, idx, total)) = parse_game_draft(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let opt = match game_option(ctx, lang, &key, idx).await {
+        Ok(o) => o,
+        Err(t) => return answer(ctx, cb, t, true).await,
+    };
+    if let Some(m) = &cb.message {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            m.chat.get_id(),
+            m.message_id,
+            &i18n::game_build(lang, &opt, &total.max(0).to_string()),
+            &game_builder_rows(lang, &key, idx, total),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `gsc:…` — DM confirmation screen.
+async fn handle_game_confirm(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((key, idx, total)) = parse_game_draft(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    if total <= 0 {
+        return answer(ctx, cb, i18n::bad_stake(lang), true).await;
+    }
+    let opt = match game_option(ctx, lang, &key, idx).await {
+        Ok(o) => o,
+        Err(t) => return answer(ctx, cb, t, true).await,
+    };
+    let rows = vec![
+        vec![(i18n::bet_btn_place(lang).to_string(), format!("gsp:{key}:{idx}:{total}"))],
+        vec![(i18n::bet_btn_back(lang).to_string(), format!("gsz:{key}:{idx}:{total}"))],
+    ];
+    if let Some(m) = &cb.message {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            m.chat.get_id(),
+            m.message_id,
+            &i18n::game_confirm(lang, &total.to_string(), &opt),
+            &rows,
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `gsp:…` — the only money-moving step: debit, `game.stake`, edit the group
+/// board with new totals, confirm in the DM, and announce in the group.
+async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((key, idx, total)) = parse_game_draft(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    if total <= 0 {
+        return answer(ctx, cb, i18n::bad_stake(lang), true).await;
+    }
+    let db = db_arc(ctx);
+    if !db.balance_change(cb.from.id, -total * COIN).unwrap_or(false) {
+        return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
+    }
+    let games = games_arc(ctx);
+    let placed = {
+        let mut g = games.lock().await;
+        let Some(game) = g.get_mut(&key) else {
+            db.force_change(cb.from.id, total * COIN).ok();
+            return answer(ctx, cb, i18n::game_invalid(lang), true).await;
+        };
+        let Some(option) = game.option_order.get(idx).cloned() else {
+            db.force_change(cb.from.id, total * COIN).ok();
+            return answer(ctx, cb, i18n::bet_failed(lang), true).await;
+        };
+        if !game.stake(cb.from.id, &option, total) {
+            db.force_change(cb.from.id, total * COIN).ok();
+            return answer(ctx, cb, i18n::bet_failed(lang), true).await;
+        }
+        if let Err(err) = db.save_bet_game(game) {
+            eprintln!("save_bet_game(stake) error: {err}");
+        }
+        (option, game.get_text(), game.get_buttons())
+    };
+    let (option, board_text, board_rows) = placed;
+    // Edit the group board with the new totals and announce the bet there.
+    if let Some((c, m)) = key.split_once(':') {
+        if let (Ok(chat), Ok(msg)) = (c.parse::<i64>(), m.parse::<i64>()) {
+            let _ = tg::edit_with_buttons(ctx, chat, msg, &board_text, &board_rows).await;
+            let _ = crate::commands::util::send_text(
+                ctx,
+                chat,
+                i18n::game_announce(lang, &full_name(&cb.from), &total.to_string(), &option),
+            )
+            .await;
+        }
+    }
+    // Confirm in the DM (where the builder lives).
+    if let Some(m) = &cb.message {
+        let _ = tg::edit_text_only(
+            ctx,
+            m.chat.get_id(),
+            m.message_id,
+            &i18n::game_placed(lang, &total.to_string(), &option),
+        )
+        .await;
+    }
+    answer(ctx, cb, i18n::bet_success(lang), false).await
 }
 
 /// Resolve the locale for a callback presser: their saved choice if any, else
