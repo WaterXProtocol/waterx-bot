@@ -1308,6 +1308,19 @@ pub fn bet_placed(l: Lang, stake: &str, side: &str, odds: &str, payout: &str) ->
     .replace("{payout}", payout)
 }
 
+/// Third-person announcement of a placed bet, posted back to the origin group.
+pub fn bet_announce(l: Lang, name: &str, stake: &str, side: &str, odds: &str) -> String {
+    tr!(l;
+        "🎟️ {name} bet {stake} 🪙 on {side} @ {odds}", "🎟️ {name} 下注 {stake} 🪙 於 {side} @ {odds}", "🎟️ {name} 下注 {stake} 🪙 于 {side} @ {odds}", "🎟️ {name} が {side} @ {odds} に {stake} 🪙 を賭けた", "🎟️ {name} 님이 {side} @ {odds} 에 {stake} 🪙 베팅",
+        "🎟️ {name} поставил {stake} 🪙 на {side} @ {odds}", "🎟️ {name} a misé {stake} 🪙 sur {side} @ {odds}", "🎟️ {name} apostó {stake} 🪙 a {side} @ {odds}", "🎟️ {name} hat {stake} 🪙 auf {side} @ {odds} gesetzt", "🎟️ {name} đã đặt {stake} 🪙 cho {side} @ {odds}",
+        "🎟️ {name} bertaruh {stake} 🪙 pada {side} @ {odds}", "🎟️ {name} tumaya ng {stake} 🪙 sa {side} @ {odds}", "🎟️ {name} เดิมพัน {stake} 🪙 ที่ {side} @ {odds}", "🎟️ {name} zette {stake} 🪙 op {side} @ {odds}", "🎟️ {name}, {side} @ {odds} için {stake} 🪙 yatırdı",
+        "🎟️ {name} apostou {stake} 🪙 em {side} @ {odds}", "🎟️ {name} ने {side} @ {odds} पर {stake} 🪙 लगाए", "🎟️ {name} راهن {stake} 🪙 على {side} @ {odds}")
+    .replace("{name}", name)
+    .replace("{stake}", stake)
+    .replace("{side}", side)
+    .replace("{odds}", odds)
+}
+
 pub fn bet_won(l: Lang, payout: &str) -> String {
     tr!(l;
         "🎉 Your bet won! +{payout} coins", "🎉 你的下注贏了！+{payout} 金幣", "🎉 你的下注赢了！+{payout} 金币", "🎉 賭けに勝ったよ！+{payout} コイン", "🎉 베팅에서 이겼어! +{payout} 코인",

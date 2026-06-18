@@ -42,6 +42,9 @@ pub struct Quote {
     odds_b: Option<f64>,
     ends_at: i64,
     quoted_at: i64,
+    /// Chat the match was tapped in (the group brief) — the placed bet is
+    /// announced back here. Equals the DM when `/markets` was used privately.
+    origin_chat: i64,
 }
 
 impl Quote {
@@ -164,6 +167,13 @@ pub async fn handle_bet(
         return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
     }
 
+    // Remember where the match was tapped (the group brief) so the *placed* bet
+    // can be announced back there; the build flow itself happens in the DM.
+    let origin_chat = cb
+        .message
+        .as_ref()
+        .map(|m| m.chat.get_id())
+        .unwrap_or(cb.from.id);
     let q = Quote {
         market_id: m.market_id.clone(),
         slug: m.slug.clone(),
@@ -174,20 +184,21 @@ pub async fn handle_bet(
         odds_b: m.odds_b,
         ends_at: m.ends_at,
         quoted_at: now(),
+        origin_chat,
     };
     let qid = quotes(ctx).lock().insert(q.clone());
     let text = quote_text(lang, &q);
     let rows = option_rows(lang, &q, qid);
 
-    // Post the quote in the **same chat** the match was tapped in (the group
-    // brief) — no DM required. Each tap creates its own quote message.
-    let chat_id = cb
-        .message
-        .as_ref()
-        .map(|m| m.chat.get_id())
-        .unwrap_or(cb.from.id);
-    tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
-    answer(ctx, cb, "", false).await
+    // The build flow is private (per-user, no shared-message clobbering): DM the
+    // quote. If the user has no DM open, tell them to start the bot privately.
+    match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
+        Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
+        Err(_) => {
+            quotes(ctx).lock().remove(qid);
+            answer(ctx, cb, i18n::bet_dm_first(lang), true).await
+        }
+    }
 }
 
 /// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0.
@@ -286,14 +297,17 @@ pub async fn handle_size_place(
 
     let payout = decimal_payout(stake_units, odds);
     let side = q.side_name(lang, &outcome);
-    let text = i18n::bet_placed(
-        lang,
-        &fmt_coins(stake_units),
-        &side,
-        &format!("{:.2}", decimal_odds(odds)),
-        &fmt_coins(payout),
-    );
+    let odds_str = format!("{:.2}", decimal_odds(odds));
+    // Confirm privately in the DM (where the builder lives).
+    let text = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
     let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &text).await;
+    // Announce the placed bet back in the original group (skip if `/markets` was
+    // used privately — the origin is then the DM itself).
+    if is_group_chat(q.origin_chat) {
+        let announce =
+            i18n::bet_announce(lang, &full_name(&cb.from), &fmt_coins(stake_units), &side, &odds_str);
+        let _ = send_text(ctx, q.origin_chat, announce).await;
+    }
     answer(ctx, cb, i18n::bet_done(lang), false).await
 }
 

@@ -149,12 +149,13 @@ and `fetch_one(market_id)` re-fetches a single match's fresh odds at bet time.
 coin balance:
 
 1. Tapping a match number (`bet:`) re-fetches that match's **current** odds and
-   posts a quote — **in the same chat the button was tapped** (the group brief,
-   no DM required; falls back to the user's id only if there's no `cb.message`) —
-   with one button per priced outcome (`opt:<qid>:<outcome>`). Each tap creates
-   its own quote message. The quote is stored in-memory (`bot::QuotesKey` →
-   `QuoteStore`) under a short id and is valid for `QUOTE_TTL_SECS` (60s) — odds
-   move, so it must be fresh. (`bet_check_dm`/`bet_dm_first` are now unused.)
+   **DMs** the user a quote with one button per priced outcome
+   (`opt:<qid>:<outcome>`) — the build flow is private so it never clobbers a
+   shared message. The chat the button was tapped in (the **group brief**) is
+   saved on the quote as `origin_chat` so the *placed* bet can be announced back
+   there. The quote is stored in-memory (`bot::QuotesKey` → `QuoteStore`) under a
+   short id, valid for `QUOTE_TTL_SECS` (60s). If the user has no DM open, a toast
+   (`bet_dm_first`) tells them to start the bot privately.
 2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder**: whole-coin
    preset buttons that **accumulate** (`sz:<qid>:<outcome>:<total>` — each preset
    re-renders the builder at `total + preset`; `Clear` → `…:0`), plus a
@@ -165,7 +166,10 @@ coin balance:
    moves money — it re-checks the quote is still fresh (else "open /matches
    again"), debits `total × COIN` via `balance_change`, and records the wager
    (`Database::place_wager`) with the **locked** `odds_cents`. Payout on a win is
-   `stake × 100 / odds_cents` (= stake × the decimal odds shown). Self-host
+   `stake × 100 / odds_cents` (= stake × the decimal odds shown). After placing,
+   it confirms in the DM (`bet_placed`) **and**, if `origin_chat` is a group,
+   posts a third-person announcement there (`i18n::bet_announce` — "🎟️ Name bet N
+   on Side @ odds") so the group sees the action. Self-host
    `/predict` betting uses the same accumulate-then-confirm idea but on the
    **shared group board with no DM** (in-memory per-user drafts + private toasts;
    see the bet-games section).
