@@ -65,7 +65,7 @@ Logging is error-only on stderr via `eprintln!` (DB/save failures, getUpdates/pa
 
 This matters because `/sell` and `/buy` slash commands **don't transact** — they just post an inline keyboard with a `sell:<seller>:<fruits>:<price>` or `buy:<buyer>:<fruits>:<price>` payload. The actual fruit/coin exchange happens when the counterparty taps the button and the callback fires.
 
-The `envelope:` callback prefix is still routed even though the `/envelope` command was removed: `/send <amount>` with no reply target (or replying to the bot) posts a red-envelope-style claim button, and that share path uses the same callback.
+`/send <amount>` is a **direct transfer to the replied-to user only** — you must reply to a real user's message; with no (real-user) reply target it just shows `i18n::usage_send` and **does not** create a red-envelope (the recipient is validated before any debit). The `envelope:` callback prefix is still routed (it handles claiming) for backward-compat with any in-flight envelope messages, but `/send` no longer **creates** envelopes — that creation path (and its `claim_button`/`grab_envelope_title`/`sent_envelope_title`/`bot_no_money`/`insert_buffer` use) was removed; those items remain defined but unused.
 
 ### Bet games
 

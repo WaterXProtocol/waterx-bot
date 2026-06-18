@@ -1,5 +1,4 @@
 use crate::bot::BotIdKey;
-use crate::commands::tg;
 use crate::commands::util::*;
 use crate::database::COIN;
 use crate::i18n;
@@ -30,54 +29,34 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         .as_ref()
         .and_then(|r| r.from.clone());
 
-    // === coin path ===
+    // === coin path === — a direct transfer to the replied-to user only; no
+    // envelope drops. Requires replying to a real user.
     if let Ok(amount) = parts[0].parse::<i64>() {
         if amount <= 0 {
             reply(&ctx, &message, ERR_NEG_REPLY).await?;
             return Ok(());
         }
+        // Validate the recipient *before* debiting.
+        let Some(receiver) = reply_target.as_ref().filter(|u| u.id != bot_id).cloned() else {
+            reply(&ctx, &message, i18n::usage_send(lang)).await?;
+            return Ok(());
+        };
         if !database.balance_change(sender.id, -amount * COIN)? {
             reply(&ctx, &message, i18n::not_enough_money(lang)).await?;
             return Ok(());
         }
-
-        let direct_target = reply_target
-            .as_ref()
-            .filter(|u| u.id != bot_id)
-            .cloned();
-        if let Some(receiver) = direct_target {
-            // Reply target is a real user → direct transfer.
-            database.force_change(receiver.id, amount * COIN)?;
-            reply(
-                &ctx,
-                &message,
-                i18n::sent_coins(
-                    lang,
-                    &full_name(&sender),
-                    &full_name(&receiver),
-                    &format_number(amount),
-                ),
-            )
-            .await?;
-            return Ok(());
-        }
-
-        // No reply target → bare envelope drop.
-        // Reply target is the bot → bot reacts, then drops envelope.
-        if reply_target.is_some() {
-            send_text(&ctx, message.chat.get_id(), i18n::bot_no_money(lang)).await?;
-        }
-        let rows = vec![vec![(
-            i18n::claim_button(lang).to_string(),
-            format!("envelope:{amount}"),
-        )]];
-        let title = if reply_target.is_some() {
-            i18n::grab_envelope_title(lang).to_string()
-        } else {
-            i18n::sent_envelope_title(lang, &full_name(&sender), &format_number(amount))
-        };
-        let sent = tg::send_with_buttons(&ctx, message.chat.get_id(), &title, &rows).await?;
-        database.insert_buffer(sent.chat.get_id(), sent.message_id)?;
+        database.force_change(receiver.id, amount * COIN)?;
+        reply(
+            &ctx,
+            &message,
+            i18n::sent_coins(
+                lang,
+                &full_name(&sender),
+                &full_name(&receiver),
+                &format_number(amount),
+            ),
+        )
+        .await?;
         return Ok(());
     }
 
