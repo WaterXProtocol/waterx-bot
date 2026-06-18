@@ -742,15 +742,17 @@ fn qr_cache() -> &'static parking_lot::Mutex<HashMap<i64, String>> {
     CACHE.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
-/// `menu:balance` — post the presser's balance + open positions as a fresh
-/// message, leaving the menu in place.
+/// `menu:balance` — edit the menu in place into the presser's balance + open
+/// positions. Private-chat only (the button is hidden in groups), so the
+/// balance is shown.
 async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some(message) = cb.message.clone() else {
         return Ok(());
     };
     answer(ctx, cb, "", false).await?;
-    let text = assets::assets_text(ctx, lang, &cb.from).await;
+    let show_balance = !is_group_chat(message.chat.get_id());
+    let text = assets::assets_text(ctx, lang, &cb.from, show_balance).await;
     let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
     let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
     Ok(())

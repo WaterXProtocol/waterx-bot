@@ -16,23 +16,32 @@ pub async fn assets(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     let lang = lang_for(&ctx, user);
-    let body = assets_text(&ctx, lang, user).await;
+    // The coin balance is private: don't expose it in a group (everyone would
+    // see it) — show only the open positions there. In a private chat it's the
+    // caller's own DM, so the balance is fine.
+    let show_balance = !is_group_chat(message.chat.get_id());
+    let body = assets_text(&ctx, lang, user, show_balance).await;
     reply(&ctx, &message, body).await?;
     Ok(())
 }
 
-/// Build the `/assets` body for `user`: name + balance, then any open match
-/// bets and self-host predictions. Shared by the `/assets` command and the
-/// `menu:balance` button.
-pub async fn assets_text(ctx: &Context, lang: Lang, user: &User) -> String {
+/// Build the `/assets` body for `user`: name (+ balance when `show_balance`),
+/// then any open match bets and self-host predictions. Shared by the `/assets`
+/// command and the `menu:balance` button. `show_balance` is false in a group,
+/// where the balance is private and must not be exposed publicly.
+pub async fn assets_text(ctx: &Context, lang: Lang, user: &User, show_balance: bool) -> String {
     let database = db(ctx);
-    let info = database.get_user_info(user.id).unwrap_or_default();
 
-    let mut body = format!(
-        "{}\n{}",
-        full_name(user),
-        i18n::menu_status(lang, &fmt_coins(info.balance))
-    );
+    let mut body = if show_balance {
+        let info = database.get_user_info(user.id).unwrap_or_default();
+        format!(
+            "{}\n{}",
+            full_name(user),
+            i18n::menu_status(lang, &fmt_coins(info.balance))
+        )
+    } else {
+        full_name(user)
+    };
 
     // Open (unsettled) match bets, if any, with the section's staked total in
     // Lines are language-neutral — the side name is already localized, the rest
