@@ -1184,10 +1184,10 @@ pub fn markets_more(l: Lang, n: &str) -> String {
 
 pub fn bet_pick(l: Lang) -> &'static str {
     tr!(l;
-        "Pick your side (valid 1 min):", "選擇你的下注（1分鐘內有效）：", "选择你的下注（1分钟内有效）：", "賭ける側を選んで（1分間有効）：", "베팅할 쪽을 선택 (1분간 유효):",
-        "Выберите сторону (действует 1 мин):", "Choisis ton camp (valable 1 min) :", "Elige tu lado (válido 1 min):", "Wähle deine Seite (1 Min gültig):", "Chọn bên cược (hiệu lực 1 phút):",
-        "Pilih sisi taruhanmu (berlaku 1 menit):", "Piliin ang panig (valid 1 min):", "เลือกฝั่งที่จะเดิมพัน (ใช้ได้ 1 นาที):", "Kies je kant (1 min geldig):", "Tarafını seç (1 dk geçerli):",
-        "Escolha seu lado (válido 1 min):", "अपना पक्ष चुनें (1 मिनट के लिए मान्य):", "اختر جانبك (صالح لمدة دقيقة):")
+        "Pick your side:", "選擇你的下注：", "选择你的下注：", "賭ける側を選んで：", "베팅할 쪽을 선택:",
+        "Выберите сторону:", "Choisis ton camp :", "Elige tu lado:", "Wähle deine Seite:", "Chọn bên cược:",
+        "Pilih sisi taruhanmu:", "Piliin ang panig:", "เลือกฝั่งที่จะเดิมพัน:", "Kies je kant:", "Tarafını seç:",
+        "Escolha seu lado:", "अपना पक्ष चुनें:", "اختر جانبك:")
 }
 
 pub fn bet_unavailable(l: Lang) -> &'static str {

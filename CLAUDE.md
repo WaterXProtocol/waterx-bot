@@ -160,8 +160,15 @@ coin balance:
    build flow then edits in place); `origin_msg` stays 0. The tapped chat is
    saved as `origin_chat`; a private bet's `origin_chat` is the DM itself (not a
    group), so no announcement fires. The quote is stored in-memory
-   (`bot::QuotesKey` → `QuoteStore`) under a short id, valid for `QUOTE_TTL_SECS`
-   (60s).
+   (`bot::QuotesKey` → `QuoteStore`) under a short id. Odds are locked for
+   `QUOTE_TTL_SECS` (60s), but a stale quote is **auto-renewed**, not rejected:
+   every downstream step (`opt:`/`sz:`/`szc:`/`szp:`) reads the quote through
+   `fresh_quote`, which — if the quote is past its TTL — re-fetches the match's
+   current odds (`markets::fetch_one`), updates the stored quote in place
+   (keeping `origin_chat`/`origin_msg`), and continues at the fresh odds. So a
+   user tapping a group card that's been sitting around just bets at current
+   odds; `fresh_quote` returns `None` (→ `bet_unavailable`/`expire`) only if the
+   quote was evicted (past `5×TTL`), the match ended, or the feed is unreachable.
 2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder** (shared
    `builder_text_rows`): whole-coin preset buttons that **accumulate**
    (`sz:<qid>:<outcome>:<total>` — each preset re-renders at `total + preset`;
@@ -172,9 +179,10 @@ coin balance:
    never clobbers the card; in a private chat it edits in place.
 3. `Confirm` (`szc:<qid>:<outcome>:<total>`) shows a **confirmation screen** (the
    "modal": `[✅ Place bet] [⬅ Back]`). Only `Place` (`szp:<qid>:<outcome>:<total>`)
-   moves money — it re-checks the quote is still fresh (else "open /matches
-   again"), debits `total × COIN` via `balance_change`, and records the wager
-   (`Database::place_wager`) with the **locked** `odds_cents`. Payout on a win is
+   moves money — it reloads the quote via `fresh_quote` (auto-renewing stale
+   odds, or `expire` if the match is truly gone), debits `total × COIN` via
+   `balance_change`, and records the wager (`Database::place_wager`) with the
+   **locked** `odds_cents`. Payout on a win is
    `stake × 100 / odds_cents` (= stake × the decimal odds shown). After placing,
    it confirms in the DM (`bet_placed`) **and**, if `origin_chat` is a group,
    posts a third-person announcement there (`i18n::bet_announce` — "🎟️ Name bet N

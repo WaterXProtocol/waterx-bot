@@ -98,6 +98,9 @@ impl QuoteStore {
             q.origin_msg = msg;
         }
     }
+    fn replace(&mut self, id: u64, q: Quote) {
+        self.map.insert(id, q);
+    }
     fn remove(&mut self, id: u64) {
         self.map.remove(&id);
     }
@@ -113,6 +116,33 @@ fn quotes(ctx: &Context) -> Arc<Mutex<QuoteStore>> {
 
 fn now() -> i64 {
     chrono::Utc::now().timestamp()
+}
+
+/// Fetch the live quote for `qid`, **auto-renewing** its odds if it has gone
+/// stale (past `QUOTE_TTL_SECS`) by re-fetching the match's current odds — so a
+/// user tapping a card that's been sitting in the group for a while just bets at
+/// fresh odds instead of hitting a dead end. Returns `None` only if the quote
+/// was evicted, the match has ended, or the feed is unreachable. The renewed
+/// quote keeps its `origin_chat`/`origin_msg` so the announcement still lands.
+async fn fresh_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
+    let q = quotes(ctx).lock().get(qid)?;
+    if q.fresh(now()) {
+        return Some(q);
+    }
+    let m = markets::fetch_one(lang, &q.market_id).await?;
+    if m.ends_at != 0 && now() >= m.ends_at {
+        return None;
+    }
+    let renewed = Quote {
+        odds_a: m.odds_a,
+        odds_draw: m.odds_draw,
+        odds_b: m.odds_b,
+        ends_at: m.ends_at,
+        quoted_at: now(),
+        ..q
+    };
+    quotes(ctx).lock().replace(qid, renewed.clone());
+    Some(renewed)
 }
 
 fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
@@ -234,8 +264,8 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         return answer(ctx, cb, "", false).await;
     };
     if is_group_chat(cb.message_chat()) {
-        let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
-            return answer(ctx, cb, i18n::bet_expired(lang), true).await;
+        let Some(q) = fresh_quote(ctx, lang, qid).await else {
+            return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         };
         let Some((text, rows)) = builder_text_rows(lang, &q, qid, &outcome, 0) else {
             return answer(ctx, cb, "", false).await;
@@ -273,7 +303,7 @@ pub async fn handle_size_confirm(
     if total <= 0 {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
     }
-    let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
+    let Some(q) = fresh_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
     };
     let Some(odds) = q.odds(&outcome).filter(|c| *c > 0.0) else {
@@ -304,7 +334,7 @@ pub async fn handle_size_place(
     if total <= 0 {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
     }
-    let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
+    let Some(q) = fresh_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
     };
     let Some(odds) = q.odds(&outcome).filter(|c| *c > 0.0) else {
@@ -398,7 +428,7 @@ async fn render_builder(
     outcome: &str,
     total: i64,
 ) -> Result<(), telexide::Error> {
-    let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
+    let Some(q) = fresh_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
     };
     let Some((text, rows)) = builder_text_rows(lang, &q, qid, outcome, total) else {
