@@ -56,7 +56,7 @@ These helpers also encapsulate the **Send-across-await gotcha**: `ctx.data.read(
 
 ### Callback queries are routed separately
 
-Telegram callback queries (inline-button presses) are *not* commands. They come through `src/commands/callbacks.rs::on_callback`, a `#[prepare_listener]` registered via `add_handler_func` in `bot.rs`. It matches `UpdateContent::CallbackQuery` and dispatches on the `cb.data` string prefix: `envelope:`, `gamble:`, `sell:`, `buy:`, `setlang:`, `menu:checkin`, `menu:balance`, `menu:matches`, `menu:invite`. The `menu:*`/`setlang:` ones drive the `/start` menu (defined in `src/commands/menu.rs`): `setlang:<store_code>` saves the locale and edits the picker into the main menu in place; `menu:checkin` grants the daily reward as an alert and (in private chats) refreshes the menu to drop the now-spent button; `menu:balance` posts the caller's balance + open positions (the shared `balance::balance_text`) as a fresh message; `menu:matches` posts the match brief (via the shared `markets::brief`) as a fresh message; `menu:invite` posts the presser's referral QR as a single photo message (local `qrcode-generator` PNG via `tg::send_photo_bytes`, which posts `sendPhoto` over `reqwest`) — caption = link + count, keyboard = `[🎮 Play now]` URL deep-link button (see the `/start` menu section for the telexide-upload-bug and forward-safety rationale). A second `#[prepare_listener]`, `callbacks::on_my_chat_member` (also registered via `add_handler_func`), watches `UpdateContent::MyChatMember` to record who added the bot to a group (`chats.added_by`) for the group-add referral path.
+Telegram callback queries (inline-button presses) are *not* commands. They come through `src/commands/callbacks.rs::on_callback`, a `#[prepare_listener]` registered via `add_handler_func` in `bot.rs`. It matches `UpdateContent::CallbackQuery` and dispatches on the `cb.data` string prefix: `envelope:`, `gamble:`, `sell:`, `buy:`, `setlang:`, `menu:checkin`, `menu:balance`, `menu:matches`, `menu:invite`, `stl:` (owner-only button settle flow → `admin::handle_settle_cb`). The `menu:*`/`setlang:` ones drive the `/start` menu (defined in `src/commands/menu.rs`): `setlang:<store_code>` saves the locale and edits the picker into the main menu in place; `menu:checkin` grants the daily reward as an alert and (in private chats) refreshes the menu to drop the now-spent button; `menu:balance` posts the caller's balance + open positions (the shared `balance::balance_text`) as a fresh message; `menu:matches` posts the match brief (via the shared `markets::brief`) as a fresh message; `menu:invite` posts the presser's referral QR as a single photo message (local `qrcode-generator` PNG via `tg::send_photo_bytes`, which posts `sendPhoto` over `reqwest`) — caption = link + count, keyboard = `[🎮 Play now]` URL deep-link button (see the `/start` menu section for the telexide-upload-bug and forward-safety rationale). A second `#[prepare_listener]`, `callbacks::on_my_chat_member` (also registered via `add_handler_func`), watches `UpdateContent::MyChatMember` to record who added the bot to a group (`chats.added_by`) for the group-add referral path.
 
 Logging is error-only on stderr via `eprintln!` (DB/save failures, getUpdates/parse errors, setMyCommands failures, markets fetch failures), with **one** exception: a single startup line (`waterx-bot ready: @<user> (id <n>), <dev|production> mode`) printed by `bot::run` right before the poll loop. Keep new logging to error paths only (plus that one ready line).
 
@@ -149,10 +149,21 @@ coin balance:
    `stake × 100 / odds_cents` (= stake × the decimal odds shown).
 
 Settlement is **manual** (no results endpoint exists on the API — browse only
-lists scheduled/live matches, and resolution is on-chain Polymarket). The owner
-runs `/settle` (no args → lists markets with open wagers + their ids;
-`/settle <market_id|slug> <a|b|draw>` → `Database::settle_market` pays winners,
-marks each wager won/lost, and DMs every bettor `i18n::bet_won`/`bet_lost`).
+lists scheduled/live matches, and resolution is on-chain Polymarket), owner-only,
+and runs through one shared `admin::run_settle` (calls `Database::settle_market`,
+pays winners, marks each wager won/lost, DMs every bettor
+`i18n::bet_won`/`bet_lost`, returns a one-line summary). Two front-ends:
+- **Buttons (default)** — `/settle` with no args posts a **picker**: one button per
+  open market, **labelled with the human-readable title** (`team_a vs team_b`, via
+  `admin::market_label`; the `market_id` rides only in the callback data, never
+  shown). The owner-only `stl:` callback flow (`admin::handle_settle_cb`, routed in
+  `callbacks::on_callback`) then edits the same message through: pick market
+  (`stl:p:<id>`) → pick outcome (`stl:o:<id>:<a|b|d>`) → **confirm 1/2**
+  (`stl:1:…`) → **confirm 2/2** (`stl:2:…`) → settle. Every step re-reads
+  `list_open_markets` and matches by full `market_id`, so a stale/duplicate press
+  fails safe instead of settling the wrong market; non-owner presses get a silent ack.
+- **Text (power-user)** — `/settle <market_id|slug> <a|b|draw>` settles directly
+  via the same `run_settle`.
 `wagers(id, user, market_id, slug, team_a, team_b, outcome, stake, odds_cents,
 placed_at, ends_at, status, settled_at)` — `stake` micro-coins, `odds_cents` the
 locked YES odds, `status` open|won|lost.

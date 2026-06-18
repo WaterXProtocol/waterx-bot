@@ -3,7 +3,7 @@ use crate::commands::util::{
     bot_token, fmt_coins, format_number, full_name, is_group_chat, SORRY_FRUITS,
 };
 use crate::database::COIN;
-use crate::commands::{balance, betting, markets, menu, referral, tg};
+use crate::commands::{admin, balance, betting, markets, menu, referral, tg};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
 use crate::i18n::{self, Lang};
@@ -83,6 +83,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         betting::handle_opt(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(betting::SIZE) {
         betting::handle_size(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(admin::SETTLE_CB) {
+        admin::handle_settle_cb(&ctx, &cb, rest).await
     } else {
         Ok(())
     };
