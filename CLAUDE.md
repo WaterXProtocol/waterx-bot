@@ -126,6 +126,14 @@ the fields the brief reads (serde ignores the rest), and `oddsCents` **must** be
 Chinese users (Hant/Hans → Chinese team names) and `locale=en` for everyone
 else; the brief's chrome is localized separately via `render(lang, …)`. (Note:
 only the `?locale=` query form works — a `/en/predict/browse` path 404s.)
+`fetch_matches` is served from a process-wide **60s per-locale cache**
+(`FEED_CACHE_TTL`, `feed_cache()` = `OnceLock<Mutex<FeedCache>>`, keyed by the
+`en`/`zh` API locale) so repeated `/markets`, `menu:matches`, and `bet:` taps
+don't hammer the rate-limited API — the lock is never held across the network
+`.await`. Because `fetch_one` (the bet quote) reads the same cache and the quote
+adds its own 60s TTL, locked odds can be up to ~2 min stale worst case
+(acceptable for a casual bot). Concurrent cold-cache misses aren't coalesced, so
+a startup burst may fetch a couple of times before the cache warms.
 
 `/markets` renders the brief with a **numbered button per
 shown match** (`bet:<market_id>`); `markets::brief` returns `(text, button rows)`

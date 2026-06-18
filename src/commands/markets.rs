@@ -2,11 +2,18 @@ use crate::commands::tg::Row;
 use crate::commands::util::*;
 use crate::i18n::{self, Lang};
 use chrono::{TimeZone, Utc};
+use parking_lot::Mutex;
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 use telexide::prelude::*;
 
 /// waterx prediction-market browse endpoint.
 const BROWSE_URL: &str = "https://api.waterx.app/predict/browse";
+/// How long a fetched feed is reused before re-hitting the API (per locale),
+/// to stay under the upstream rate limit. The bet quote has its own 60s TTL, so
+/// odds shown can be at most ~2 min old worst case — fine for a casual bot.
+const FEED_CACHE_TTL: i64 = 60;
 /// Cap so the brief stays well under Telegram's 4096-char message limit; the
 /// overflow is summarised with a "…and N more" tail.
 const MAX_MATCHES: usize = 8;
@@ -125,13 +132,33 @@ fn within_window(m: &MatchInfo, now: i64) -> bool {
     m.live || m.starts_at.is_some_and(|t| t >= now && t <= now + 86_400)
 }
 
-/// Pull and parse the feed into sport matches, live-first then soonest.
+/// Per-locale cache of the parsed feed: `locale → (fetched_at_unix, matches)`.
+type FeedCache = HashMap<&'static str, (i64, Vec<MatchInfo>)>;
+
+/// Process-wide [`FeedCache`]. Guards are never held across an `.await`.
+fn feed_cache() -> &'static Mutex<FeedCache> {
+    static CACHE: OnceLock<Mutex<FeedCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Pull and parse the feed into sport matches, live-first then soonest. Served
+/// from a [`FEED_CACHE_TTL`]-second per-locale cache to avoid hammering the API.
 async fn fetch_matches(lang: Lang) -> Result<Vec<MatchInfo>, reqwest::Error> {
     // Chinese users get Chinese team names; everyone else English.
     let api_locale = match lang {
         Lang::Hant | Lang::Hans => "zh",
         _ => "en",
     };
+    let now = Utc::now().timestamp();
+
+    // Cache hit: reuse a snapshot fetched within the TTL. (Clone out, then drop
+    // the guard — it must not be held across the network await below.)
+    if let Some((fetched_at, matches)) = feed_cache().lock().get(api_locale) {
+        if now - *fetched_at <= FEED_CACHE_TTL {
+            return Ok(matches.clone());
+        }
+    }
+
     let resp = reqwest::Client::new()
         .get(BROWSE_URL)
         .query(&[("locale", api_locale), ("limit", "200")])
@@ -144,6 +171,7 @@ async fn fetch_matches(lang: Lang) -> Result<Vec<MatchInfo>, reqwest::Error> {
 
     let mut matches: Vec<MatchInfo> = resp.data.items.iter().filter_map(to_match_info).collect();
     matches.sort_by_key(|m| (!m.live, m.starts_at.unwrap_or(i64::MAX)));
+    feed_cache().lock().insert(api_locale, (now, matches.clone()));
     Ok(matches)
 }
 
