@@ -35,7 +35,7 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
     }
 
     if parts.len() < 3 {
-        reply(&ctx, &message, ERR_REPLY).await?;
+        reply(&ctx, &message, i18n::usage_predict(lang)).await?;
         return Ok(());
     }
 

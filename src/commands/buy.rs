@@ -16,7 +16,7 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
     let lang = lang_for(&ctx, &buyer);
     let parts = args(&message);
     if parts.len() < 2 {
-        reply(&ctx, &message, ERR_REPLY).await?;
+        reply(&ctx, &message, i18n::usage_buy(lang)).await?;
         return Ok(());
     }
     // Restrict /buy to the canonical fruit set — matches the original Python
@@ -30,7 +30,7 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     }
     let Ok(price) = parts[1].parse::<i64>() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+        reply(&ctx, &message, i18n::usage_buy(lang)).await?;
         return Ok(());
     };
     if price <= 0 {

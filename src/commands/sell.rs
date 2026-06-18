@@ -16,12 +16,12 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
     let lang = lang_for(&ctx, &seller);
     let parts = args(&message);
     if parts.len() < 2 {
-        reply(&ctx, &message, ERR_REPLY).await?;
+        reply(&ctx, &message, i18n::usage_sell(lang)).await?;
         return Ok(());
     }
     let fruits = parts[0].clone();
     let Ok(price) = parts[1].parse::<i64>() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+        reply(&ctx, &message, i18n::usage_sell(lang)).await?;
         return Ok(());
     };
     if price <= 0 {

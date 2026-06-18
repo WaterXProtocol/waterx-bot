@@ -19,7 +19,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
 
     let parts = args(&message);
     if parts.is_empty() {
-        reply(&ctx, &message, ERR_REPLY).await?;
+        reply(&ctx, &message, i18n::usage_send(lang)).await?;
         return Ok(());
     }
 

@@ -850,6 +850,42 @@ pub fn broadcast_usage(l: Lang) -> &'static str {
 }
 
 // ----------------------------------------------------------------------------
+// Command-usage hints (shown when a command is called with the wrong format)
+// ----------------------------------------------------------------------------
+
+pub fn usage_send(l: Lang) -> &'static str {
+    tr!(l;
+        "Reply to a message, then /send <amount> (or a fruit 🍎)", "回覆一則訊息，然後 /send <數量>（或水果 🍎）", "回复一条消息，然后 /send <数量>（或水果 🍎）", "メッセージに返信して /send <数量>（または果物 🍎）", "메시지에 답장하고 /send <수량> (또는 과일 🍎)",
+        "Ответьте на сообщение, затем /send <сумма> (или фрукт 🍎)", "Réponds à un message, puis /send <montant> (ou un fruit 🍎)", "Responde a un mensaje y usa /send <cantidad> (o una fruta 🍎)", "Antworte auf eine Nachricht, dann /send <Betrag> (oder Obst 🍎)", "Trả lời một tin nhắn rồi /send <số lượng> (hoặc trái cây 🍎)",
+        "Balas pesan, lalu /send <jumlah> (atau buah 🍎)", "Mag-reply sa mensahe, tapos /send <halaga> (o prutas 🍎)", "ตอบกลับข้อความ แล้ว /send <จำนวน> (หรือผลไม้ 🍎)", "Reageer op een bericht, dan /send <bedrag> (of fruit 🍎)", "Bir mesajı yanıtla, sonra /send <miktar> (veya meyve 🍎)",
+        "Responda a uma mensagem e use /send <quantia> (ou uma fruta 🍎)", "किसी संदेश का जवाब दें, फिर /send <राशि> (या फल 🍎)", "ردّ على رسالة ثم /send <المبلغ> (أو فاكهة 🍎)")
+}
+
+pub fn usage_sell(l: Lang) -> &'static str {
+    tr!(l;
+        "/sell <fruit> <price>", "/sell <水果> <價格>", "/sell <水果> <价格>", "/sell <フルーツ> <価格>", "/sell <과일> <가격>",
+        "/sell <фрукт> <цена>", "/sell <fruit> <prix>", "/sell <fruta> <precio>", "/sell <Obst> <Preis>", "/sell <trái cây> <giá>",
+        "/sell <buah> <harga>", "/sell <prutas> <presyo>", "/sell <ผลไม้> <ราคา>", "/sell <fruit> <prijs>", "/sell <meyve> <fiyat>",
+        "/sell <fruta> <preço>", "/sell <फल> <मूल्य>", "/sell <فاكهة> <سعر>")
+}
+
+pub fn usage_buy(l: Lang) -> &'static str {
+    tr!(l;
+        "/buy <fruit> <price>", "/buy <水果> <價格>", "/buy <水果> <价格>", "/buy <フルーツ> <価格>", "/buy <과일> <가격>",
+        "/buy <фрукт> <цена>", "/buy <fruit> <prix>", "/buy <fruta> <precio>", "/buy <Obst> <Preis>", "/buy <trái cây> <giá>",
+        "/buy <buah> <harga>", "/buy <prutas> <presyo>", "/buy <ผลไม้> <ราคา>", "/buy <fruit> <prijs>", "/buy <meyve> <fiyat>",
+        "/buy <fruta> <preço>", "/buy <फल> <मूल्य>", "/buy <فاكهة> <سعر>")
+}
+
+pub fn usage_predict(l: Lang) -> &'static str {
+    tr!(l;
+        "/predict <title> <option1> <option2> …", "/predict <標題> <選項1> <選項2> …", "/predict <标题> <选项1> <选项2> …", "/predict <タイトル> <選択肢1> <選択肢2> …", "/predict <제목> <선택지1> <선택지2> …",
+        "/predict <название> <вариант1> <вариант2> …", "/predict <titre> <option1> <option2> …", "/predict <título> <opción1> <opción2> …", "/predict <Titel> <Option1> <Option2> …", "/predict <tiêu đề> <lựa chọn1> <lựa chọn2> …",
+        "/predict <judul> <opsi1> <opsi2> …", "/predict <pamagat> <opsyon1> <opsyon2> …", "/predict <หัวข้อ> <ตัวเลือก1> <ตัวเลือก2> …", "/predict <titel> <optie1> <optie2> …", "/predict <başlık> <seçenek1> <seçenek2> …",
+        "/predict <título> <opção1> <opção2> …", "/predict <शीर्षक> <विकल्प1> <विकल्प2> …", "/predict <العنوان> <خيار1> <خيار2> …")
+}
+
+// ----------------------------------------------------------------------------
 // `/start` onboarding & main menu
 // ----------------------------------------------------------------------------
 
