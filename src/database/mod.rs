@@ -177,21 +177,9 @@ impl Database {
         // pruning would silently delete escrowed fruit/coin. Refund instead.
         let cutoff = current_unix_time() - BUFFER_TTL_SECS;
         Self::refund_and_prune_old_buffer(&conn, cutoff)?;
-
-        // One-time: legacy balances were whole coins; scale them to micro-coin
-        // units (×COIN). Guarded by a meta flag so it runs at most once.
-        let already_scaled: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM meta WHERE key = 'balance_scaled')",
-            [],
-            |r| r.get(0),
-        )?;
-        if !already_scaled {
-            conn.execute("UPDATE balance SET balance = balance * ?1", params![COIN])?;
-            conn.execute(
-                "INSERT OR REPLACE INTO meta (key, value) VALUES ('balance_scaled', '1')",
-                [],
-            )?;
-        }
+        // NB: balances are stored directly in micro-coins (see `COIN`); there is
+        // no startup rescale. An earlier `×COIN` "legacy migration" was removed —
+        // it double-scaled balances whenever `/reset` wiped its `meta` guard flag.
 
         Ok(Self {
             conn: Mutex::new(conn),
