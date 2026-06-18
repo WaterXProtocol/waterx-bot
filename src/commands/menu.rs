@@ -31,6 +31,7 @@ pub fn tz_picker_rows() -> Vec<Row> {
         .collect()
 }
 pub const MENU_CHECKIN: &str = "menu:checkin";
+pub const MENU_HOME: &str = "menu:home";
 pub const MENU_BALANCE: &str = "menu:balance";
 pub const MENU_MATCHES: &str = "menu:matches";
 pub const MENU_INVITE: &str = "menu:invite";

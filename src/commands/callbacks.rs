@@ -77,6 +77,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_set_lang(&ctx, &cb, rest).await
     } else if data == menu::MENU_CHECKIN {
         handle_menu_checkin(&ctx, &cb).await
+    } else if data == menu::MENU_HOME {
+        handle_menu_home(&ctx, &cb).await
     } else if data == menu::MENU_BALANCE {
         handle_menu_balance(&ctx, &cb).await
     } else if data == menu::MENU_MATCHES {
@@ -508,7 +510,8 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
         return Ok(());
     };
     answer(ctx, cb, "", false).await?;
-    // Show the caller's referral count above the format chooser.
+    // Show the caller's referral count above the format chooser — edited in
+    // place over the current message (home menu, or a previous invite result).
     let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
     let text = format!(
         "{}\n\n{}",
@@ -519,8 +522,29 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
         vec![(i18n::btn_invite_link(lang).to_string(), menu::INVITE_LINK.to_string())],
         vec![(i18n::btn_invite_fwd(lang).to_string(), menu::INVITE_FWD.to_string())],
         vec![(i18n::btn_invite_qr(lang).to_string(), menu::INVITE_QR.to_string())],
+        vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())],
     ];
-    tg::send_with_buttons(ctx, message.chat.get_id(), &text, &rows).await?;
+    let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
+    Ok(())
+}
+
+/// `menu:home` — re-render the main menu in place (used by the invite chooser's
+/// Back button). Private-chat flow, so `is_group` is false.
+async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    answer(ctx, cb, "", false).await?;
+    let available = db_arc(ctx).checkin_available(cb.from.id).unwrap_or(true);
+    let _ = tg::edit_with_buttons(
+        ctx,
+        message.chat.get_id(),
+        message.message_id,
+        &menu::menu_text(lang, &full_name(&cb.from)),
+        &menu::main_menu_rows(lang, available, false),
+    )
+    .await;
     Ok(())
 }
 
@@ -543,7 +567,15 @@ async fn handle_invite_link(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
     };
     answer(ctx, cb, "", false).await?;
     let link = referral_link_of(ctx, cb.from.id);
-    tg::send_html(ctx, message.chat.get_id(), &i18n::invite_copy(lang, &link)).await?;
+    let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_INVITE.to_string())]];
+    let _ = tg::edit_html_with_buttons(
+        ctx,
+        message.chat.get_id(),
+        message.message_id,
+        &i18n::invite_copy(lang, &link),
+        &rows,
+    )
+    .await;
     Ok(())
 }
 
@@ -557,9 +589,18 @@ async fn handle_invite_fwd(ctx: &Context, cb: &CallbackQuery) -> Result<(), tele
     };
     answer(ctx, cb, "", false).await?;
     let link = referral_link_of(ctx, cb.from.id);
-    let rows = vec![vec![(i18n::btn_join(lang).to_string(), link.clone())]];
-    tg::send_with_buttons(ctx, message.chat.get_id(), &i18n::invite_forward(lang, &link), &rows)
-        .await?;
+    let rows = vec![
+        vec![(i18n::btn_join(lang).to_string(), link.clone())],
+        vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_INVITE.to_string())],
+    ];
+    let _ = tg::edit_with_buttons(
+        ctx,
+        message.chat.get_id(),
+        message.message_id,
+        &i18n::invite_forward(lang, &link),
+        &rows,
+    )
+    .await;
     Ok(())
 }
 
