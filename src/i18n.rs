@@ -790,14 +790,39 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 5] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 6] {
     [
         ("start", menu_start(l)),
         ("assets", menu_balance(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
+        ("feedback", menu_feedback(l)),
         ("language", menu_language(l)),
     ]
+}
+
+fn menu_feedback(l: Lang) -> &'static str {
+    tr!(l;
+        "Send feedback", "意見回饋", "意见反馈", "フィードバック", "피드백 보내기",
+        "Отправить отзыв", "Envoyer un avis", "Enviar comentarios", "Feedback senden", "Gửi phản hồi",
+        "Kirim masukan", "Magpadala ng feedback", "ส่งความคิดเห็น", "Feedback sturen", "Geri bildirim gönder",
+        "Enviar feedback", "फ़ीडबैक भेजें", "إرسال ملاحظات")
+}
+
+pub fn usage_feedback(l: Lang) -> &'static str {
+    tr!(l;
+        "Usage: /feedback <your message>", "用法：/feedback <你的訊息>", "用法：/feedback <你的消息>", "使い方：/feedback <メッセージ>", "사용법: /feedback <메시지>",
+        "Использование: /feedback <ваше сообщение>", "Usage : /feedback <ton message>", "Uso: /feedback <tu mensaje>", "Verwendung: /feedback <deine Nachricht>", "Cách dùng: /feedback <tin nhắn của bạn>",
+        "Cara pakai: /feedback <pesanmu>", "Paggamit: /feedback <iyong mensahe>", "วิธีใช้: /feedback <ข้อความของคุณ>", "Gebruik: /feedback <je bericht>", "Kullanım: /feedback <mesajın>",
+        "Uso: /feedback <sua mensagem>", "उपयोग: /feedback <आपका संदेश>", "الاستخدام: /feedback <رسالتك>")
+}
+
+pub fn feedback_sent(l: Lang) -> &'static str {
+    tr!(l;
+        "Thanks! Your feedback was sent 🙏", "感謝！你的意見已送出 🙏", "感谢！你的反馈已发送 🙏", "ありがとう！フィードバックを送信したよ 🙏", "고마워요! 피드백을 보냈어요 🙏",
+        "Спасибо! Ваш отзыв отправлен 🙏", "Merci ! Ton avis a été envoyé 🙏", "¡Gracias! Tu comentario fue enviado 🙏", "Danke! Dein Feedback wurde gesendet 🙏", "Cảm ơn! Phản hồi của bạn đã được gửi 🙏",
+        "Terima kasih! Masukanmu telah dikirim 🙏", "Salamat! Naipadala na ang feedback mo 🙏", "ขอบคุณ! ส่งความคิดเห็นของคุณแล้ว 🙏", "Bedankt! Je feedback is verzonden 🙏", "Teşekkürler! Geri bildirimin gönderildi 🙏",
+        "Obrigado! Seu feedback foi enviado 🙏", "धन्यवाद! आपका फ़ीडबैक भेज दिया गया 🙏", "شكرًا! تم إرسال ملاحظاتك 🙏")
 }
 
 fn menu_start(l: Lang) -> &'static str {

@@ -178,6 +178,15 @@ pub fn bot_token(ctx: &Context) -> String {
         .unwrap_or_default()
 }
 
+/// The configured `BOT_OWNER` id (0 if config is somehow missing).
+pub fn owner_id(ctx: &Context) -> i64 {
+    ctx.data
+        .read()
+        .get::<ConfigKey>()
+        .map(|cfg| cfg.owner)
+        .unwrap_or(0)
+}
+
 /// True when `user_id` is the configured `BOT_OWNER`. The read guard is dropped
 /// on the same statement (it is not `Send`, so it must not cross an `.await`).
 pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
