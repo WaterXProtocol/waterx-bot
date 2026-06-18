@@ -43,10 +43,9 @@ pub fn lang_picker_rows() -> Vec<Row> {
 pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
     let info = db(ctx).get_user_info(user_id).unwrap_or_default();
     format!(
-        "{}\n\n{}\n\n{}",
+        "{}\n\n{}",
         i18n::intro(lang),
-        i18n::menu_status(lang, &fmt_coins(info.balance)),
-        i18n::menu_prompt(lang)
+        i18n::menu_status(lang, &fmt_coins(info.balance))
     )
 }
 

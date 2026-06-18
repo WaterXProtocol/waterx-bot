@@ -35,16 +35,11 @@ pub async fn balance_text(ctx: &Context, lang: Lang, user: &User) -> String {
     );
 
     // Open (unsettled) match bets, if any, with the section's staked total in
-    // the heading. Lines are language-neutral — the side name is already
-    // localized, the rest is teams + numbers + symbols.
+    // Lines are language-neutral — the side name is already localized, the rest
+    // is teams + numbers + symbols.
     let positions = database.list_open_wagers(user.id).unwrap_or_default();
     if !positions.is_empty() {
-        let total: i64 = positions.iter().map(|p| p.stake).sum();
-        body.push_str(&format!(
-            "\n\n{} · Σ🪙{}",
-            i18n::positions_title(lang),
-            fmt_coins(total)
-        ));
+        body.push_str(&format!("\n\n{}", i18n::positions_title(lang)));
         for p in &positions {
             let side = match p.outcome.as_str() {
                 "teamA" => p.team_a.clone(),
@@ -67,7 +62,6 @@ pub async fn balance_text(ctx: &Context, lang: Lang, user: &User) -> String {
     // reconciled into the balance (settled/draw games already are, so skip them).
     // Game stakes are stored in whole coins; render via fmt_coins(× COIN).
     let mut game_lines = String::new();
-    let mut game_total: i64 = 0;
     {
         let games = games(ctx);
         let guard = games.lock().await;
@@ -96,18 +90,12 @@ pub async fn balance_text(ctx: &Context, lang: Lang, user: &User) -> String {
                 .map_or(g.description.as_str(), |(_, rest)| rest);
             game_lines.push_str(&format!("\n🎲 {desc}"));
             for (opt, stake) in staked {
-                game_total += stake;
                 game_lines.push_str(&format!("\n  {} · 🪙{}", opt, fmt_coins(stake * COIN)));
             }
         }
     }
     if !game_lines.is_empty() {
-        body.push_str(&format!(
-            "\n\n{} · Σ🪙{}{}",
-            i18n::predictions_title(lang),
-            fmt_coins(game_total * COIN),
-            game_lines
-        ));
+        body.push_str(&format!("\n\n{}{}", i18n::predictions_title(lang), game_lines));
     }
 
     body

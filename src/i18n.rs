@@ -298,14 +298,6 @@ pub fn loading(l: Lang) -> &'static str {
         "(carregando…)", "(लोड हो रहा है…)", "(جارٍ التحميل…)")
 }
 
-pub fn no_betting_records(l: Lang) -> &'static str {
-    tr!(l;
-        "No betting records 🤗", "沒有賭博記錄🤗", "没有赌博记录🤗", "賭けの記録はないよ🤗", "베팅 기록이 없어🤗",
-        "Нет ставок 🤗", "Aucun pari en cours 🤗", "Sin registros de apuestas 🤗", "Keine Wetten 🤗", "Không có lịch sử cá cược 🤗",
-        "Tidak ada catatan taruhan 🤗", "Walang record ng pusta 🤗", "ไม่มีประวัติการเดิมพัน 🤗", "Geen weddenschappen 🤗", "Bahis kaydı yok 🤗",
-        "Nenhum registro de apostas 🤗", "कोई बेटिंग रिकॉर्ड नहीं 🤗", "لا سجلّات رهان 🤗")
-}
-
 pub fn service_paused(l: Lang) -> &'static str {
     tr!(l;
         "(service paused)", "(暫停服務)", "(暂停服务)", "(サービス停止中)", "(서비스 일시 중지)",
@@ -914,21 +906,13 @@ pub const CHOOSE_LANGUAGE: &str =
 
 pub fn intro(l: Lang) -> &'static str {
     tr!(l;
-        "Hi, I'm Xaliah. Nice to meet you 😊", "嗨，我是 Xaliah，很高興認識你 😊", "嗨，我是 Xaliah，很高兴认识你 😊", "やあ、私は Xaliah。会えて嬉しいよ 😊", "안녕, 나는 Xaliah야. 만나서 반가워 😊",
-        "Привет, я Xaliah. Рада знакомству 😊", "Salut, je suis Xaliah. Ravie de te rencontrer 😊", "Hola, soy Xaliah. Encantada de conocerte 😊", "Hi, ich bin Xaliah. Schön dich kennenzulernen 😊", "Chào, mình là Xaliah. Rất vui được gặp bạn 😊",
-        "Hai, aku Xaliah. Senang berkenalan 😊", "Hi, ako si Xaliah. Ikinagagalak kitang makilala 😊", "สวัสดี ฉันชื่อ Xaliah ยินดีที่ได้รู้จัก 😊", "Hoi, ik ben Xaliah. Leuk je te ontmoeten 😊", "Selam, ben Xaliah. Tanıştığımıza memnun oldum 😊",
-        "Oi, eu sou a Xaliah. Prazer em conhecer 😊", "नमस्ते, मैं Xaliah हूँ। आपसे मिलकर अच्छा लगा 😊", "مرحبًا، أنا Xaliah. سررت بلقائك 😊")
+        "Hi, I'm Xaliah! 😊\nNice to meet you. What can I do for you?", "嗨，我是 Xaliah！😊\n很高興認識你，有什麼可以幫你的嗎？", "嗨，我是 Xaliah！😊\n很高兴认识你，有什么可以帮你的吗？", "やあ、私は Xaliah！😊\n会えて嬉しいよ。何かできることはある？", "안녕, 나는 Xaliah! 😊\n만나서 반가워. 뭘 도와줄까?",
+        "Привет, я Xaliah! 😊\nРада знакомству. Чем могу помочь?", "Salut, je suis Xaliah ! 😊\nRavie de te rencontrer. Que puis-je faire pour toi ?", "¡Hola, soy Xaliah! 😊\nEncantada de conocerte. ¿Qué puedo hacer por ti?", "Hi, ich bin Xaliah! 😊\nSchön dich kennenzulernen. Was kann ich für dich tun?", "Chào, mình là Xaliah! 😊\nRất vui được gặp bạn. Mình giúp gì được nào?",
+        "Hai, aku Xaliah! 😊\nSenang berkenalan. Ada yang bisa kubantu?", "Hi, ako si Xaliah! 😊\nIkinagagalak kitang makilala. Ano'ng maitutulong ko?", "สวัสดี ฉันชื่อ Xaliah! 😊\nยินดีที่ได้รู้จัก มีอะไรให้ช่วยไหม?", "Hoi, ik ben Xaliah! 😊\nLeuk je te ontmoeten. Wat kan ik voor je doen?", "Selam, ben Xaliah! 😊\nTanıştığımıza memnun oldum. Senin için ne yapabilirim?",
+        "Oi, eu sou a Xaliah! 😊\nPrazer em conhecer. O que posso fazer por você?", "नमस्ते, मैं Xaliah हूँ! 😊\nआपसे मिलकर अच्छा लगा। मैं आपके लिए क्या कर सकती हूँ?", "مرحبًا، أنا Xaliah! 😊\nسررت بلقائك. كيف يمكنني مساعدتك؟")
 }
 
 /// Closing prompt shown as the last line of the menu, after the status block.
-pub fn menu_prompt(l: Lang) -> &'static str {
-    tr!(l;
-        "What do you want?", "想做點什麼呢？", "想做点什么呢？", "何がしたい？", "뭘 하고 싶어?",
-        "Чего хочешь?", "Que veux-tu ?", "¿Qué quieres?", "Was möchtest du?", "Bạn muốn gì nào?",
-        "Mau apa?", "Ano'ng gusto mo?", "อยากทำอะไรดี?", "Wat wil je?", "Ne istersin?",
-        "O que você quer?", "आप क्या करना चाहते हैं?", "ماذا تريد؟")
-}
-
 /// Balance summary shown under the menu intro. (Fruit is hidden until the
 /// fruit feature is designed.)
 pub fn menu_status(l: Lang, coins: &str) -> String {

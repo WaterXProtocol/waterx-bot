@@ -27,7 +27,9 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
             }
         }
         if chunks.is_empty() {
-            reply(&ctx, &message, i18n::no_betting_records(lang)).await?;
+            // No open games of the caller's → show how to create one rather
+            // than a bare "no records" line, which reads like an error.
+            reply(&ctx, &message, i18n::usage_predict(lang)).await?;
         } else {
             reply(&ctx, &message, chunks.join("\n")).await?;
         }

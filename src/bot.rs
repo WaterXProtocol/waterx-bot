@@ -140,6 +140,11 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
 
+    eprintln!(
+        "waterx-bot ready: @{bot_username} (id {bot_id}), {} mode",
+        if cfg.dev { "dev" } else { "production" }
+    );
+
     // Custom polling loop: robust to per-update deserialization errors and
     // transient HTTP errors. The default telexide stream bails the whole bot
     // on the first malformed update, which kills the process whenever
