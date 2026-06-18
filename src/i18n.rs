@@ -562,10 +562,10 @@ pub fn verb_lost(l: Lang) -> &'static str {
 
 pub fn sent_coins(l: Lang, sender: &str, recv: &str, coins: &str) -> String {
     tr!(l;
-        "{sender} sent {recv}\n{coins} water-coins", "{sender} 送給 {recv}\n{coins} 顆 水幣", "{sender} 送给 {recv}\n{coins} 颗 水币", "{sender} が {recv} に\n水コインを {coins} 枚 送った", "{sender} 님이 {recv} 님에게\n물코인 {coins} 개 보냄",
-        "{sender} отправил {recv}\n{coins} водных монет", "{sender} a envoyé à {recv}\n{coins} pièces d'eau", "{sender} envió a {recv}\n{coins} monedas de agua", "{sender} hat {recv}\n{coins} Wassermünzen geschickt", "{sender} đã gửi {recv}\n{coins} xu nước",
-        "{sender} mengirim {recv}\n{coins} koin air", "Nagpadala si {sender} kay {recv}\nng {coins} water-coins", "{sender} ส่งให้ {recv}\nเหรียญน้ำ {coins} เหรียญ", "{sender} stuurde {recv}\n{coins} watermunten", "{sender}, {recv} kullanıcısına\n{coins} su parası gönderdi",
-        "{sender} enviou a {recv}\n{coins} moedas de água", "{sender} ने {recv} को\n{coins} वॉटर-कॉइन भेजे", "{sender} أرسل إلى {recv}\n{coins} عملة مائية")
+        "{sender} sent {recv}\n{coins} coins", "{sender} 送給 {recv}\n{coins} 顆 金幣", "{sender} 送给 {recv}\n{coins} 颗 金币", "{sender} が {recv} に\nコインを {coins} 枚 送った", "{sender} 님이 {recv} 님에게\n코인 {coins} 개 보냄",
+        "{sender} отправил {recv}\n{coins} монет", "{sender} a envoyé à {recv}\n{coins} pièces", "{sender} envió a {recv}\n{coins} monedas", "{sender} hat {recv}\n{coins} Münzen geschickt", "{sender} đã gửi {recv}\n{coins} xu",
+        "{sender} mengirim {recv}\n{coins} koin", "Nagpadala si {sender} kay {recv}\nng {coins} coins", "{sender} ส่งให้ {recv}\nเหรียญ {coins} เหรียญ", "{sender} stuurde {recv}\n{coins} munten", "{sender}, {recv} kullanıcısına\n{coins} para gönderdi",
+        "{sender} enviou a {recv}\n{coins} moedas", "{sender} ने {recv} को\n{coins} कॉइन भेजे", "{sender} أرسل إلى {recv}\n{coins} عملة")
     .replace("{sender}", sender)
     .replace("{recv}", recv)
     .replace("{coins}", coins)
@@ -573,10 +573,10 @@ pub fn sent_coins(l: Lang, sender: &str, recv: &str, coins: &str) -> String {
 
 pub fn sent_envelope_title(l: Lang, sender: &str, coins: &str) -> String {
     tr!(l;
-        "{sender} dropped a {coins} water-coin red envelope!", "{sender} 發紅包 {coins} 水幣！", "{sender} 发红包 {coins} 水币！", "{sender} が {coins} 水コインの紅包を配った！", "{sender} 님이 {coins} 물코인 행운 봉투를 뿌렸어요!",
-        "{sender} раздаёт красный конверт на {coins} водных монет!", "{sender} lâche une enveloppe rouge de {coins} pièces d'eau !", "¡{sender} soltó un sobre rojo de {coins} monedas de agua!", "{sender} verteilt einen roten Umschlag mit {coins} Wassermünzen!", "{sender} phát lì xì {coins} xu nước!",
-        "{sender} membagikan amplop merah {coins} koin air!", "Naghulog si {sender} ng red envelope na {coins} water-coins!", "{sender} แจกซองแดง {coins} เหรียญน้ำ!", "{sender} deelt een rode envelop van {coins} watermunten uit!", "{sender}, {coins} su paralık kırmızı zarf bıraktı!",
-        "{sender} soltou um envelope vermelho de {coins} moedas de água!", "{sender} ने {coins} वॉटर-कॉइन का लाल लिफ़ाफ़ा छोड़ा!", "{sender} أسقط مظروفًا أحمر بـ {coins} عملة مائية!")
+        "{sender} dropped a {coins} coin red envelope!", "{sender} 發紅包 {coins} 金幣！", "{sender} 发红包 {coins} 金币！", "{sender} が {coins} コインの紅包を配った！", "{sender} 님이 {coins} 코인 행운 봉투를 뿌렸어요!",
+        "{sender} раздаёт красный конверт на {coins} монет!", "{sender} lâche une enveloppe rouge de {coins} pièces !", "¡{sender} soltó un sobre rojo de {coins} monedas!", "{sender} verteilt einen roten Umschlag mit {coins} Münzen!", "{sender} phát lì xì {coins} xu!",
+        "{sender} membagikan amplop merah {coins} koin!", "Naghulog si {sender} ng red envelope na {coins} coins!", "{sender} แจกซองแดง {coins} เหรียญ!", "{sender} deelt een rode envelop van {coins} munten uit!", "{sender}, {coins} paralık kırmızı zarf bıraktı!",
+        "{sender} soltou um envelope vermelho de {coins} moedas!", "{sender} ने {coins} कॉइन का लाल लिफ़ाफ़ा छोड़ा!", "{sender} أسقط مظروفًا أحمر بـ {coins} عملة!")
     .replace("{sender}", sender)
     .replace("{coins}", coins)
 }
@@ -622,10 +622,10 @@ pub fn buy_button(l: Lang, price: &str) -> String {
 
 pub fn sell_listing(l: Lang, seller: &str, fruits: &str, price: &str) -> String {
     tr!(l;
-        "{seller} is selling {fruits}\nasking {price} water-coins", "{seller} 出售 {fruits}\n要價 {price} 水幣", "{seller} 出售 {fruits}\n要价 {price} 水币", "{seller} が {fruits} を売り出し\n希望価格 {price} 水コイン", "{seller} 님이 {fruits} 판매\n희망가 {price} 물코인",
-        "{seller} продаёт {fruits}\nцена {price} водных монет", "{seller} vend {fruits}\nprix demandé {price} pièces d'eau", "{seller} vende {fruits}\npide {price} monedas de agua", "{seller} verkauft {fruits}\nfür {price} Wassermünzen", "{seller} đang bán {fruits}\ngiá {price} xu nước",
-        "{seller} menjual {fruits}\nharga {price} koin air", "Nagbebenta si {seller} ng {fruits}\nhinihingi {price} water-coins", "{seller} ขาย {fruits}\nราคา {price} เหรียญน้ำ", "{seller} verkoopt {fruits}\nvraagprijs {price} watermunten", "{seller}, {fruits} satıyor\nistenen fiyat {price} su parası",
-        "{seller} está vendendo {fruits}\npedindo {price} moedas de água", "{seller} {fruits} बेच रहे हैं\nमाँग {price} वॉटर-कॉइन", "{seller} يبيع {fruits}\nالسعر المطلوب {price} عملة مائية")
+        "{seller} is selling {fruits}\nasking {price} coins", "{seller} 出售 {fruits}\n要價 {price} 金幣", "{seller} 出售 {fruits}\n要价 {price} 金币", "{seller} が {fruits} を売り出し\n希望価格 {price} コイン", "{seller} 님이 {fruits} 판매\n희망가 {price} 코인",
+        "{seller} продаёт {fruits}\nцена {price} монет", "{seller} vend {fruits}\nprix demandé {price} pièces", "{seller} vende {fruits}\npide {price} monedas", "{seller} verkauft {fruits}\nfür {price} Münzen", "{seller} đang bán {fruits}\ngiá {price} xu",
+        "{seller} menjual {fruits}\nharga {price} koin", "Nagbebenta si {seller} ng {fruits}\nhinihingi {price} coins", "{seller} ขาย {fruits}\nราคา {price} เหรียญ", "{seller} verkoopt {fruits}\nvraagprijs {price} munten", "{seller}, {fruits} satıyor\nistenen fiyat {price} para",
+        "{seller} está vendendo {fruits}\npedindo {price} moedas", "{seller} {fruits} बेच रहे हैं\nमाँग {price} कॉइन", "{seller} يبيع {fruits}\nالسعر المطلوب {price} عملة")
     .replace("{seller}", seller)
     .replace("{fruits}", fruits)
     .replace("{price}", price)
@@ -633,10 +633,10 @@ pub fn sell_listing(l: Lang, seller: &str, fruits: &str, price: &str) -> String 
 
 pub fn buy_listing(l: Lang, buyer: &str, fruits: &str, price: &str) -> String {
     tr!(l;
-        "{buyer} wants to buy {fruits}\noffering {price} water-coins", "{buyer} 收購 {fruits}\n出價 {price} 水幣", "{buyer} 收购 {fruits}\n出价 {price} 水币", "{buyer} が {fruits} を買い取り\n提示額 {price} 水コイン", "{buyer} 님이 {fruits} 매입\n제시가 {price} 물코인",
-        "{buyer} скупает {fruits}\nпредлагает {price} водных монет", "{buyer} achète {fruits}\noffre {price} pièces d'eau", "{buyer} compra {fruits}\nofrece {price} monedas de agua", "{buyer} kauft {fruits}\nbietet {price} Wassermünzen", "{buyer} thu mua {fruits}\ntrả {price} xu nước",
-        "{buyer} membeli {fruits}\nmenawar {price} koin air", "Bumibili si {buyer} ng {fruits}\nnag-aalok ng {price} water-coins", "{buyer} รับซื้อ {fruits}\nเสนอ {price} เหรียญน้ำ", "{buyer} koopt {fruits}\nbiedt {price} watermunten", "{buyer}, {fruits} alıyor\n{price} su parası teklif ediyor",
-        "{buyer} quer comprar {fruits}\noferecendo {price} moedas de água", "{buyer} {fruits} खरीदना चाहते हैं\nप्रस्ताव {price} वॉटर-कॉइन", "{buyer} يريد شراء {fruits}\nيعرض {price} عملة مائية")
+        "{buyer} wants to buy {fruits}\noffering {price} coins", "{buyer} 收購 {fruits}\n出價 {price} 金幣", "{buyer} 收购 {fruits}\n出价 {price} 金币", "{buyer} が {fruits} を買い取り\n提示額 {price} コイン", "{buyer} 님이 {fruits} 매입\n제시가 {price} 코인",
+        "{buyer} скупает {fruits}\nпредлагает {price} монет", "{buyer} achète {fruits}\noffre {price} pièces", "{buyer} compra {fruits}\nofrece {price} monedas", "{buyer} kauft {fruits}\nbietet {price} Münzen", "{buyer} thu mua {fruits}\ntrả {price} xu",
+        "{buyer} membeli {fruits}\nmenawar {price} koin", "Bumibili si {buyer} ng {fruits}\nnag-aalok ng {price} coins", "{buyer} รับซื้อ {fruits}\nเสนอ {price} เหรียญ", "{buyer} koopt {fruits}\nbiedt {price} munten", "{buyer}, {fruits} alıyor\n{price} para teklif ediyor",
+        "{buyer} quer comprar {fruits}\noferecendo {price} moedas", "{buyer} {fruits} खरीदना चाहते हैं\nप्रस्ताव {price} कॉइन", "{buyer} يريد شراء {fruits}\nيعرض {price} عملة")
     .replace("{buyer}", buyer)
     .replace("{fruits}", fruits)
     .replace("{price}", price)
@@ -654,10 +654,10 @@ pub fn received_fruit(l: Lang, name: &str, fruit: &str) -> String {
 
 pub fn received_coins(l: Lang, name: &str, coins: &str) -> String {
     tr!(l;
-        "🧧 {name} received {coins} water-coins", "🧧 {name} 收到 {coins} 顆 水幣", "🧧 {name} 收到 {coins} 颗 水币", "🧧 {name} が水コインを {coins} 枚 受け取った", "🧧 {name} 님이 물코인 {coins} 개 받음",
-        "🧧 {name} получил {coins} водных монет", "🧧 {name} a reçu {coins} pièces d'eau", "🧧 {name} recibió {coins} monedas de agua", "🧧 {name} hat {coins} Wassermünzen erhalten", "🧧 {name} nhận được {coins} xu nước",
-        "🧧 {name} menerima {coins} koin air", "🧧 Nakatanggap si {name} ng {coins} water-coins", "🧧 {name} ได้รับ {coins} เหรียญน้ำ", "🧧 {name} ontving {coins} watermunten", "🧧 {name}, {coins} su parası aldı",
-        "🧧 {name} recebeu {coins} moedas de água", "🧧 {name} को {coins} वॉटर-कॉइन मिले", "🧧 {name} حصل على {coins} عملة مائية")
+        "🧧 {name} received {coins} coins", "🧧 {name} 收到 {coins} 顆 金幣", "🧧 {name} 收到 {coins} 颗 金币", "🧧 {name} がコインを {coins} 枚 受け取った", "🧧 {name} 님이 코인 {coins} 개 받음",
+        "🧧 {name} получил {coins} монет", "🧧 {name} a reçu {coins} pièces", "🧧 {name} recibió {coins} monedas", "🧧 {name} hat {coins} Münzen erhalten", "🧧 {name} nhận được {coins} xu",
+        "🧧 {name} menerima {coins} koin", "🧧 Nakatanggap si {name} ng {coins} coins", "🧧 {name} ได้รับ {coins} เหรียญ", "🧧 {name} ontving {coins} munten", "🧧 {name}, {coins} para aldı",
+        "🧧 {name} recebeu {coins} moedas", "🧧 {name} को {coins} कॉइन मिले", "🧧 {name} حصل على {coins} عملة")
     .replace("{name}", name)
     .replace("{coins}", coins)
 }
@@ -673,10 +673,10 @@ pub fn bets_for_option(l: Lang, opt: &str) -> String {
 
 pub fn bought_msg(l: Lang, name: &str, price: &str, fruits: &str) -> String {
     tr!(l;
-        "{name} spent {price} water-coins\nand bought {fruits}", "{name} 花 {price} 水幣\n買了 {fruits}", "{name} 花 {price} 水币\n买了 {fruits}", "{name} が水コインを {price} 枚 使って\n{fruits} を買った", "{name} 님이 물코인 {price} 개 써서\n{fruits} 구매",
-        "{name} потратил {price} водных монет\nи купил {fruits}", "{name} a dépensé {price} pièces d'eau\net acheté {fruits}", "{name} gastó {price} monedas de agua\ny compró {fruits}", "{name} hat {price} Wassermünzen ausgegeben\nund {fruits} gekauft", "{name} đã tiêu {price} xu nước\nvà mua {fruits}",
-        "{name} menghabiskan {price} koin air\ndan membeli {fruits}", "Gumastos si {name} ng {price} water-coins\nat bumili ng {fruits}", "{name} จ่าย {price} เหรียญน้ำ\nและซื้อ {fruits}", "{name} gaf {price} watermunten uit\nen kocht {fruits}", "{name}, {price} su parası harcayıp\n{fruits} aldı",
-        "{name} gastou {price} moedas de água\ne comprou {fruits}", "{name} ने {price} वॉटर-कॉइन खर्च कर\n{fruits} खरीदा", "{name} أنفق {price} عملة مائية\nواشترى {fruits}")
+        "{name} spent {price} coins\nand bought {fruits}", "{name} 花 {price} 金幣\n買了 {fruits}", "{name} 花 {price} 金币\n买了 {fruits}", "{name} がコインを {price} 枚 使って\n{fruits} を買った", "{name} 님이 코인 {price} 개 써서\n{fruits} 구매",
+        "{name} потратил {price} монет\nи купил {fruits}", "{name} a dépensé {price} pièces\net acheté {fruits}", "{name} gastó {price} monedas\ny compró {fruits}", "{name} hat {price} Münzen ausgegeben\nund {fruits} gekauft", "{name} đã tiêu {price} xu\nvà mua {fruits}",
+        "{name} menghabiskan {price} koin\ndan membeli {fruits}", "Gumastos si {name} ng {price} coins\nat bumili ng {fruits}", "{name} จ่าย {price} เหรียญ\nและซื้อ {fruits}", "{name} gaf {price} munten uit\nen kocht {fruits}", "{name}, {price} para harcayıp\n{fruits} aldı",
+        "{name} gastou {price} moedas\ne comprou {fruits}", "{name} ने {price} कॉइन खर्च कर\n{fruits} खरीदा", "{name} أنفق {price} عملة\nواشترى {fruits}")
     .replace("{name}", name)
     .replace("{price}", price)
     .replace("{fruits}", fruits)
@@ -693,10 +693,10 @@ pub fn bought_toast(l: Lang, fruits: &str) -> String {
 
 pub fn sold_msg(l: Lang, name: &str, fruits: &str, price: &str) -> String {
     tr!(l;
-        "{name} sold {fruits}\nand earned {price} water-coins", "{name} 賣出 {fruits}\n賺了 {price} 水幣", "{name} 卖出 {fruits}\n赚了 {price} 水币", "{name} が {fruits} を売って\n水コインを {price} 枚 稼いだ", "{name} 님이 {fruits} 팔아서\n물코인 {price} 개 벌었어요",
-        "{name} продал {fruits}\nи заработал {price} водных монет", "{name} a vendu {fruits}\net gagné {price} pièces d'eau", "{name} vendió {fruits}\ny ganó {price} monedas de agua", "{name} hat {fruits} verkauft\nund {price} Wassermünzen verdient", "{name} đã bán {fruits}\nvà kiếm được {price} xu nước",
-        "{name} menjual {fruits}\ndan mendapat {price} koin air", "Ibinenta ni {name} ang {fruits}\nat kumita ng {price} water-coins", "{name} ขาย {fruits}\nและได้ {price} เหรียญน้ำ", "{name} verkocht {fruits}\nen verdiende {price} watermunten", "{name}, {fruits} satıp\n{price} su parası kazandı",
-        "{name} vendeu {fruits}\ne ganhou {price} moedas de água", "{name} ने {fruits} बेचा\nऔर {price} वॉटर-कॉइन कमाए", "{name} باع {fruits}\nوربح {price} عملة مائية")
+        "{name} sold {fruits}\nand earned {price} coins", "{name} 賣出 {fruits}\n賺了 {price} 金幣", "{name} 卖出 {fruits}\n赚了 {price} 金币", "{name} が {fruits} を売って\nコインを {price} 枚 稼いだ", "{name} 님이 {fruits} 팔아서\n코인 {price} 개 벌었어요",
+        "{name} продал {fruits}\nи заработал {price} монет", "{name} a vendu {fruits}\net gagné {price} pièces", "{name} vendió {fruits}\ny ganó {price} monedas", "{name} hat {fruits} verkauft\nund {price} Münzen verdient", "{name} đã bán {fruits}\nvà kiếm được {price} xu",
+        "{name} menjual {fruits}\ndan mendapat {price} koin", "Ibinenta ni {name} ang {fruits}\nat kumita ng {price} coins", "{name} ขาย {fruits}\nและได้ {price} เหรียญ", "{name} verkocht {fruits}\nen verdiende {price} munten", "{name}, {fruits} satıp\n{price} para kazandı",
+        "{name} vendeu {fruits}\ne ganhou {price} moedas", "{name} ने {fruits} बेचा\nऔर {price} कॉइन कमाए", "{name} باع {fruits}\nوربح {price} عملة")
     .replace("{name}", name)
     .replace("{fruits}", fruits)
     .replace("{price}", price)
@@ -704,10 +704,10 @@ pub fn sold_msg(l: Lang, name: &str, fruits: &str, price: &str) -> String {
 
 pub fn sold_toast(l: Lang, price: &str) -> String {
     tr!(l;
-        "Earned {price} water-coins 🥳", "賺取 {price} 水幣🥳", "赚取 {price} 水币🥳", "水コインを {price} 枚 稼いだ🥳", "물코인 {price} 개 벌었다🥳",
-        "Заработано {price} водных монет 🥳", "{price} pièces d'eau gagnées 🥳", "Ganaste {price} monedas de agua 🥳", "{price} Wassermünzen verdient 🥳", "Kiếm được {price} xu nước 🥳",
-        "Dapat {price} koin air 🥳", "Kumita ng {price} water-coins 🥳", "ได้ {price} เหรียญน้ำ 🥳", "{price} watermunten verdiend 🥳", "{price} su parası kazanıldı 🥳",
-        "Ganhou {price} moedas de água 🥳", "{price} वॉटर-कॉइन कमाए 🥳", "ربح {price} عملة مائية 🥳")
+        "Earned {price} coins 🥳", "賺取 {price} 金幣🥳", "赚取 {price} 金币🥳", "コインを {price} 枚 稼いだ🥳", "코인 {price} 개 벌었다🥳",
+        "Заработано {price} монет 🥳", "{price} pièces gagnées 🥳", "Ganaste {price} monedas 🥳", "{price} Münzen verdient 🥳", "Kiếm được {price} xu 🥳",
+        "Dapat {price} koin 🥳", "Kumita ng {price} coins 🥳", "ได้ {price} เหรียญ 🥳", "{price} munten verdiend 🥳", "{price} para kazanıldı 🥳",
+        "Ganhou {price} moedas 🥳", "{price} कॉइन कमाए 🥳", "ربح {price} عملة 🥳")
     .replace("{price}", price)
 }
 
@@ -797,14 +797,14 @@ fn menu_predict(l: Lang) -> &'static str {
         "Abrir previsão", "प्रिडिक्शन खोलें", "افتح التوقع")
 }
 
-/// Per-staker settlement line, e.g. `***1234 won 50 water-coins`. `verb` is
+/// Per-staker settlement line, e.g. `***1234 won 50 coins`. `verb` is
 /// already localized via [`verb_won`] / [`verb_lost`].
 pub fn settle_line(l: Lang, tail: &str, verb: &str, amt: &str) -> String {
     tr!(l;
-        "\n***{tail} {verb} {amt} water-coins", "\n***{tail} {verb}{amt}顆 水幣", "\n***{tail} {verb}{amt}颗 水币", "\n***{tail} 水コイン{amt}枚{verb}", "\n***{tail} 물코인 {amt}개 {verb}",
-        "\n***{tail} {verb} {amt} водных монет", "\n***{tail} {verb} {amt} pièces d'eau", "\n***{tail} {verb} {amt} monedas de agua", "\n***{tail} {verb} {amt} Wassermünzen", "\n***{tail} {verb} {amt} xu nước",
-        "\n***{tail} {verb} {amt} koin air", "\n***{tail} {verb} {amt} water-coins", "\n***{tail} {verb} {amt} เหรียญน้ำ", "\n***{tail} {verb} {amt} watermunten", "\n***{tail} {amt} su parası {verb}",
-        "\n***{tail} {verb} {amt} moedas de água", "\n***{tail} {amt} वॉटर-कॉइन {verb}", "\n***{tail} {verb} {amt} عملة مائية")
+        "\n***{tail} {verb} {amt} coins", "\n***{tail} {verb}{amt}顆 金幣", "\n***{tail} {verb}{amt}颗 金币", "\n***{tail} コイン{amt}枚{verb}", "\n***{tail} 코인 {amt}개 {verb}",
+        "\n***{tail} {verb} {amt} монет", "\n***{tail} {verb} {amt} pièces", "\n***{tail} {verb} {amt} monedas", "\n***{tail} {verb} {amt} Münzen", "\n***{tail} {verb} {amt} xu",
+        "\n***{tail} {verb} {amt} koin", "\n***{tail} {verb} {amt} coins", "\n***{tail} {verb} {amt} เหรียญ", "\n***{tail} {verb} {amt} munten", "\n***{tail} {amt} para {verb}",
+        "\n***{tail} {verb} {amt} moedas", "\n***{tail} {amt} कॉइन {verb}", "\n***{tail} {verb} {amt} عملة")
     .replace("{tail}", tail)
     .replace("{verb}", verb)
     .replace("{amt}", amt)
@@ -959,10 +959,10 @@ pub fn invite_text(l: Lang, link: &str, count: &str) -> String {
 /// DM to the referrer when a new user joins through their link.
 pub fn referral_bonus(l: Lang, name: &str, amt: &str) -> String {
     tr!(l;
-        "🎉 {name} joined via your link! +{amt} water-coins", "🎉 {name} 透過你的連結加入了！+{amt} 水幣", "🎉 {name} 通过你的链接加入了！+{amt} 水币", "🎉 {name} があなたのリンクから参加！+{amt} 水コイン", "🎉 {name} 님이 내 링크로 가입! +{amt} 물코인",
-        "🎉 {name} присоединился по вашей ссылке! +{amt} водных монет", "🎉 {name} a rejoint via ton lien ! +{amt} pièces d'eau", "🎉 ¡{name} se unió con tu enlace! +{amt} monedas de agua", "🎉 {name} ist über deinen Link beigetreten! +{amt} Wassermünzen", "🎉 {name} đã tham gia qua liên kết của bạn! +{amt} xu nước",
-        "🎉 {name} bergabung lewat tautanmu! +{amt} koin air", "🎉 Sumali si {name} gamit ang link mo! +{amt} water-coins", "🎉 {name} เข้าร่วมผ่านลิงก์ของคุณ! +{amt} เหรียญน้ำ", "🎉 {name} is via jouw link lid geworden! +{amt} watermunten", "🎉 {name} bağlantınla katıldı! +{amt} su parası",
-        "🎉 {name} entrou pelo seu link! +{amt} moedas de água", "🎉 {name} आपके लिंक से जुड़े! +{amt} वॉटर-कॉइन", "🎉 انضم {name} عبر رابطك! +{amt} عملة مائية")
+        "🎉 {name} joined via your link! +{amt} coins", "🎉 {name} 透過你的連結加入了！+{amt} 金幣", "🎉 {name} 通过你的链接加入了！+{amt} 金币", "🎉 {name} があなたのリンクから参加！+{amt} コイン", "🎉 {name} 님이 내 링크로 가입! +{amt} 코인",
+        "🎉 {name} присоединился по вашей ссылке! +{amt} монет", "🎉 {name} a rejoint via ton lien ! +{amt} pièces", "🎉 ¡{name} se unió con tu enlace! +{amt} monedas", "🎉 {name} ist über deinen Link beigetreten! +{amt} Münzen", "🎉 {name} đã tham gia qua liên kết của bạn! +{amt} xu",
+        "🎉 {name} bergabung lewat tautanmu! +{amt} koin", "🎉 Sumali si {name} gamit ang link mo! +{amt} coins", "🎉 {name} เข้าร่วมผ่านลิงก์ของคุณ! +{amt} เหรียญ", "🎉 {name} is via jouw link lid geworden! +{amt} munten", "🎉 {name} bağlantınla katıldı! +{amt} para",
+        "🎉 {name} entrou pelo seu link! +{amt} moedas", "🎉 {name} आपके लिंक से जुड़े! +{amt} कॉइन", "🎉 انضم {name} عبر رابطك! +{amt} عملة")
     .replace("{name}", name)
     .replace("{amt}", amt)
 }
@@ -973,10 +973,10 @@ pub fn referral_bonus(l: Lang, name: &str, amt: &str) -> String {
 
 pub fn checkin_done(l: Lang, amt: &str) -> String {
     tr!(l;
-        "Checked in! +{amt} water-coins 🪙", "簽到成功！+{amt} 水幣 🪙", "签到成功！+{amt} 水币 🪙", "チェックイン完了！+{amt} 水コイン 🪙", "출석 완료! +{amt} 물코인 🪙",
-        "Отметка получена! +{amt} водных монет 🪙", "Pointage validé ! +{amt} pièces d'eau 🪙", "¡Registrado! +{amt} monedas de agua 🪙", "Eingecheckt! +{amt} Wassermünzen 🪙", "Điểm danh thành công! +{amt} xu nước 🪙",
-        "Check-in berhasil! +{amt} koin air 🪙", "Naka-check in! +{amt} water-coins 🪙", "เช็คอินแล้ว! +{amt} เหรียญน้ำ 🪙", "Ingecheckt! +{amt} watermunten 🪙", "Giriş yapıldı! +{amt} su parası 🪙",
-        "Check-in feito! +{amt} moedas de água 🪙", "चेक-इन हो गया! +{amt} वॉटर-कॉइन 🪙", "تم التسجيل! +{amt} عملة مائية 🪙")
+        "Checked in! +{amt} coins 🪙", "簽到成功！+{amt} 金幣 🪙", "签到成功！+{amt} 金币 🪙", "チェックイン完了！+{amt} コイン 🪙", "출석 완료! +{amt} 코인 🪙",
+        "Отметка получена! +{amt} монет 🪙", "Pointage validé ! +{amt} pièces 🪙", "¡Registrado! +{amt} monedas 🪙", "Eingecheckt! +{amt} Münzen 🪙", "Điểm danh thành công! +{amt} xu 🪙",
+        "Check-in berhasil! +{amt} koin 🪙", "Naka-check in! +{amt} coins 🪙", "เช็คอินแล้ว! +{amt} เหรียญ 🪙", "Ingecheckt! +{amt} munten 🪙", "Giriş yapıldı! +{amt} para 🪙",
+        "Check-in feito! +{amt} moedas 🪙", "चेक-इन हो गया! +{amt} कॉइन 🪙", "تم التسجيل! +{amt} عملة 🪙")
     .replace("{amt}", amt)
 }
 
@@ -1119,10 +1119,10 @@ pub fn bet_placed(l: Lang, stake: &str, side: &str, odds: &str, payout: &str) ->
 
 pub fn bet_won(l: Lang, payout: &str) -> String {
     tr!(l;
-        "🎉 Your bet won! +{payout} water-coins", "🎉 你的下注贏了！+{payout} 水幣", "🎉 你的下注赢了！+{payout} 水币", "🎉 賭けに勝ったよ！+{payout} 水コイン", "🎉 베팅에서 이겼어! +{payout} 물코인",
-        "🎉 Ваша ставка выиграла! +{payout} водных монет", "🎉 Ton pari est gagné ! +{payout} pièces d'eau", "🎉 ¡Tu apuesta ganó! +{payout} monedas de agua", "🎉 Deine Wette hat gewonnen! +{payout} Wassermünzen", "🎉 Cược của bạn đã thắng! +{payout} xu nước",
-        "🎉 Taruhanmu menang! +{payout} koin air", "🎉 Nanalo ang taya mo! +{payout} water-coins", "🎉 เดิมพันของคุณชนะ! +{payout} เหรียญน้ำ", "🎉 Je weddenschap is gewonnen! +{payout} watermunten", "🎉 Bahsin kazandı! +{payout} su parası",
-        "🎉 Sua aposta ganhou! +{payout} moedas de água", "🎉 आपका दांव जीत गया! +{payout} वॉटर-कॉइन", "🎉 فاز رهانك! +{payout} عملة مائية")
+        "🎉 Your bet won! +{payout} coins", "🎉 你的下注贏了！+{payout} 金幣", "🎉 你的下注赢了！+{payout} 金币", "🎉 賭けに勝ったよ！+{payout} コイン", "🎉 베팅에서 이겼어! +{payout} 코인",
+        "🎉 Ваша ставка выиграла! +{payout} монет", "🎉 Ton pari est gagné ! +{payout} pièces", "🎉 ¡Tu apuesta ganó! +{payout} monedas", "🎉 Deine Wette hat gewonnen! +{payout} Münzen", "🎉 Cược của bạn đã thắng! +{payout} xu",
+        "🎉 Taruhanmu menang! +{payout} koin", "🎉 Nanalo ang taya mo! +{payout} coins", "🎉 เดิมพันของคุณชนะ! +{payout} เหรียญ", "🎉 Je weddenschap is gewonnen! +{payout} munten", "🎉 Bahsin kazandı! +{payout} para",
+        "🎉 Sua aposta ganhou! +{payout} moedas", "🎉 आपका दांव जीत गया! +{payout} कॉइन", "🎉 فاز رهانك! +{payout} عملة")
     .replace("{payout}", payout)
 }
 

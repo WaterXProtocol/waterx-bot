@@ -12,7 +12,7 @@ The current command set is `start, balance, send, predict, sell, buy, markets, c
 
 Already-existing users earn nothing on either path (no farming). On top of the one-time signup reward, **every successful check-in pays a referral cascade up the chain** inside `Database::try_checkin`: the direct referrer +1 coin, the referrer-of-referrer +0.1, and one level above +0.01 (`CHECKIN_UPLINE`).
 
-**Money model:** balances are stored as integer **micro-coins** (6-decimal fixed-point — `database::COIN = 1_000_000` units = 1 coin), kept as `i64` (not `u64`: SQLite integers are signed, ledger deltas are signed, and the non-negative invariant is enforced by `balance_change`'s guard, not the type). User-typed whole-coin amounts (send/sell/buy/mint/stake) are multiplied by `COIN` at the ledger boundary; balances are displayed with `util::fmt_coins` (trailing zeros trimmed). A guarded one-time migration (`meta` flag `balance_scaled`) multiplies any legacy whole-coin balances by `COIN`. There is no debt path, so the old `debt_coins` message was removed and `/balance` always renders "has". The DB schema is `balance(user, balance, fruit, last_checkin, lang, referrer)` + `buffer` + `bet_games` + `meta` (key/value bot-wide flags, currently the `paused` kill-switch via `Database::{is_paused, set_paused}`) + `chats(chat, seen_at, added_by)` (every chat the bot has seen, for `/broadcast`; `added_by` = who added the bot to that group, for referrals) + `wagers` (real-money match bets — see the betting section). `balance.referrer` is the inviter's user id (0 = none); `Database::count_referrals` counts a user's referees. `/checkin` grants 10 water-coins once per UTC day — `last_checkin` stores the last claimed UTC day index (`unix_secs / 86400`), so the window resets exactly at 00:00 UTC (see `Database::try_checkin`). A vestigial `cloth` column was dropped (a startup migration `ALTER TABLE balance DROP COLUMN cloth` cleans up old data files); a `fruit_pop` helper from the prior larger command set still lingers.
+**Money model:** balances are stored as integer **micro-coins** (6-decimal fixed-point — `database::COIN = 1_000_000` units = 1 coin), kept as `i64` (not `u64`: SQLite integers are signed, ledger deltas are signed, and the non-negative invariant is enforced by `balance_change`'s guard, not the type). User-typed whole-coin amounts (send/sell/buy/mint/stake) are multiplied by `COIN` at the ledger boundary; balances are displayed with `util::fmt_coins` (trailing zeros trimmed). A guarded one-time migration (`meta` flag `balance_scaled`) multiplies any legacy whole-coin balances by `COIN`. There is no debt path, so the old `debt_coins` message was removed and `/balance` always renders "has". The DB schema is `balance(user, balance, fruit, last_checkin, lang, referrer)` + `buffer` + `bet_games` + `meta` (key/value bot-wide flags, currently the `paused` kill-switch via `Database::{is_paused, set_paused}`) + `chats(chat, seen_at, added_by)` (every chat the bot has seen, for `/broadcast`; `added_by` = who added the bot to that group, for referrals) + `wagers` (real-money match bets — see the betting section). `balance.referrer` is the inviter's user id (0 = none); `Database::count_referrals` counts a user's referees. `/checkin` grants 10 coins once per UTC day — `last_checkin` stores the last claimed UTC day index (`unix_secs / 86400`), so the window resets exactly at 00:00 UTC (see `Database::try_checkin`). A vestigial `cloth` column was dropped (a startup migration `ALTER TABLE balance DROP COLUMN cloth` cleans up old data files); a `fruit_pop` helper from the prior larger command set still lingers.
 
 ## Commands
 
@@ -115,7 +115,7 @@ renders a Jupiter-style "market brief": sport matches only, **kicking off
 within the next 24h or already live** (team vs team, kickoff time, and
 per-outcome **decimal odds** = `100/oddsCents`, e.g. 65¢ → 1.54) — the feed's
 crypto up/down pools are filtered out. It never touches the
-water-coin ledger. Two gotchas baked into the structs: the response models only
+coin ledger. Two gotchas baked into the structs: the response models only
 the fields the brief reads (serde ignores the rest), and `oddsCents` **must** be
 `f64` — some rounds report fractional cents (e.g. `99.9`), which would make an
 `i64` field fail to deserialize the entire feed. The fetch sends `locale=zh` for
@@ -131,7 +131,7 @@ and `fetch_one(market_id)` re-fetches a single match's fresh odds at bet time.
 ### Match betting (real balance)
 
 `src/commands/betting.rs` drives a callback-only bet flow funded by the
-water-coin balance:
+coin balance:
 
 1. Tapping a match number (`bet:`) re-fetches that match's **current** odds and
    DMs the user a quote with one button per priced outcome (`opt:<qid>:<outcome>`).
