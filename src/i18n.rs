@@ -1026,7 +1026,7 @@ pub fn invite_copy(l: Lang, link: &str) -> String {
 /// survives a forward (inline keyboards don't).
 pub fn invite_forward(l: Lang, link: &str) -> String {
     tr!(l;
-        "🎮 Come play with me on Xaliah!\n{link}", "🎮 來 Xaliah 跟我一起玩！\n{link}", "🎮 来 Xaliah 跟我一起玩！\n{link}", "🎮 Xaliah で一緒に遊ぼう！\n{link}", "🎮 Xaliah에서 같이 놀자!\n{link}",
+        "🎮 Come play with me on Xaliah!\n{link}", "🎮 來跟 Xaliah 一起玩！\n{link}", "🎮 来跟 Xaliah 一起玩！\n{link}", "🎮 Xaliah で一緒に遊ぼう！\n{link}", "🎮 Xaliah에서 같이 놀자!\n{link}",
         "🎮 Заходи играть со мной в Xaliah!\n{link}", "🎮 Viens jouer avec moi sur Xaliah !\n{link}", "🎮 ¡Ven a jugar conmigo en Xaliah!\n{link}", "🎮 Komm und spiel mit mir auf Xaliah!\n{link}", "🎮 Vào chơi với mình trên Xaliah nhé!\n{link}",
         "🎮 Ayo main bareng aku di Xaliah!\n{link}", "🎮 Halika't maglaro tayo sa Xaliah!\n{link}", "🎮 มาเล่นกับฉันบน Xaliah สิ!\n{link}", "🎮 Kom met me spelen op Xaliah!\n{link}", "🎮 Gel Xaliah'da birlikte oynayalım!\n{link}",
         "🎮 Venha jogar comigo no Xaliah!\n{link}", "🎮 Xaliah पर मेरे साथ खेलने आओ!\n{link}", "🎮 تعال نلعب معًا على Xaliah!\n{link}")
