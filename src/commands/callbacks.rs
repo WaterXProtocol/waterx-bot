@@ -59,6 +59,10 @@ pub async fn on_callback(ctx: Context, update: Update) {
         let _ = answer(&ctx, &cb, i18n::service_paused(cb_lang(&ctx, &cb)), false).await;
         return;
     }
+    // Group-add referral: the first button a brand-new user taps in a group binds
+    // them to whoever added the bot. Runs before dispatch so the row is created
+    // here (not by the handler that follows).
+    maybe_bind_group_referral(&ctx, &cb).await;
     let result = if let Some(rest) = data.strip_prefix("envelope:") {
         handle_envelope(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gamble:") {
@@ -356,6 +360,27 @@ async fn handle_set_lang(
     answer(ctx, cb, "", false).await
 }
 
+/// Group-add referral bind: the first time a **brand-new** user taps *any* button
+/// inside a group, bind them to whoever added the bot there and pay both sides.
+/// No-op outside groups, when there's no recorded adder, or for existing users
+/// (`set_referrer_if_new` only inserts a fresh row — so no farming).
+async fn maybe_bind_group_referral(ctx: &Context, cb: &CallbackQuery) {
+    let Some(message) = &cb.message else {
+        return;
+    };
+    let chat_id = message.chat.get_id();
+    if !is_group_chat(chat_id) {
+        return;
+    }
+    let db = db_arc(ctx);
+    if let Ok(Some(adder)) = db.group_adder(chat_id) {
+        db.force_change(adder, 0).ok(); // ensure the adder has a row to refer from
+        if db.set_referrer_if_new(cb.from.id, adder).unwrap_or(false) {
+            referral::pay_referral(ctx, adder, &cb.from).await;
+        }
+    }
+}
+
 /// `menu:checkin` — grant the daily reward; result shown as an alert. In a
 /// private chat the menu refreshes so the now-spent button drops off; in a group
 /// the menu is shared, so the button stays for everyone else to claim.
@@ -363,21 +388,8 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     let lang = cb_lang(ctx, cb);
     let db = db_arc(ctx);
 
-    // Group referral bind: a brand-new user checking in inside a group binds to
-    // whoever added the bot there. Must run before try_checkin (which would
-    // create the user's row). pays out once; existing users bind to nothing.
-    if let Some(message) = &cb.message {
-        let chat_id = message.chat.get_id();
-        if is_group_chat(chat_id) {
-            if let Ok(Some(adder)) = db.group_adder(chat_id) {
-                db.force_change(adder, 0).ok(); // ensure the adder has a row
-                if db.set_referrer_if_new(cb.from.id, adder).unwrap_or(false) {
-                    referral::pay_referral(ctx, adder, &cb.from).await;
-                }
-            }
-        }
-    }
-
+    // (Group-add referral binding now happens for ANY button press in a group,
+    // up in `on_callback` before dispatch — see `maybe_bind_group_referral`.)
     match db.try_checkin(cb.from.id, crate::commands::checkin::CHECKIN_REWARD) {
         Ok(true) => {
             if let Some(message) = cb.message.clone() {
