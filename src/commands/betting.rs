@@ -1,5 +1,6 @@
-//! Real-money match betting: tap a match in `/matches` → the bot DMs a fresh
-//! odds quote → pick a side → **build a stake** (preset buttons add up; `Clear`
+//! Real-money match betting: tap a match in `/matches` → a fresh odds quote
+//! (replacing the brief in place in a private chat, or DM'd from a group where
+//! the brief is shared) → pick a side → **build a stake** (preset buttons add up; `Clear`
 //! resets) → **Confirm** (a confirmation screen — the only step that debits the
 //! balance and records the wager). The running total rides in the buttons'
 //! callback data, so no per-user state is stored server-side. The quote is valid
@@ -153,7 +154,8 @@ fn quote_text(lang: Lang, q: &Quote) -> String {
     s
 }
 
-/// `bet:<market_id>` — DM the user a fresh quote for that match.
+/// `bet:<market_id>` — open a fresh quote for that match. In a private chat the
+/// brief is replaced in place; in a group it's DM'd (the brief is shared).
 pub async fn handle_bet(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -190,14 +192,22 @@ pub async fn handle_bet(
     let text = quote_text(lang, &q);
     let rows = option_rows(lang, &q, qid);
 
-    // The build flow is private (per-user, no shared-message clobbering): DM the
-    // quote. If the user has no DM open, tell them to start the bot privately.
-    match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
-        Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
-        Err(_) => {
-            quotes(ctx).lock().remove(qid);
-            answer(ctx, cb, i18n::bet_dm_first(lang), true).await
+    // In a private chat the brief is the user's own message → replace it in
+    // place with the quote (the rest of the build flow edits in place too). In a
+    // group the brief is shared, so editing would clobber it for everyone — DM
+    // the per-user build flow instead, and toast where to look.
+    if is_group_chat(origin_chat) {
+        match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
+            Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
+            Err(_) => {
+                quotes(ctx).lock().remove(qid);
+                answer(ctx, cb, i18n::bet_dm_first(lang), true).await
+            }
         }
+    } else {
+        answer(ctx, cb, "", false).await?;
+        let _ = tg::edit_with_buttons(ctx, origin_chat, cb.message_id(), &text, &rows).await;
+        Ok(())
     }
 }
 

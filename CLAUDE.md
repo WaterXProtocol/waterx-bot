@@ -150,13 +150,17 @@ and `fetch_one(market_id)` re-fetches a single match's fresh odds at bet time.
 coin balance:
 
 1. Tapping a match number (`bet:`) re-fetches that match's **current** odds and
-   **DMs** the user a quote with one button per priced outcome
-   (`opt:<qid>:<outcome>`) — the build flow is private so it never clobbers a
-   shared message. The chat the button was tapped in (the **group brief**) is
-   saved on the quote as `origin_chat` so the *placed* bet can be announced back
-   there. The quote is stored in-memory (`bot::QuotesKey` → `QuoteStore`) under a
-   short id, valid for `QUOTE_TTL_SECS` (60s). If the user has no DM open, a toast
-   (`bet_dm_first`) tells them to start the bot privately.
+   opens a quote with one button per priced outcome (`opt:<qid>:<outcome>`).
+   **In a private chat** the brief is the caller's own message, so it's
+   **replaced in place** with the quote (the whole build flow then edits in
+   place). **In a group** the brief is shared, so editing would clobber it for
+   everyone — the quote is **DM'd** instead (toast `bet_check_dm`, or
+   `bet_dm_first` if the user has no DM open, which also drops the quote). The
+   chat the button was tapped in is saved on the quote as `origin_chat` so a bet
+   placed from a **group** brief can be announced back there; a private bet's
+   `origin_chat` is the DM itself (not a group), so no announcement fires. The
+   quote is stored in-memory (`bot::QuotesKey` → `QuoteStore`) under a short id,
+   valid for `QUOTE_TTL_SECS` (60s).
 2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder**: whole-coin
    preset buttons that **accumulate** (`sz:<qid>:<outcome>:<total>` — each preset
    re-renders the builder at `total + preset`; `Clear` → `…:0`), plus a
