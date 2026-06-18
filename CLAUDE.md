@@ -66,7 +66,7 @@ The `envelope:` callback prefix is still routed even though the `/envelope` comm
 
 ### Bet games
 
-`/predict <desc> <opt1> <opt2> ...` (fn `predict` in `src/commands/predict.rs`) creates a `BetGame`, stores it under `{chat_id}:{message_id}`, and posts an inline keyboard. All bet activity (place, close, settle, draw) flows through `gamble:` callbacks (the internal callback-data prefix kept its old name; only the user-facing command was renamed). Settlement writes balances to `Database` from the callback handler, not from the game struct itself.
+`/predict <question>? <opt1> <opt2> ...` (fn `predict` in `src/commands/predict.rs`) creates a `BetGame`, stores it under `{chat_id}:{message_id}`, and posts an inline keyboard. Parsing reads the **raw** arg text (`util::text_of`, not the whitespace-split `args`) so the question can contain spaces: it splits at the **first `?` or full-width `？`** (the mark is kept in the title), then the remainder is whitespace-split into options (need ≥2). No-arg `/predict` instead lists the caller's open games (or the usage hint when none). All bet activity (place, close, settle, draw) flows through `gamble:` callbacks (the internal callback-data prefix kept its old name; only the user-facing command was renamed). Settlement writes balances to `Database` from the callback handler, not from the game struct itself.
 
 ### Internationalisation (`src/i18n.rs`)
 

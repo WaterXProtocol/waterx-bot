@@ -14,35 +14,47 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     let lang = lang_for(&ctx, &host);
-    let parts = args(&message);
+    // Raw argument text (everything after the command word), so the question can
+    // contain spaces.
+    let after = text_of(&message)
+        .split_once(char::is_whitespace)
+        .map_or("", |(_, rest)| rest.trim());
 
-    if parts.is_empty() {
-        let games_arc = games(&ctx);
-        let snapshot = games_arc.lock().await;
-        let mut chunks: Vec<String> = Vec::new();
-        for game in snapshot.values() {
-            let entry = game.check(host.id);
-            if !entry.is_empty() {
-                chunks.push(entry);
-            }
-        }
-        if chunks.is_empty() {
-            // No open games of the caller's → show how to create one rather
-            // than a bare "no records" line, which reads like an error.
-            reply(&ctx, &message, i18n::usage_predict(lang)).await?;
+    // No args → list the caller's open games, or the usage hint if they have none.
+    if after.is_empty() {
+        let chunks: Vec<String> = {
+            let games_arc = games(&ctx);
+            let snapshot = games_arc.lock().await;
+            snapshot
+                .values()
+                .map(|g| g.check(host.id))
+                .filter(|e| !e.is_empty())
+                .collect()
+        };
+        let body = if chunks.is_empty() {
+            i18n::usage_predict(lang).to_string()
         } else {
-            reply(&ctx, &message, chunks.join("\n")).await?;
-        }
+            chunks.join("\n")
+        };
+        reply(&ctx, &message, body).await?;
         return Ok(());
     }
 
-    if parts.len() < 3 {
+    // Parse "<question>? <opt1> <opt2> …": the question runs up to the first `?`
+    // or full-width `？` (the mark is kept in the title), then space-separated
+    // options.
+    let Some(pos) = after.find(['?', '？']) else {
+        reply(&ctx, &message, i18n::usage_predict(lang)).await?;
+        return Ok(());
+    };
+    let mark_len = after[pos..].chars().next().map_or(1, char::len_utf8);
+    let description = after[..pos + mark_len].trim().to_string();
+    let option_strs: Vec<&str> = after[pos + mark_len..].split_whitespace().collect();
+    if description.is_empty() || option_strs.len() < 2 {
         reply(&ctx, &message, i18n::usage_predict(lang)).await?;
         return Ok(());
     }
 
-    let description = parts[0].clone();
-    let option_strs: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
     let mut game = BetGame::new(host.id, lang, &description, &option_strs);
 
     let rows = game.get_buttons();

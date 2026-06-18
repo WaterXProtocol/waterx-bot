@@ -890,10 +890,10 @@ pub fn usage_buy(l: Lang) -> &'static str {
 
 pub fn usage_predict(l: Lang) -> &'static str {
     tr!(l;
-        "/predict <title> <option1> <option2> …", "/predict <標題> <選項1> <選項2> …", "/predict <标题> <选项1> <选项2> …", "/predict <タイトル> <選択肢1> <選択肢2> …", "/predict <제목> <선택지1> <선택지2> …",
-        "/predict <название> <вариант1> <вариант2> …", "/predict <titre> <option1> <option2> …", "/predict <título> <opción1> <opción2> …", "/predict <Titel> <Option1> <Option2> …", "/predict <tiêu đề> <lựa chọn1> <lựa chọn2> …",
-        "/predict <judul> <opsi1> <opsi2> …", "/predict <pamagat> <opsyon1> <opsyon2> …", "/predict <หัวข้อ> <ตัวเลือก1> <ตัวเลือก2> …", "/predict <titel> <optie1> <optie2> …", "/predict <başlık> <seçenek1> <seçenek2> …",
-        "/predict <título> <opção1> <opção2> …", "/predict <शीर्षक> <विकल्प1> <विकल्प2> …", "/predict <العنوان> <خيار1> <خيار2> …")
+        "/predict <question>? <option1> <option2> …", "/predict <問題>？ <選項1> <選項2> …", "/predict <问题>？ <选项1> <选项2> …", "/predict <質問>？ <選択肢1> <選択肢2> …", "/predict <질문>? <선택지1> <선택지2> …",
+        "/predict <вопрос>? <вариант1> <вариант2> …", "/predict <question> ? <option1> <option2> …", "/predict <pregunta>? <opción1> <opción2> …", "/predict <Frage>? <Option1> <Option2> …", "/predict <câu hỏi>? <lựa chọn1> <lựa chọn2> …",
+        "/predict <pertanyaan>? <opsi1> <opsi2> …", "/predict <tanong>? <opsyon1> <opsyon2> …", "/predict <คำถาม>? <ตัวเลือก1> <ตัวเลือก2> …", "/predict <vraag>? <optie1> <optie2> …", "/predict <soru>? <seçenek1> <seçenek2> …",
+        "/predict <pergunta>? <opção1> <opção2> …", "/predict <प्रश्न>? <विकल्प1> <विकल्प2> …", "/predict <السؤال>؟ <خيار1> <خيار2> …")
 }
 
 // ----------------------------------------------------------------------------
