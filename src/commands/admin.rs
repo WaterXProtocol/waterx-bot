@@ -262,6 +262,45 @@ pub async fn handle_settle_cb(
     ack(ctx, cb, "").await
 }
 
+/// `/redeploy` — owner-only. Fire-and-forget triggers a **separate** systemd
+/// oneshot (`waterx-deploy.service`) that pulls, builds, and restarts the bot.
+/// It runs in its own unit/cgroup so the restart can't kill the deploy mid-build.
+/// The trigger command is overridable via the `REDEPLOY_CMD` env var (default
+/// `sudo systemctl start --no-block waterx-deploy.service`). See `DEPLOY.md`.
+#[command(description = "owner: pull + rebuild + restart")]
+pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
+    let Some(uid) = from_id(&message) else {
+        return Ok(());
+    };
+    if !is_owner(&ctx, uid) {
+        return Ok(());
+    }
+    let cmd = std::env::var("REDEPLOY_CMD")
+        .unwrap_or_else(|_| "sudo systemctl start --no-block waterx-deploy.service".to_string());
+    // Spawn detached: the trigger returns immediately (--no-block); the actual
+    // build/restart happens in waterx-deploy.service, not this process.
+    match std::process::Command::new("sh").arg("-c").arg(&cmd).spawn() {
+        Ok(_) => {
+            reply(
+                &ctx,
+                &message,
+                "🚀 Deploying — pull + build + restart triggered. I'll be back in a moment.",
+            )
+            .await?;
+        }
+        Err(e) => {
+            eprintln!("redeploy spawn error: {e}");
+            reply(
+                &ctx,
+                &message,
+                "⚠️ Couldn't start the deploy — check waterx-deploy.service / sudoers (see DEPLOY.md).",
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 /// `/mint <amount>` — credit `amount` whole water-coins to the sender of the
 /// replied-to message (reply required). Positive only (no debt).
 #[command(description = "owner: mint coins to the replied-to user")]

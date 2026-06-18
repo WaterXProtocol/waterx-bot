@@ -1,0 +1,15 @@
+# Oneshot deploy unit — pulls, builds, and restarts waterx-bot.
+# Install to /etc/systemd/system/waterx-deploy.service (edit USER + paths),
+# then `systemctl daemon-reload`. Triggered by the bot's /redeploy command via
+#   sudo systemctl start --no-block waterx-deploy.service
+# Runs as the bot user so the user's Rust toolchain is on PATH; the final
+# `systemctl restart waterx-bot` inside deploy.sh uses sudo (see DEPLOY.md).
+[Unit]
+Description=waterx-bot deploy (git pull + cargo build --release + restart)
+
+[Service]
+Type=oneshot
+User=USER
+WorkingDirectory=/home/USER/waterx-bot
+Environment=PATH=/home/USER/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/USER/waterx-bot/deploy/deploy.sh
