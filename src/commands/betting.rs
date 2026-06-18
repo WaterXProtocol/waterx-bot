@@ -179,14 +179,15 @@ pub async fn handle_bet(
     let text = quote_text(lang, &q);
     let rows = option_rows(lang, &q, qid);
 
-    // The bet flow happens in the user's DM.
-    match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
-        Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
-        Err(_) => {
-            quotes(ctx).lock().remove(qid);
-            answer(ctx, cb, i18n::bet_dm_first(lang), true).await
-        }
-    }
+    // Post the quote in the **same chat** the match was tapped in (the group
+    // brief) — no DM required. Each tap creates its own quote message.
+    let chat_id = cb
+        .message
+        .as_ref()
+        .map(|m| m.chat.get_id())
+        .unwrap_or(cb.from.id);
+    tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
+    answer(ctx, cb, "", false).await
 }
 
 /// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0.

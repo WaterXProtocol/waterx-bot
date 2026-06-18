@@ -149,10 +149,12 @@ and `fetch_one(market_id)` re-fetches a single match's fresh odds at bet time.
 coin balance:
 
 1. Tapping a match number (`bet:`) re-fetches that match's **current** odds and
-   DMs the user a quote with one button per priced outcome (`opt:<qid>:<outcome>`).
-   The quote is stored in-memory (`bot::QuotesKey` → `QuoteStore`) under a short
-   id and is valid for `QUOTE_TTL_SECS` (60s) — odds move, so it must be fresh.
-   If the user has no DM open, a toast tells them to start the bot privately.
+   posts a quote — **in the same chat the button was tapped** (the group brief,
+   no DM required; falls back to the user's id only if there's no `cb.message`) —
+   with one button per priced outcome (`opt:<qid>:<outcome>`). Each tap creates
+   its own quote message. The quote is stored in-memory (`bot::QuotesKey` →
+   `QuoteStore`) under a short id and is valid for `QUOTE_TTL_SECS` (60s) — odds
+   move, so it must be fresh. (`bet_check_dm`/`bet_dm_first` are now unused.)
 2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder**: whole-coin
    preset buttons that **accumulate** (`sz:<qid>:<outcome>:<total>` — each preset
    re-renders the builder at `total + preset`; `Clear` → `…:0`), plus a
