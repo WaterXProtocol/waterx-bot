@@ -163,12 +163,17 @@ pub async fn send_photo_id(
     send_photo_form(token, form).await.map(|_| ())
 }
 
-/// Shared `sendPhoto` form fields (everything except the `photo` itself).
+/// Shared `sendPhoto` form fields (everything except the `photo` itself). When
+/// `rows` is empty no `reply_markup` is attached (Telegram dislikes an empty
+/// keyboard).
 fn photo_form(chat_id: i64, caption: &str, rows: &[Row]) -> reqwest::multipart::Form {
-    reqwest::multipart::Form::new()
+    let mut form = reqwest::multipart::Form::new()
         .text("chat_id", chat_id.to_string())
-        .text("caption", caption.to_string())
-        .text("reply_markup", build_keyboard(rows).to_string())
+        .text("caption", caption.to_string());
+    if !rows.is_empty() {
+        form = form.text("reply_markup", build_keyboard(rows).to_string());
+    }
+    form
 }
 
 /// POST a `sendPhoto` form and return the largest size's `file_id` from the reply.

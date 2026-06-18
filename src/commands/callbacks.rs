@@ -443,7 +443,9 @@ async fn handle_invite_link(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
     Ok(())
 }
 
-/// `inv:fwd` — a forward-safe message (link baked into the text).
+/// `inv:fwd` — a forward-safe message: the link is baked into the **text** (so a
+/// forward keeps it), plus a `[🎮 Play now]` URL button for tapping in place
+/// (inline keyboards are stripped on forward, hence the link also lives in text).
 async fn handle_invite_fwd(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some(message) = cb.message.clone() else {
@@ -451,7 +453,8 @@ async fn handle_invite_fwd(ctx: &Context, cb: &CallbackQuery) -> Result<(), tele
     };
     answer(ctx, cb, "", false).await?;
     let link = referral_link_of(ctx, cb.from.id);
-    crate::commands::util::send_text(ctx, message.chat.get_id(), i18n::invite_forward(lang, &link))
+    let rows = vec![vec![(i18n::btn_join(lang).to_string(), link.clone())]];
+    tg::send_with_buttons(ctx, message.chat.get_id(), &i18n::invite_forward(lang, &link), &rows)
         .await?;
     Ok(())
 }
@@ -469,28 +472,30 @@ async fn handle_invite_qr(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let link = referral_link_of(ctx, cb.from.id);
     let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
     let text = i18n::invite_text(lang, &link, &count.to_string());
-    let rows = vec![vec![(i18n::btn_join(lang).to_string(), link.clone())]];
+    // The QR photo carries no keyboard — the link is in the caption (and the QR
+    // image); the [Play] button lives on the forwardable message instead.
+    let rows: &[tg::Row] = &[];
 
     let token = bot_token(ctx);
     let cached = qr_cache().lock().get(&cb.from.id).cloned();
     let sent = if let Some(file_id) = cached {
-        tg::send_photo_id(&token, chat_id, &file_id, &text, &rows).await.is_ok()
+        tg::send_photo_id(&token, chat_id, &file_id, &text, rows).await.is_ok()
     } else {
         false
     };
     if !sent {
         match qrcode_generator::to_png_to_vec(&link, qrcode_generator::QrCodeEcc::Medium, 512) {
-            Ok(png) => match tg::send_photo_bytes(&token, chat_id, png, &text, &rows).await {
+            Ok(png) => match tg::send_photo_bytes(&token, chat_id, png, &text, rows).await {
                 Ok(Some(file_id)) => {
                     qr_cache().lock().insert(cb.from.id, file_id);
                 }
                 Ok(None) => {} // sent, but couldn't read the id — re-upload next time
                 Err(_) => {
-                    tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
+                    crate::commands::util::send_text(ctx, chat_id, text.clone()).await?;
                 }
             },
             Err(_) => {
-                tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
+                crate::commands::util::send_text(ctx, chat_id, text.clone()).await?;
             }
         }
     }
