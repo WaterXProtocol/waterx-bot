@@ -1,7 +1,9 @@
 use crate::commands::util::*;
 use crate::database::COIN;
 use crate::i18n;
+use crate::i18n::Lang;
 use crate::types::BetState;
+use telexide::model::User;
 use telexide::prelude::*;
 
 #[command(description = "show the caller's balance and open positions")]
@@ -14,8 +16,17 @@ pub async fn balance(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     let lang = lang_for(&ctx, user);
-    let database = db(&ctx);
-    let info = database.get_user_info(user.id)?;
+    let body = balance_text(&ctx, lang, user).await;
+    reply(&ctx, &message, body).await?;
+    Ok(())
+}
+
+/// Build the `/balance` body for `user`: name + balance, then any open match
+/// bets and self-host predictions (each section with its staked total).
+/// Shared by the `/balance` command and the `menu:balance` button.
+pub async fn balance_text(ctx: &Context, lang: Lang, user: &User) -> String {
+    let database = db(ctx);
+    let info = database.get_user_info(user.id).unwrap_or_default();
 
     let mut body = format!(
         "{}\n{}",
@@ -58,7 +69,7 @@ pub async fn balance(ctx: Context, message: Message) -> CommandResult {
     let mut game_lines = String::new();
     let mut game_total: i64 = 0;
     {
-        let games = games(&ctx);
+        let games = games(ctx);
         let guard = games.lock().await;
         for g in guard.values() {
             if !matches!(g.state, BetState::betting | BetState::closed) {
@@ -99,6 +110,5 @@ pub async fn balance(ctx: Context, message: Message) -> CommandResult {
         ));
     }
 
-    reply(&ctx, &message, body).await?;
-    Ok(())
+    body
 }

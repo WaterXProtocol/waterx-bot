@@ -948,6 +948,14 @@ pub fn btn_checkin(l: Lang) -> &'static str {
         "🪙 Check-in diário", "🪙 दैनिक चेक-इन", "🪙 تسجيل يومي")
 }
 
+pub fn btn_balance(l: Lang) -> &'static str {
+    tr!(l;
+        "💰 Balance", "💰 餘額", "💰 余额", "💰 残高", "💰 잔액",
+        "💰 Баланс", "💰 Solde", "💰 Saldo", "💰 Guthaben", "💰 Số dư",
+        "💰 Saldo", "💰 Balanse", "💰 ยอดเงิน", "💰 Saldo", "💰 Bakiye",
+        "💰 Saldo", "💰 बैलेंस", "💰 الرصيد")
+}
+
 pub fn btn_matches(l: Lang) -> &'static str {
     tr!(l;
         "⚽ Today's matches", "⚽ 今日比賽", "⚽ 今日比赛", "⚽ 今日の試合", "⚽ 오늘의 경기",

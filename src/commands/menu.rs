@@ -11,6 +11,7 @@ use telexide::prelude::Context;
 /// Callback-data prefixes routed in `callbacks::on_callback`.
 pub const SET_LANG: &str = "setlang:";
 pub const MENU_CHECKIN: &str = "menu:checkin";
+pub const MENU_BALANCE: &str = "menu:balance";
 pub const MENU_MATCHES: &str = "menu:matches";
 pub const MENU_INVITE: &str = "menu:invite";
 
@@ -55,14 +56,20 @@ pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
 /// the `[Play]` URL button lives only in the `menu:invite` output, which has no
 /// private info and is meant to be shared.
 pub fn main_menu_rows(_ctx: &Context, lang: Lang, _user_id: i64, checkin_available: bool) -> Vec<Row> {
-    let mut row: Row = Vec::new();
+    let mut rows: Vec<Row> = Vec::new();
     if checkin_available {
-        row.push((i18n::btn_checkin(lang).to_string(), MENU_CHECKIN.to_string()));
+        rows.push(vec![(
+            i18n::btn_checkin(lang).to_string(),
+            MENU_CHECKIN.to_string(),
+        )]);
     }
-    row.push((i18n::btn_matches(lang).to_string(), MENU_MATCHES.to_string()));
-
-    vec![
-        row,
-        vec![(i18n::btn_invite(lang).to_string(), MENU_INVITE.to_string())],
-    ]
+    rows.push(vec![
+        (i18n::btn_balance(lang).to_string(), MENU_BALANCE.to_string()),
+        (i18n::btn_matches(lang).to_string(), MENU_MATCHES.to_string()),
+    ]);
+    rows.push(vec![(
+        i18n::btn_invite(lang).to_string(),
+        MENU_INVITE.to_string(),
+    )]);
+    rows
 }

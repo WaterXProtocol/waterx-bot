@@ -1,7 +1,7 @@
 use crate::bot::{DbKey, GamesKey};
 use crate::commands::util::{bot_token, fmt_coins, format_number, is_group_chat, SORRY_FRUITS};
 use crate::database::COIN;
-use crate::commands::{betting, markets, menu, referral, tg};
+use crate::commands::{balance, betting, markets, menu, referral, tg};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
 use crate::i18n::{self, Lang};
@@ -69,6 +69,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_set_lang(&ctx, &cb, rest).await
     } else if data == menu::MENU_CHECKIN {
         handle_menu_checkin(&ctx, &cb).await
+    } else if data == menu::MENU_BALANCE {
+        handle_menu_balance(&ctx, &cb).await
     } else if data == menu::MENU_MATCHES {
         handle_menu_matches(&ctx, &cb).await
     } else if data == menu::MENU_INVITE {
@@ -427,6 +429,19 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
     if !sent {
         tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
     }
+    Ok(())
+}
+
+/// `menu:balance` — post the presser's balance + open positions as a fresh
+/// message, leaving the menu in place.
+async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    answer(ctx, cb, "", false).await?;
+    let text = balance::balance_text(ctx, lang, &cb.from).await;
+    crate::commands::util::send_text(ctx, message.chat.get_id(), text).await?;
     Ok(())
 }
 
