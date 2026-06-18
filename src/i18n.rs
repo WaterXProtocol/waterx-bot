@@ -866,10 +866,10 @@ pub fn broadcast_usage(l: Lang) -> &'static str {
 
 pub fn usage_send(l: Lang) -> &'static str {
     tr!(l;
-        "Reply to a message, then /send <amount> (or a fruit 🍎)", "回覆一則訊息，然後 /send <數量>（或水果 🍎）", "回复一条消息，然后 /send <数量>（或水果 🍎）", "メッセージに返信して /send <数量>（または果物 🍎）", "메시지에 답장하고 /send <수량> (또는 과일 🍎)",
-        "Ответьте на сообщение, затем /send <сумма> (или фрукт 🍎)", "Réponds à un message, puis /send <montant> (ou un fruit 🍎)", "Responde a un mensaje y usa /send <cantidad> (o una fruta 🍎)", "Antworte auf eine Nachricht, dann /send <Betrag> (oder Obst 🍎)", "Trả lời một tin nhắn rồi /send <số lượng> (hoặc trái cây 🍎)",
-        "Balas pesan, lalu /send <jumlah> (atau buah 🍎)", "Mag-reply sa mensahe, tapos /send <halaga> (o prutas 🍎)", "ตอบกลับข้อความ แล้ว /send <จำนวน> (หรือผลไม้ 🍎)", "Reageer op een bericht, dan /send <bedrag> (of fruit 🍎)", "Bir mesajı yanıtla, sonra /send <miktar> (veya meyve 🍎)",
-        "Responda a uma mensagem e use /send <quantia> (ou uma fruta 🍎)", "किसी संदेश का जवाब दें, फिर /send <राशि> (या फल 🍎)", "ردّ على رسالة ثم /send <المبلغ> (أو فاكهة 🍎)")
+        "Reply to a message, then /send <amount>", "回覆一則訊息，然後 /send <數量>", "回复一条消息，然后 /send <数量>", "メッセージに返信して /send <数量>", "메시지에 답장하고 /send <수량>",
+        "Ответьте на сообщение, затем /send <сумма>", "Réponds à un message, puis /send <montant>", "Responde a un mensaje y usa /send <cantidad>", "Antworte auf eine Nachricht, dann /send <Betrag>", "Trả lời một tin nhắn rồi /send <số lượng>",
+        "Balas pesan, lalu /send <jumlah>", "Mag-reply sa mensahe, tapos /send <halaga>", "ตอบกลับข้อความ แล้ว /send <จำนวน>", "Reageer op een bericht, dan /send <bedrag>", "Bir mesajı yanıtla, sonra /send <miktar>",
+        "Responda a uma mensagem e use /send <quantia>", "किसी संदेश का जवाब दें, फिर /send <राशि>", "ردّ على رسالة ثم /send <المبلغ>")
 }
 
 pub fn usage_sell(l: Lang) -> &'static str {

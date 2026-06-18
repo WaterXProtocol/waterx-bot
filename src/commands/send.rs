@@ -6,7 +6,7 @@ use crate::i18n;
 use std::time::Duration;
 use telexide::prelude::*;
 
-#[command(description = "send water-coins or fruit to the replied-to user")]
+#[command(description = "send coins to the replied-to user")]
 pub async fn send(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
