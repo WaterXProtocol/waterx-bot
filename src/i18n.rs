@@ -541,6 +541,16 @@ pub fn positions_title(l: Lang) -> &'static str {
         "📊 Apostas abertas", "📊 खुले दांव", "📊 الرهانات المفتوحة")
 }
 
+/// Section heading above the caller's stakes in still-open self-host
+/// (`/predict`) games in `/status`.
+pub fn predictions_title(l: Lang) -> &'static str {
+    tr!(l;
+        "🎲 Open predictions", "🎲 進行中的預測", "🎲 进行中的预测", "🎲 進行中の予測", "🎲 진행 중인 예측",
+        "🎲 Активные прогнозы", "🎲 Prédictions en cours", "🎲 Predicciones abiertas", "🎲 Offene Vorhersagen", "🎲 Dự đoán đang mở",
+        "🎲 Prediksi terbuka", "🎲 Bukás na prediksyon", "🎲 การทำนายที่เปิดอยู่", "🎲 Open voorspellingen", "🎲 Açık tahminler",
+        "🎲 Previsões abertas", "🎲 चालू भविष्यवाणियाँ", "🎲 التوقعات المفتوحة")
+}
+
 pub fn close_button(l: Lang) -> &'static str {
     tr!(l;
         "Close", "收盤", "收盘", "締め切る", "마감",
