@@ -91,7 +91,7 @@ pub(crate) async fn brief(lang: Lang, tz_min: i64) -> (String, Vec<Row>) {
     let mut out = format!(
         "{} — {}\n",
         i18n::markets_title(lang),
-        Utc::now().format("%b %-d")
+        fmt_date(now, tz_min)
     );
     if matches.is_empty() {
         out.push('\n');
@@ -246,6 +246,14 @@ fn fmt_time(ts: Option<i64>, tz_min: i64) -> Option<String> {
     let off = FixedOffset::east_opt((tz_min * 60) as i32)?;
     let dt = off.timestamp_opt(ts?, 0).single()?;
     Some(format!("{} {}", dt.format("%b %-d · %H:%M"), tz_label(tz_min)))
+}
+
+/// Date-only in `tz_min`, e.g. `"Jun 27"` — for the brief's header.
+fn fmt_date(ts: i64, tz_min: i64) -> String {
+    FixedOffset::east_opt((tz_min * 60) as i32)
+        .and_then(|o| o.timestamp_opt(ts, 0).single())
+        .map(|d| d.format("%b %-d").to_string())
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
