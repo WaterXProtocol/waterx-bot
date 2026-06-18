@@ -786,7 +786,7 @@ fn menu_language(l: Lang) -> &'static str {
 
 fn menu_balance(l: Lang) -> &'static str {
     tr!(l;
-        "Asset status", "資產狀況", "资产状况", "資産状況", "자산 현황",
+        "Check assets", "資產狀況", "资产状况", "資産状況", "자산 현황",
         "Состояние активов", "État des actifs", "Estado de activos", "Vermögensstatus", "Tình trạng tài sản",
         "Status aset", "Estado ng asset", "สถานะสินทรัพย์", "Activastatus", "Varlık durumu",
         "Status dos ativos", "संपत्ति स्थिति", "حالة الأصول")
@@ -935,15 +935,15 @@ pub fn btn_checkin(l: Lang) -> &'static str {
 
 pub fn btn_balance(l: Lang) -> &'static str {
     tr!(l;
-        "💰 Check balance", "💰 查看餘額", "💰 查看余额", "💰 残高を確認", "💰 잔액 확인",
-        "💰 Проверить баланс", "💰 Voir le solde", "💰 Ver saldo", "💰 Guthaben ansehen", "💰 Xem số dư",
-        "💰 Cek saldo", "💰 Tingnan ang balanse", "💰 ดูยอดเงิน", "💰 Saldo bekijken", "💰 Bakiyeyi gör",
-        "💰 Ver saldo", "💰 बैलेंस देखें", "💰 عرض الرصيد")
+        "💰 Check assets", "💰 查看資產", "💰 查看资产", "💰 資産を確認", "💰 자산 확인",
+        "💰 Проверить активы", "💰 Voir les actifs", "💰 Ver activos", "💰 Vermögen ansehen", "💰 Xem tài sản",
+        "💰 Cek aset", "💰 Tingnan ang assets", "💰 ดูสินทรัพย์", "💰 Activa bekijken", "💰 Varlıkları gör",
+        "💰 Ver ativos", "💰 संपत्ति देखें", "💰 عرض الأصول")
 }
 
 pub fn btn_matches(l: Lang) -> &'static str {
     tr!(l;
-        "⚽ Today's matches", "⚽ 今日比賽", "⚽ 今日比赛", "⚽ 今日の試合", "⚽ 오늘의 경기",
+        "⚽ Today's matches", "⚽ 今日賽事", "⚽ 今日比赛", "⚽ 今日の試合", "⚽ 오늘의 경기",
         "⚽ Матчи сегодня", "⚽ Matchs du jour", "⚽ Partidos de hoy", "⚽ Heutige Spiele", "⚽ Trận hôm nay",
         "⚽ Pertandingan hari ini", "⚽ Mga laro ngayon", "⚽ แมตช์วันนี้", "⚽ Wedstrijden vandaag", "⚽ Bugünkü maçlar",
         "⚽ Jogos de hoje", "⚽ आज के मैच", "⚽ مباريات اليوم")

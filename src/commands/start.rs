@@ -44,7 +44,7 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
             tg::send_with_buttons(
                 &ctx,
                 chat_id,
-                &menu::menu_text(&ctx, lang, uid, &full_name(&user)),
+                &menu::menu_text(lang, &full_name(&user)),
                 &menu::main_menu_rows(&ctx, lang, uid, available),
             )
             .await?;

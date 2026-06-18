@@ -4,7 +4,6 @@
 //! these so the keyboards stay in one place.
 
 use crate::commands::tg::Row;
-use crate::commands::util::{db, fmt_coins};
 use crate::i18n::{self, Lang};
 use telexide::prelude::Context;
 
@@ -40,13 +39,10 @@ pub fn lang_picker_rows() -> Vec<Row> {
 
 /// The Xaliah main-menu body: intro line followed by the user's current
 /// balance. (Fruit is hidden until the fruit feature is designed.)
-pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64, name: &str) -> String {
-    let info = db(ctx).get_user_info(user_id).unwrap_or_default();
-    format!(
-        "{}\n\n{}",
-        i18n::intro(lang, name),
-        i18n::menu_status(lang, &fmt_coins(info.balance))
-    )
+pub fn menu_text(lang: Lang, name: &str) -> String {
+    // Balance is intentionally not shown here — the home page has a
+    // [Check assets] button for that. The menu body is just the greeting.
+    i18n::intro(lang, name)
 }
 
 /// The Xaliah main-menu keyboard: today's matches, the daily check-in button
