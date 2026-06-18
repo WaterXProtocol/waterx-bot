@@ -7,7 +7,7 @@ use crate::bot::QuotesKey;
 use crate::commands::markets;
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::database::COIN;
+use crate::database::{decimal_payout, COIN};
 use crate::i18n::{self, Lang};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -256,7 +256,7 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     }
     quotes(ctx).lock().remove(qid);
 
-    let payout = (stake_units as f64 * decimal(odds)).round() as i64;
+    let payout = decimal_payout(stake_units, odds);
     let side = q.side_name(lang, outcome);
     let text = i18n::bet_placed(
         lang,

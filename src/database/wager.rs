@@ -25,7 +25,7 @@ pub struct Position {
 impl Position {
     /// Micro-coins this position pays out if it wins (stake × decimal odds).
     pub fn potential_payout(&self) -> i64 {
-        payout_units(self.stake, self.odds_cents)
+        decimal_payout(self.stake, self.odds_cents)
     }
 }
 
@@ -39,9 +39,15 @@ pub struct Settlement {
     pub won: bool,
 }
 
-/// Decimal-odds payout for a winning wager: `stake * 100 / odds_cents`,
-/// rounded to whole micro-coins.
-fn payout_units(stake: i64, odds_cents: f64) -> i64 {
+/// Decimal-odds payout for a winning wager: `stake * 100 / odds_cents`
+/// (= `stake × decimal_odds`), rounded to whole micro-coins. Shared by the
+/// at-placement quote (`betting`), `Position::potential_payout`, and
+/// `settle_market`, so the displayed payout and the settled payout can never
+/// drift. The `f64` is a bounded, rounded odds intermediate — the ledger stays
+/// integer micro-coins; at the bot's stake magnitudes there is no precision
+/// loss (verified by `settle_pays_winner_by_decimal_odds`).
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+pub fn decimal_payout(stake: i64, odds_cents: f64) -> i64 {
     if odds_cents <= 0.0 {
         return stake; // degenerate quote → just return the stake
     }
@@ -151,7 +157,7 @@ impl Database {
         let mut out = Vec::with_capacity(rows.len());
         for (id, user, outcome, stake, odds_cents) in rows {
             let won = outcome == winner;
-            let payout = if won { payout_units(stake, odds_cents) } else { 0 };
+            let payout = if won { decimal_payout(stake, odds_cents) } else { 0 };
             if payout > 0 {
                 conn.execute(
                     "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
@@ -196,6 +202,16 @@ mod tests {
         assert_eq!(db.get_user_info(20).unwrap().balance, 0); // lost
         // Idempotent: nothing open left to settle.
         assert!(db.settle_market("m1", "teamA").unwrap().is_empty());
+    }
+
+    #[test]
+    fn decimal_payout_matches_decimal_odds_and_guards_zero() {
+        // 5 coins at 50¢ (decimal 2.0) → 10 coins; same formula the quote shows.
+        assert_eq!(decimal_payout(5 * COIN, 50.0), 10 * COIN);
+        // 10 coins at 250¢ (decimal 0.4) → 4 coins.
+        assert_eq!(decimal_payout(10 * COIN, 250.0), 4 * COIN);
+        // Degenerate quote returns the stake rather than dividing by zero.
+        assert_eq!(decimal_payout(7 * COIN, 0.0), 7 * COIN);
     }
 
     #[test]

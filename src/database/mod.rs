@@ -9,7 +9,7 @@ mod wager;
 
 pub use buffer::OfferOutcome;
 pub use user::UserRow;
-pub use wager::{OpenMarket, Position, Settlement};
+pub use wager::{decimal_payout, OpenMarket, Position, Settlement};
 
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, Result as SqlResult};
