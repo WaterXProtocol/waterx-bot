@@ -673,6 +673,26 @@ pub fn received_coins(l: Lang, name: &str, coins: &str) -> String {
     .replace("{coins}", coins)
 }
 
+/// Footer under the live betting board (pari-mutuel pool, still open).
+pub fn board_footer_open(l: Lang, total: &str) -> String {
+    tr!(l;
+        "Pool {total} 🪙 · tap to bet (odds live)", "彩池 {total} 🪙 · 點選下注（賠率即時更新）", "彩池 {total} 🪙 · 点击下注（赔率实时更新）", "プール {total} 🪙 · タップで賭ける（オッズは随時変動）", "풀 {total} 🪙 · 탭하여 베팅 (배당 실시간)",
+        "Банк {total} 🪙 · нажми, чтобы поставить (кэф меняется)", "Cagnotte {total} 🪙 · touche pour parier (cotes en direct)", "Bote {total} 🪙 · toca para apostar (cuotas en vivo)", "Pool {total} 🪙 · zum Wetten tippen (Quoten live)", "Quỹ {total} 🪙 · chạm để cược (tỷ lệ cập nhật)",
+        "Pool {total} 🪙 · ketuk untuk bertaruh (odds langsung)", "Pool {total} 🪙 · i-tap para tumaya (live ang odds)", "พูล {total} 🪙 · แตะเพื่อเดิมพัน (อัตราต่อรองเรียลไทม์)", "Pot {total} 🪙 · tik om in te zetten (odds live)", "Havuz {total} 🪙 · bahis için dokun (oranlar canlı)",
+        "Bolão {total} 🪙 · toque para apostar (odds ao vivo)", "पूल {total} 🪙 · दांव लगाने के लिए टैप करें (ऑड्स लाइव)", "المجمع {total} 🪙 · انقر للمراهنة (الاحتمالات مباشرة)")
+    .replace("{total}", total)
+}
+
+/// Footer under the board once betting is closed (awaiting the host's result).
+pub fn board_footer_closed(l: Lang, total: &str) -> String {
+    tr!(l;
+        "Pool {total} 🪙 · betting closed, awaiting result", "彩池 {total} 🪙 · 已截止，等待開獎", "彩池 {total} 🪙 · 已截止，等待开奖", "プール {total} 🪙 · 締め切り、結果待ち", "풀 {total} 🪙 · 마감, 결과 대기",
+        "Банк {total} 🪙 · ставки закрыты, ждём результат", "Cagnotte {total} 🪙 · paris clos, en attente du résultat", "Bote {total} 🪙 · apuestas cerradas, esperando resultado", "Pool {total} 🪙 · Wetten geschlossen, Ergebnis ausstehend", "Quỹ {total} 🪙 · đã đóng cược, chờ kết quả",
+        "Pool {total} 🪙 · taruhan ditutup, menunggu hasil", "Pool {total} 🪙 · sarado na ang taya, hinihintay ang resulta", "พูล {total} 🪙 · ปิดรับแล้ว รอผล", "Pot {total} 🪙 · inzetten gesloten, wacht op uitslag", "Havuz {total} 🪙 · bahisler kapandı, sonuç bekleniyor",
+        "Bolão {total} 🪙 · apostas encerradas, aguardando resultado", "पूल {total} 🪙 · दांव बंद, परिणाम प्रतीक्षित", "المجمع {total} 🪙 · أُغلقت الرهانات، بانتظار النتيجة")
+    .replace("{total}", total)
+}
+
 pub fn bets_for_option(l: Lang, opt: &str) -> String {
     tr!(l;
         "Bets on {opt}", "{opt} 的押注", "{opt} 的押注", "{opt} への賭け", "{opt} 에 대한 베팅",
@@ -1304,6 +1324,8 @@ mod tests {
                 you_dont_have(l, "🍎"),
                 result_header(l, "id", "X"),
                 settle_line(l, "1234", verb_won(l), "5"),
+                board_footer_open(l, "35"),
+                board_footer_closed(l, "35"),
                 markets_more(l, "3"),
                 checkin_done(l, "10"),
                 minted(l, "A", "10"),

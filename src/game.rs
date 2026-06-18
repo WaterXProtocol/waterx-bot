@@ -5,6 +5,12 @@ use std::collections::HashMap;
 /// Stake amounts shown as per-option buttons in the betting keyboard.
 pub const STAKE_AMOUNTS: &[i64] = &[1, 5, 10, 50];
 
+/// `1..=10` → circled digits ①..⑩ for the board; larger falls back to `n.`.
+fn circled(n: usize) -> String {
+    const C: [&str; 10] = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
+    C.get(n - 1).map_or_else(|| format!("{n}."), |c| (*c).to_string())
+}
+
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OptionData {
     pub detail: HashMap<i64, i64>,
@@ -65,14 +71,52 @@ impl BetGame {
         format!("{}\n---{}\n", self.description, self.state.label(self.lang))
     }
 
+    /// The host's question (the board strips the leading id-tail line that
+    /// `set_id` prepends to `description`).
+    fn question(&self) -> &str {
+        self.description
+            .split_once('\n')
+            .map_or(self.description.as_str(), |(_, q)| q)
+    }
+
+    fn state_emoji(&self) -> &'static str {
+        match self.state {
+            BetState::betting => "🟢",
+            BetState::closed => "🔴",
+            BetState::settled => "✅",
+            BetState::draw => "🤝",
+        }
+    }
+
+    /// The live, shared pari-mutuel board: question + state, one numbered line
+    /// per option (pool 🪙 → win multiplier), and a localized pool footer. Used
+    /// while betting/closed; after settling the message is replaced by the
+    /// result text instead.
     pub fn get_text(&self) -> String {
-        let mut txt = self.get_header();
-        for opt in &self.option_order {
+        let mut s = format!(
+            "🎲 {}  ·  {} {}\n",
+            self.question(),
+            self.state_emoji(),
+            self.state.label(self.lang)
+        );
+        for (i, opt) in self.option_order.iter().enumerate() {
             if let Some(d) = self.options.get(opt) {
-                txt.push_str(&format!("\n{}: {} ({})", opt, d.bet, d.odd));
+                let mult = if d.bet > 0 {
+                    format!("×{}", d.odd)
+                } else {
+                    "×—".to_string()
+                };
+                s.push_str(&format!("\n{} {opt}   {} 🪙 → {mult}", circled(i + 1), d.bet));
             }
         }
-        txt
+        let total = self.total.to_string();
+        let footer = if self.state == BetState::betting {
+            i18n::board_footer_open(self.lang, &total)
+        } else {
+            i18n::board_footer_closed(self.lang, &total)
+        };
+        s.push_str(&format!("\n\n{footer}"));
+        s
     }
 
     /// Inline-keyboard rows used by `commands::tg::send_with_buttons` /
@@ -129,7 +173,7 @@ impl BetGame {
         for d in self.options.values_mut() {
             if d.bet > 0 {
                 let odd = (total as f64 / d.bet as f64 * 1000.0).round() / 1000.0;
-                d.odd = format!("{odd:.3}");
+                d.odd = format!("{odd:.2}");
             }
         }
         true
@@ -262,14 +306,14 @@ mod tests {
         let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10);
         g.stake(2, "B", 5);
-        // total = 15. A.bet = 10 → odd = 1.500. B.bet = 5 → odd = 3.000.
-        assert_eq!(g.options["A"].odd, "1.500");
-        assert_eq!(g.options["B"].odd, "3.000");
+        // total = 15. A.bet = 10 → odd = 1.50. B.bet = 5 → odd = 3.00.
+        assert_eq!(g.options["A"].odd, "1.50");
+        assert_eq!(g.options["B"].odd, "3.00");
         // Another bet on A should update B's odd too.
         g.stake(3, "A", 15);
-        // total = 30. A.bet = 25 → odd = 1.200. B.bet = 5 → odd = 6.000.
-        assert_eq!(g.options["A"].odd, "1.200");
-        assert_eq!(g.options["B"].odd, "6.000");
+        // total = 30. A.bet = 25 → odd = 1.20. B.bet = 5 → odd = 6.00.
+        assert_eq!(g.options["A"].odd, "1.20");
+        assert_eq!(g.options["B"].odd, "6.00");
     }
 
     #[test]
