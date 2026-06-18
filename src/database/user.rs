@@ -66,6 +66,28 @@ impl Database {
         Ok(())
     }
 
+    /// The user's UTC offset in minutes east, or `None` if they haven't picked
+    /// one yet (so `/start` can prompt once).
+    pub fn get_tz(&self, user_id: i64) -> SqlResult<Option<i64>> {
+        self.ensure_row(user_id)?;
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT tz_offset FROM balance WHERE user = ?1",
+            params![user_id],
+            |r| r.get::<_, Option<i64>>(0),
+        )
+    }
+
+    pub fn set_tz(&self, user_id: i64, minutes: i64) -> SqlResult<()> {
+        self.ensure_row(user_id)?;
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE balance SET tz_offset = ?1 WHERE user = ?2",
+            params![minutes, user_id],
+        )?;
+        Ok(())
+    }
+
     /// Whether the user can claim today's check-in (read-only; grants nothing).
     /// Mirrors [`Database::try_checkin`]'s UTC-day window.
     pub fn checkin_available(&self, user_id: i64) -> SqlResult<bool> {

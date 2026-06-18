@@ -69,7 +69,8 @@ impl Database {
                 fruit        TEXT    NOT NULL DEFAULT '',
                 last_checkin INTEGER NOT NULL DEFAULT 0,
                 lang         TEXT    NOT NULL DEFAULT '',
-                referrer     INTEGER NOT NULL DEFAULT 0
+                referrer     INTEGER NOT NULL DEFAULT 0,
+                tz_offset    INTEGER
             )",
             [],
         )?;
@@ -168,6 +169,8 @@ impl Database {
             "ALTER TABLE balance ADD COLUMN referrer INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // Add the user's UTC offset in minutes (NULL = not yet chosen).
+        let _ = conn.execute("ALTER TABLE balance ADD COLUMN tz_offset INTEGER", []);
 
         // Prune buffer rows older than 24h. Pre-TTL rows have created_at=0 and
         // get cleared too, which is what we want — a restart drops all dangling

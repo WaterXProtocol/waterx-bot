@@ -4,10 +4,32 @@
 //! these so the keyboards stay in one place.
 
 use crate::commands::tg::Row;
+use crate::commands::util::tz_label;
 use crate::i18n::{self, Lang};
 
 /// Callback-data prefixes routed in `callbacks::on_callback`.
 pub const SET_LANG: &str = "setlang:";
+pub const SET_TZ: &str = "settz:";
+
+/// Curated UTC offsets (minutes east) offered in the timezone picker — common
+/// zones incl. the half-hour ones, four per row.
+const TZ_OFFSETS: &[i64] = &[
+    -600, -480, -300, -180, 0, 60, 120, 180, 210, 300, 330, 420, 480, 540, 600, 720,
+];
+
+/// Timezone picker: one button per curated offset (`settz:<minutes>`), four per
+/// row, labelled `UTC±h[:mm]`.
+pub fn tz_picker_rows() -> Vec<Row> {
+    TZ_OFFSETS
+        .chunks(4)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .map(|&m| (tz_label(m), format!("{SET_TZ}{m}")))
+                .collect()
+        })
+        .collect()
+}
 pub const MENU_CHECKIN: &str = "menu:checkin";
 pub const MENU_BALANCE: &str = "menu:balance";
 pub const MENU_MATCHES: &str = "menu:matches";

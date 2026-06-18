@@ -961,6 +961,15 @@ pub fn usage_predict(l: Lang) -> &'static str {
 pub const CHOOSE_LANGUAGE: &str =
     "🌐 Please choose your language\n请选择语言 · 言語を選択 · 언어 선택";
 
+/// Timezone-picker prompt (shown after the language is chosen, so it's localized).
+pub fn choose_timezone(l: Lang) -> &'static str {
+    tr!(l;
+        "🕒 Pick your timezone:", "🕒 選擇你的時區：", "🕒 选择你的时区：", "🕒 タイムゾーンを選んでね：", "🕒 시간대를 선택하세요:",
+        "🕒 Выберите часовой пояс:", "🕒 Choisis ton fuseau horaire :", "🕒 Elige tu zona horaria:", "🕒 Wähle deine Zeitzone:", "🕒 Chọn múi giờ của bạn:",
+        "🕒 Pilih zona waktumu:", "🕒 Piliin ang iyong timezone:", "🕒 เลือกเขตเวลาของคุณ:", "🕒 Kies je tijdzone:", "🕒 Saat dilimini seç:",
+        "🕒 Escolha seu fuso horário:", "🕒 अपना टाइमज़ोन चुनें:", "🕒 اختر منطقتك الزمنية:")
+}
+
 pub fn intro(l: Lang, name: &str) -> String {
     tr!(l;
         "Hi, {name}. I'm Xaliah! 😊\nWhat can I do for you?", "嗨，{name}。我是 Xaliah！😊\n有什麼可以幫你的嗎？", "嗨，{name}。我是 Xaliah！😊\n有什么可以帮你的吗？", "やあ、{name}。私は Xaliah！😊\n何かできることはある？", "안녕, {name}. 나는 Xaliah! 😊\n뭘 도와줄까?",

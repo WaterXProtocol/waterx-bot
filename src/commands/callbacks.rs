@@ -71,6 +71,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_sell(&ctx, &cb).await
     } else if data.starts_with("buy:") {
         handle_buy(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(menu::SET_TZ) {
+        handle_set_tz(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(menu::SET_LANG) {
         handle_set_lang(&ctx, &cb, rest).await
     } else if data == menu::MENU_CHECKIN {
@@ -388,14 +390,53 @@ async fn handle_set_lang(
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
     if let Some(message) = cb.message.clone() {
-        let available = is_group_chat(message.chat.get_id())
-            || db.checkin_available(cb.from.id).unwrap_or(true);
+        let chat = message.chat.get_id();
+        let in_group = is_group_chat(chat);
+        // Private first-timers pick a timezone next; groups go straight to the menu.
+        if !in_group && db.get_tz(cb.from.id).ok().flatten().is_none() {
+            let _ = tg::edit_with_buttons(
+                ctx,
+                chat,
+                message.message_id,
+                i18n::choose_timezone(lang),
+                &menu::tz_picker_rows(),
+            )
+            .await;
+        } else {
+            let available = in_group || db.checkin_available(cb.from.id).unwrap_or(true);
+            let _ = tg::edit_with_buttons(
+                ctx,
+                chat,
+                message.message_id,
+                &menu::menu_text(lang, &full_name(&cb.from)),
+                &menu::main_menu_rows(lang, available, in_group),
+            )
+            .await;
+        }
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `settz:<minutes>` — save the picked UTC offset and open the main menu.
+async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let Ok(minutes) = rest.parse::<i64>() else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let db = db_arc(ctx);
+    let lang = cb_lang(ctx, cb);
+    if db.set_tz(cb.from.id, minutes).is_err() {
+        return answer(ctx, cb, i18n::db_error(lang), true).await;
+    }
+    if let Some(message) = cb.message.clone() {
+        let chat = message.chat.get_id();
+        let in_group = is_group_chat(chat);
+        let available = in_group || db.checkin_available(cb.from.id).unwrap_or(true);
         let _ = tg::edit_with_buttons(
             ctx,
-            message.chat.get_id(),
+            chat,
             message.message_id,
             &menu::menu_text(lang, &full_name(&cb.from)),
-            &menu::main_menu_rows(lang, available, is_group_chat(message.chat.get_id())),
+            &menu::main_menu_rows(lang, available, in_group),
         )
         .await;
     }
@@ -592,8 +633,14 @@ async fn handle_menu_matches(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         return Ok(());
     };
     answer(ctx, cb, "", false).await?;
-    let (text, rows) = markets::brief(lang).await;
-    tg::send_with_buttons(ctx, message.chat.get_id(), &text, &rows).await?;
+    let chat = message.chat.get_id();
+    let tz = if is_group_chat(chat) {
+        0
+    } else {
+        db_arc(ctx).get_tz(cb.from.id).ok().flatten().unwrap_or(0)
+    };
+    let (text, rows) = markets::brief(lang, tz).await;
+    tg::send_with_buttons(ctx, chat, &text, &rows).await?;
     Ok(())
 }
 

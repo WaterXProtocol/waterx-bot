@@ -223,6 +223,21 @@ pub const ERR_NEG_REPLY: &str = "😐";
 /// `sorry_reply` array.
 pub const SORRY_FRUITS: &[char] = &['🍑', '🍓', '🍎', '🍊', '🥭', '🍍', '🍅', '🍈', '🍋', '🍐'];
 
+/// Render a UTC offset in minutes as a label: `0 → "UTC"`, `480 → "UTC+8"`,
+/// `330 → "UTC+5:30"`, `-300 → "UTC-5"`.
+pub fn tz_label(minutes: i64) -> String {
+    if minutes == 0 {
+        return "UTC".to_string();
+    }
+    let sign = if minutes > 0 { '+' } else { '-' };
+    let (h, m) = (minutes.abs() / 60, minutes.abs() % 60);
+    if m == 0 {
+        format!("UTC{sign}{h}")
+    } else {
+        format!("UTC{sign}{h}:{m:02}")
+    }
+}
+
 /// Convert the feed's YES odds in cents to **decimal odds** for display
 /// (e.g. 65¢ → 1.54). Shared by the `/markets` brief and the bet quote so
 /// both render the same number. Display-only — payout uses
@@ -257,6 +272,15 @@ mod tests {
         // Sub-cent amounts round to 0 (no "-0").
         assert_eq!(fmt_coins(COIN / 1000), "0"); // 0.001 → 0
         assert_eq!(fmt_coins(-(COIN / 1000)), "0");
+    }
+
+    #[test]
+    fn tz_label_formats_offsets() {
+        assert_eq!(tz_label(0), "UTC");
+        assert_eq!(tz_label(480), "UTC+8");
+        assert_eq!(tz_label(-300), "UTC-5");
+        assert_eq!(tz_label(330), "UTC+5:30");
+        assert_eq!(tz_label(-210), "UTC-3:30");
     }
 
     #[test]

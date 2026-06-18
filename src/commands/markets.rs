@@ -1,7 +1,7 @@
 use crate::commands::tg::Row;
 use crate::commands::util::*;
 use crate::i18n::{self, Lang};
-use chrono::{TimeZone, Utc};
+use chrono::{FixedOffset, TimeZone, Utc};
 use parking_lot::Mutex;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -54,15 +54,28 @@ pub async fn markets(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
     }
-    let (text, rows) = brief(lang_for_msg(&ctx, &message)).await;
-    crate::commands::tg::send_with_buttons(&ctx, message.chat.get_id(), &text, &rows).await?;
+    let chat_id = message.chat.get_id();
+    // Kickoff times render in the caller's saved timezone (private chats only —
+    // a group brief is a shared message, so it stays UTC).
+    let tz = if is_group_chat(chat_id) {
+        0
+    } else {
+        message
+            .from
+            .as_ref()
+            .and_then(|u| db(&ctx).get_tz(u.id).ok().flatten())
+            .unwrap_or(0)
+    };
+    let (text, rows) = brief(lang_for_msg(&ctx, &message), tz).await;
+    crate::commands::tg::send_with_buttons(&ctx, chat_id, &text, &rows).await?;
     Ok(())
 }
 
 /// Build the match brief (text) plus a numbered button per shown match
-/// (`bet:<market_id>`). On any fetch/parse failure returns the localized
-/// "unavailable" line and no buttons.
-pub(crate) async fn brief(lang: Lang) -> (String, Vec<Row>) {
+/// (`bet:<market_id>`). Kickoff times are shown in `tz_min` (minutes east of
+/// UTC; 0 = UTC). On any fetch/parse failure returns the localized "unavailable"
+/// line and no buttons.
+pub(crate) async fn brief(lang: Lang, tz_min: i64) -> (String, Vec<Row>) {
     let now = Utc::now().timestamp();
     let matches = match fetch_matches(lang).await {
         Ok(mut m) => {
@@ -91,7 +104,7 @@ pub(crate) async fn brief(lang: Lang) -> (String, Vec<Row>) {
     out.push('\n');
     let shown = &matches[..matches.len().min(MAX_MATCHES)];
     for (idx, m) in shown.iter().enumerate() {
-        out.push_str(&render_match(lang, idx + 1, m));
+        out.push_str(&render_match(lang, idx + 1, m, tz_min));
     }
     if matches.len() > MAX_MATCHES {
         out.push_str(&i18n::markets_more(lang, &(matches.len() - MAX_MATCHES).to_string()));
@@ -197,10 +210,10 @@ fn to_match_info(it: &Item) -> Option<MatchInfo> {
     })
 }
 
-fn render_match(lang: Lang, n: usize, m: &MatchInfo) -> String {
+fn render_match(lang: Lang, n: usize, m: &MatchInfo, tz_min: i64) -> String {
     let dot = if m.live { "🔴 " } else { "" };
     let mut s = format!("\n{n}) {dot}{} vs. {}\n", m.team_a, m.team_b);
-    if let Some(t) = fmt_time(m.starts_at) {
+    if let Some(t) = fmt_time(m.starts_at, tz_min) {
         s.push_str(&format!("├ {t}\n"));
     }
     // Home / draw / away.
@@ -227,10 +240,12 @@ fn odds(sides: &[Side], key: &str) -> Option<f64> {
     sides.iter().find(|s| s.key == key).and_then(|s| s.odds_cents)
 }
 
-/// `startsAt` (unix seconds) → `"Jun 27 · 17:00 UTC"`.
-fn fmt_time(ts: Option<i64>) -> Option<String> {
-    let dt = Utc.timestamp_opt(ts?, 0).single()?;
-    Some(dt.format("%b %-d · %H:%M UTC").to_string())
+/// `startsAt` (unix seconds) → `"Jun 27 · 17:00 UTC+8"`, in `tz_min` (minutes
+/// east of UTC; 0 = UTC).
+fn fmt_time(ts: Option<i64>, tz_min: i64) -> Option<String> {
+    let off = FixedOffset::east_opt((tz_min * 60) as i32)?;
+    let dt = off.timestamp_opt(ts?, 0).single()?;
+    Some(format!("{} {}", dt.format("%b %-d · %H:%M"), tz_label(tz_min)))
 }
 
 // ---------------------------------------------------------------------------
