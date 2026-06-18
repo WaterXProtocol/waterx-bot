@@ -130,20 +130,29 @@ impl BetGame {
         let mut rows: Vec<Vec<(String, String)>> = Vec::new();
         match self.state {
             BetState::betting => {
-                // One button per option; tapping it DMs that user a private stake
-                // builder (the bet flow happens in DM, like match betting).
-                for (i, opt) in self.option_order.iter().enumerate() {
-                    rows.push(vec![(opt.clone(), format!("gamble:pick:{i}"))]);
-                }
+                // All options on one row ([optA] [optB] …); tapping one DMs that
+                // user a private stake builder (the bet flow happens in DM, like
+                // match betting). `[close]` sits on its own row below.
+                rows.push(
+                    self.option_order
+                        .iter()
+                        .enumerate()
+                        .map(|(i, opt)| (opt.clone(), format!("gamble:pick:{i}")))
+                        .collect(),
+                );
                 rows.push(vec![(
                     i18n::close_button(self.lang).to_string(),
                     "gamble:".to_string(),
                 )]);
             }
             BetState::closed => {
-                for opt in &self.option_order {
-                    rows.push(vec![(opt.clone(), format!("gamble:{opt}"))]);
-                }
+                // Settle: all outcome buttons on one row, draw on its own row.
+                rows.push(
+                    self.option_order
+                        .iter()
+                        .map(|opt| (opt.clone(), format!("gamble:{opt}")))
+                        .collect(),
+                );
                 rows.push(vec![(
                     i18n::draw_label(self.lang).to_string(),
                     "gamble:$draw$".to_string(),

@@ -70,7 +70,7 @@ The `envelope:` callback prefix is still routed even though the `/envelope` comm
 
 ### Bet games
 
-`/predict <question>? <opt1> <opt2> ...` (fn `predict` in `src/commands/predict.rs`) creates a `BetGame`, stores it under `{chat_id}:{message_id}`, and posts an inline keyboard. Parsing reads the **raw** arg text (`util::text_of`, not the whitespace-split `args`) so the question can contain spaces: it splits at the **first `?` or full-width `？`** (the mark is kept in the title), then the remainder is whitespace-split into options (need ≥2). No-arg `/predict` instead lists the caller's open games (or the usage hint when none). All bet activity flows through `gamble:` callbacks. The shared group board carries **one button per option** (`gamble:pick:<idx>` — option by index so its text can't break the callback data) plus a host `[close]` (`gamble:` empty) and, once closed, per-outcome settle buttons (`gamble:<outcome>`, outcome by text matched against `option_order`). Placing a bet uses the **same DM stake-builder as match betting, minus odds**: tapping an option DMs the tapper a builder (`callbacks::game_builder_rows`) with whole-coin preset buttons (`crate::game::STAKE_AMOUNTS = [1, 5, 10, 50]`); a toast (`i18n::bet_check_dm`, or `bet_dm_first` if the user has no DM open) points them there. The builder draft is **stateless** — it's encoded in the callback data itself: `gsz:<chat>:<msg>:<idx>:<total>` accumulates presets into the running `total` (re-rendered via `i18n::game_build`), `gsc:` shows a confirm screen (`game_confirm`, `[place]`→`gsp:` / `[back]`→`gsz:…:0`), and `gsp:` is the only step that moves money — it debits `total × COIN`, calls `game.stake`, edits the **group** board (looked up by the `chat:msg` key) with the new pool/odds, edits the DM to `game_placed`, and posts `i18n::game_announce` to the origin group (`crate::commands::util::send_text`). Nothing is debited until `gsp:`, and there's no in-memory draft to lose on restart. Settlement writes balances to `Database` from the callback handler, not from the game struct itself. The board (`BetGame::get_text`) is a **shared, live pari-mutuel display** re-rendered on every bet: `🎲 <question> · <state emoji+label>`, one numbered line per option (`① name   <pool> 🪙 → ×<multiplier>`, `×—` until it has bets), and a localized pool footer (`i18n::board_footer_open`/`board_footer_closed`). Win multipliers are `total/bet` to 2 decimals (`OptionData.odd`); the id-tail `set_id` prepends to `description` is hidden from the board (shown only via `get_header` in the per-user `check()` view).
+`/predict <question>? <opt1> <opt2> ...` (fn `predict` in `src/commands/predict.rs`) creates a `BetGame`, stores it under `{chat_id}:{message_id}`, and posts an inline keyboard. Parsing reads the **raw** arg text (`util::text_of`, not the whitespace-split `args`) so the question can contain spaces: it splits at the **first `?` or full-width `？`** (the mark is kept in the title), then the remainder is whitespace-split into options (need ≥2). No-arg `/predict` instead lists the caller's open games (or the usage hint when none). All bet activity flows through `gamble:` callbacks. The shared group board carries **all options on one row** (`gamble:pick:<idx>` — option by index so its text can't break the callback data, e.g. `[optA] [optB]`) with a host `[close]` (`gamble:` empty) on its **own row below**; once closed, the settle buttons follow the same layout (all `gamble:<outcome>` on one row, `[draw]` on the next; outcome by text matched against `option_order`). Placing a bet uses the **same DM stake-builder as match betting, minus odds**: tapping an option DMs the tapper a builder (`callbacks::game_builder_rows`) with whole-coin preset buttons (`crate::game::STAKE_AMOUNTS = [1, 5, 10, 50]`); a toast (`i18n::bet_check_dm`, or `bet_dm_first` if the user has no DM open) points them there. The builder draft is **stateless** — it's encoded in the callback data itself: `gsz:<chat>:<msg>:<idx>:<total>` accumulates presets into the running `total` (re-rendered via `i18n::game_build`), `gsc:` shows a confirm screen (`game_confirm`, `[place]`→`gsp:` / `[back]`→`gsz:…:0`), and `gsp:` is the only step that moves money — it debits `total × COIN`, calls `game.stake`, edits the **group** board (looked up by the `chat:msg` key) with the new pool/odds, edits the DM to `game_placed`, and posts `i18n::game_announce` to the origin group (`crate::commands::util::send_text`). Nothing is debited until `gsp:`, and there's no in-memory draft to lose on restart. Settlement writes balances to `Database` from the callback handler, not from the game struct itself. The board (`BetGame::get_text`) is a **shared, live pari-mutuel display** re-rendered on every bet: `🎲 <question> · <state emoji+label>`, one numbered line per option (`① name   <pool> 🪙 → ×<multiplier>`, `×—` until it has bets), and a localized pool footer (`i18n::board_footer_open`/`board_footer_closed`). Win multipliers are `total/bet` to 2 decimals (`OptionData.odd`); the id-tail `set_id` prepends to `description` is hidden from the board (shown only via `get_header` in the per-user `check()` view).
 
 ### Internationalisation (`src/i18n.rs`)
 
@@ -150,22 +150,26 @@ and `fetch_one(market_id)` re-fetches a single match's fresh odds at bet time.
 coin balance:
 
 1. Tapping a match number (`bet:`) re-fetches that match's **current** odds and
-   opens a quote with one button per priced outcome (`opt:<qid>:<outcome>`).
-   **In a private chat** the brief is the caller's own message, so it's
-   **replaced in place** with the quote (the whole build flow then edits in
-   place). **In a group** the brief is shared, so editing would clobber it for
-   everyone — the quote is **DM'd** instead (toast `bet_check_dm`, or
-   `bet_dm_first` if the user has no DM open, which also drops the quote). The
-   chat the button was tapped in is saved on the quote as `origin_chat` so a bet
-   placed from a **group** brief can be announced back there; a private bet's
-   `origin_chat` is the DM itself (not a group), so no announcement fires. The
-   quote is stored in-memory (`bot::QuotesKey` → `QuoteStore`) under a short id,
-   valid for `QUOTE_TTL_SECS` (60s).
-2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder**: whole-coin
-   preset buttons that **accumulate** (`sz:<qid>:<outcome>:<total>` — each preset
-   re-renders the builder at `total + preset`; `Clear` → `…:0`), plus a
-   `[✅ Confirm] [🗑 Clear]` row. The running total rides in the callback data, so
-   there is **no server-side per-user stake state**.
+   opens a quote (`quote_text` + one `opt:<qid>:<outcome>` button per priced
+   outcome). **In a group** the picked game (`team_a vs team_b` + per-side odds
+   buttons) is posted **into the group as its own card** and stays there — the
+   card's `message_id` is saved on the quote as `origin_msg` (via
+   `QuoteStore::set_origin_msg` after the send), so the placed bet can be
+   announced as a **reply to that card**. **In a private chat** the brief is the
+   caller's own message, so it's **replaced in place** with the quote (the whole
+   build flow then edits in place); `origin_msg` stays 0. The tapped chat is
+   saved as `origin_chat`; a private bet's `origin_chat` is the DM itself (not a
+   group), so no announcement fires. The quote is stored in-memory
+   (`bot::QuotesKey` → `QuoteStore`) under a short id, valid for `QUOTE_TTL_SECS`
+   (60s).
+2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder** (shared
+   `builder_text_rows`): whole-coin preset buttons that **accumulate**
+   (`sz:<qid>:<outcome>:<total>` — each preset re-renders at `total + preset`;
+   `Clear` → `…:0`), plus a `[✅ Confirm] [🗑 Clear]` row. The running total rides
+   in the callback data, so there is **no server-side per-user stake state**.
+   When the side was tapped on a **group** card (shared message) the builder is
+   **DM'd** (toast `bet_check_dm`, or `bet_dm_first` if the user has no DM) so it
+   never clobbers the card; in a private chat it edits in place.
 3. `Confirm` (`szc:<qid>:<outcome>:<total>`) shows a **confirmation screen** (the
    "modal": `[✅ Place bet] [⬅ Back]`). Only `Place` (`szp:<qid>:<outcome>:<total>`)
    moves money — it re-checks the quote is still fresh (else "open /matches
@@ -174,7 +178,9 @@ coin balance:
    `stake × 100 / odds_cents` (= stake × the decimal odds shown). After placing,
    it confirms in the DM (`bet_placed`) **and**, if `origin_chat` is a group,
    posts a third-person announcement there (`i18n::bet_announce` — "🎟️ Name bet N
-   on Side @ odds") so the group sees the action. Self-host
+   on Side @ odds") **as a reply to the game card** (`tg::send_text_reply` to
+   `origin_msg`, falling back to a loose `send_text` when there's no card id) so
+   the group sees the action under the game it belongs to. Self-host
    `/predict` betting uses the **same DM stake-builder, minus odds** (`gsz:`/`gsc:`/
    `gsp:`, `i18n::game_*`, announces via `game_announce`) — the only difference is
    its draft rides entirely in the callback data (`chat:msg:idx:total`), since the

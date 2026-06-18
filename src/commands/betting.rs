@@ -46,6 +46,9 @@ pub struct Quote {
     /// Chat the match was tapped in (the group brief) — the placed bet is
     /// announced back here. Equals the DM when `/markets` was used privately.
     origin_chat: i64,
+    /// In a group, the message id of the posted game card (A vs B + side
+    /// buttons) the placed bet is announced as a reply to. 0 when private.
+    origin_msg: i64,
 }
 
 impl Quote {
@@ -89,6 +92,11 @@ impl QuoteStore {
     }
     fn get(&self, id: u64) -> Option<Quote> {
         self.map.get(&id).cloned()
+    }
+    fn set_origin_msg(&mut self, id: u64, msg: i64) {
+        if let Some(q) = self.map.get_mut(&id) {
+            q.origin_msg = msg;
+        }
     }
     fn remove(&mut self, id: u64) {
         self.map.remove(&id);
@@ -187,21 +195,27 @@ pub async fn handle_bet(
         ends_at: m.ends_at,
         quoted_at: now(),
         origin_chat,
+        origin_msg: 0,
     };
     let qid = quotes(ctx).lock().insert(q.clone());
     let text = quote_text(lang, &q);
     let rows = option_rows(lang, &q, qid);
 
-    // In a private chat the brief is the user's own message → replace it in
-    // place with the quote (the rest of the build flow edits in place too). In a
-    // group the brief is shared, so editing would clobber it for everyone — DM
-    // the per-user build flow instead, and toast where to look.
+    // In a group the picked game (A vs B + side buttons) is posted **into the
+    // group** as its own card and stays there; tapping a side then DMs the
+    // private stake builder, and the placed bet is announced as a reply to this
+    // card. In a private chat the brief is the caller's own message, so it's
+    // replaced in place with the quote (the rest of the build flow edits in
+    // place too).
     if is_group_chat(origin_chat) {
-        match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
-            Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
+        match tg::send_with_buttons(ctx, origin_chat, &text, &rows).await {
+            Ok(sent) => {
+                quotes(ctx).lock().set_origin_msg(qid, sent.message_id);
+                answer(ctx, cb, "", false).await
+            }
             Err(_) => {
                 quotes(ctx).lock().remove(qid);
-                answer(ctx, cb, i18n::bet_dm_first(lang), true).await
+                answer(ctx, cb, "", false).await
             }
         }
     } else {
@@ -211,13 +225,28 @@ pub async fn handle_bet(
     }
 }
 
-/// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0.
+/// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0. When the
+/// side was tapped on a **group** card (shared message), the builder is DM'd so
+/// it never clobbers the card; in a private chat it edits in place.
 pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some((qid, outcome)) = parse_qid_outcome(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    render_builder(ctx, cb, lang, qid, &outcome, 0).await
+    if is_group_chat(cb.message_chat()) {
+        let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
+            return answer(ctx, cb, i18n::bet_expired(lang), true).await;
+        };
+        let Some((text, rows)) = builder_text_rows(lang, &q, qid, &outcome, 0) else {
+            return answer(ctx, cb, "", false).await;
+        };
+        match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
+            Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
+            Err(_) => answer(ctx, cb, i18n::bet_dm_first(lang), true).await,
+        }
+    } else {
+        render_builder(ctx, cb, lang, qid, &outcome, 0).await
+    }
 }
 
 /// `sz:<qid>:<outcome>:<total>` — re-render the builder at the accumulated total
@@ -311,32 +340,32 @@ pub async fn handle_size_place(
     // Confirm privately in the DM (where the builder lives).
     let text = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
     let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &text).await;
-    // Announce the placed bet back in the original group (skip if `/markets` was
-    // used privately — the origin is then the DM itself).
+    // Announce the placed bet back in the original group, as a reply to the game
+    // card it was bet on (skip if `/markets` was used privately — the origin is
+    // then the DM itself). Falls back to a loose message if there's no card id.
     if is_group_chat(q.origin_chat) {
         let announce =
             i18n::bet_announce(lang, &full_name(&cb.from), &fmt_coins(stake_units), &side, &odds_str);
-        let _ = send_text(ctx, q.origin_chat, announce).await;
+        if q.origin_msg != 0 {
+            let _ = tg::send_text_reply(ctx, q.origin_chat, q.origin_msg, &announce).await;
+        } else {
+            let _ = send_text(ctx, q.origin_chat, announce).await;
+        }
     }
     answer(ctx, cb, i18n::bet_done(lang), false).await
 }
 
-/// Render the accumulate screen for `total` coins on `outcome`: presets that add,
-/// then a `[Confirm] [Clear]` row.
-async fn render_builder(
-    ctx: &Context,
-    cb: &CallbackQuery,
+/// Build the stake-builder screen for `total` coins on `outcome`: presets that
+/// add, then a `[Confirm] [Clear]` row. `None` if the outcome isn't priced.
+/// Shared by the in-place editor (`render_builder`) and the group→DM path.
+fn builder_text_rows(
     lang: Lang,
+    q: &Quote,
     qid: u64,
     outcome: &str,
     total: i64,
-) -> Result<(), telexide::Error> {
-    let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
-        return expire(ctx, cb, lang).await;
-    };
-    let Some(odds) = q.odds(outcome).filter(|c| *c > 0.0) else {
-        return answer(ctx, cb, "", false).await;
-    };
+) -> Option<(String, Vec<tg::Row>)> {
+    let odds = q.odds(outcome).filter(|c| *c > 0.0)?;
     let side = q.side_name(lang, outcome);
     let win = fmt_coins(decimal_payout(total.max(0) * COIN, odds));
     let text = i18n::bet_build(
@@ -357,6 +386,24 @@ async fn render_builder(
             (i18n::bet_btn_clear(lang).to_string(), format!("{SIZE}{qid}:{outcome}:0")),
         ],
     ];
+    Some((text, rows))
+}
+
+/// Render the accumulate screen in place (edits the DM builder message).
+async fn render_builder(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    lang: Lang,
+    qid: u64,
+    outcome: &str,
+    total: i64,
+) -> Result<(), telexide::Error> {
+    let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
+        return expire(ctx, cb, lang).await;
+    };
+    let Some((text, rows)) = builder_text_rows(lang, &q, qid, outcome, total) else {
+        return answer(ctx, cb, "", false).await;
+    };
     edit(ctx, cb, &text, &rows).await?;
     answer(ctx, cb, "", false).await
 }

@@ -67,6 +67,29 @@ pub async fn send_with_buttons(
     Ok(msg?)
 }
 
+/// Send a plain message as a **reply** to `reply_to` in `chat_id`. Used to pin a
+/// placed-bet announcement under the group game card it belongs to. Falls back to
+/// a normal message if that card is gone (`allow_sending_without_reply`).
+pub async fn send_text_reply(
+    ctx: &Context,
+    chat_id: i64,
+    reply_to: i64,
+    text: &str,
+) -> Result<(), CommandError> {
+    let payload = json!({
+        "chat_id": chat_id,
+        "text": text,
+        "reply_parameters": { "message_id": reply_to, "allow_sending_without_reply": true },
+    });
+    let resp = ctx
+        .api
+        .post(APIEndpoint::SendMessage, Some(payload))
+        .await?;
+    let msg: telexide::Result<Message> = resp.into();
+    msg?;
+    Ok(())
+}
+
 /// Send a plain message with `parse_mode: HTML` (used for the tap-to-copy
 /// `<code>` invite link). No inline keyboard.
 pub async fn send_html(ctx: &Context, chat_id: i64, text: &str) -> Result<(), CommandError> {
