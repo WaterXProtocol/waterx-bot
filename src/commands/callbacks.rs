@@ -1,5 +1,5 @@
 use crate::bot::{DbKey, GamesKey};
-use crate::commands::util::{fmt_coins, format_number, is_group_chat, SORRY_FRUITS};
+use crate::commands::util::{bot_token, fmt_coins, format_number, is_group_chat, SORRY_FRUITS};
 use crate::database::COIN;
 use crate::commands::{betting, markets, menu, referral, tg};
 use crate::database::OfferOutcome;
@@ -406,23 +406,27 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
     let chat_id = message.chat.get_id();
     let text = i18n::invite_text(lang, &link, &count.to_string());
 
-    // Render the link as a QR locally (the link never leaves the bot) and post it
-    // as a standalone image — the QR is forward-safe because the link is baked
-    // into the picture. Best-effort: a QR/upload failure just skips the image.
-    let path = std::env::temp_dir().join(format!("wxqr_{}.png", cb.from.id));
-    if qrcode_generator::to_png_to_file(&link, qrcode_generator::QrCodeEcc::Medium, 512, &path)
-        .is_ok()
-    {
-        let path_str = path.to_string_lossy().to_string();
-        let _ = tg::send_photo_file(ctx, chat_id, &path_str, "").await;
-        let _ = std::fs::remove_file(&path);
-    }
+    // The invite output (unlike the home page) carries no private balance/fruit,
+    // so it's the share-safe surface for the referral link. The `[Play]` URL
+    // deep-link button lives here.
+    let rows = vec![vec![(i18n::btn_join(lang).to_string(), link.clone())]];
 
-    // The invite text (link + count) plus a tappable deep-link button. Unlike the
-    // home page, this output carries no private balance/fruit info, so the
-    // `[Play]` URL button lives here — it's the share-safe surface.
-    let rows = vec![vec![(i18n::btn_join(lang).to_string(), link)]];
-    tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
+    // Render the link to a QR locally (it never leaves the bot — no third-party
+    // QR service) and post it as a photo whose caption is the invite text and
+    // keyboard is the deep-link button — all in one message. The QR is the
+    // forward-safe carrier: a forward strips the inline keyboard, but the link is
+    // baked into the QR image. Best-effort: if QR/upload fails, fall back to a
+    // plain text message with the same link + button.
+    let qr = qrcode_generator::to_png_to_vec(&link, qrcode_generator::QrCodeEcc::Medium, 512);
+    let sent = match qr {
+        Ok(png) => tg::send_photo_bytes(&bot_token(ctx), chat_id, png, &text, &rows)
+            .await
+            .is_ok(),
+        Err(_) => false,
+    };
+    if !sent {
+        tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
+    }
     Ok(())
 }
 

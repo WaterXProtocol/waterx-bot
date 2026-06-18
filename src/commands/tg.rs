@@ -13,7 +13,6 @@
 //! inline-keyboard code paths in the bot go through the helpers here.
 
 use serde_json::{json, Value};
-use telexide::api::types::{InputFile, SendPhoto};
 use telexide::api::APIEndpoint;
 use telexide::framework::CommandError;
 use telexide::model::Message;
@@ -30,8 +29,9 @@ fn build_keyboard(rows: &[Row]) -> Value {
             let cells: Vec<Value> = row
                 .iter()
                 .map(|(label, data)| {
-                    // A `data` that looks like a link becomes a URL button
-                    // (these survive message forwarding; callback buttons don't).
+                    // A `data` that looks like a link becomes a URL button;
+                    // anything else is a callback button. (Telegram strips the
+                    // whole inline keyboard on forward regardless of kind.)
                     if data.starts_with("https://")
                         || data.starts_with("http://")
                         || data.starts_with("tg://")
@@ -107,28 +107,58 @@ pub async fn edit_text_only(
     Ok(())
 }
 
-/// Send a local image file as a photo with a caption — used for the referral
-/// QR code. Uploaded via multipart, so nothing leaves the bot.
-pub async fn send_photo_file(
-    ctx: &Context,
+/// Send in-memory PNG bytes as a photo with a caption and inline keyboard, in a
+/// single message. Used for the referral QR code.
+///
+/// This bypasses telexide's `send_photo`: that path serialises the `photo` field
+/// as `attach://<full-filename>` but names the multipart part with the filename
+/// truncated at the first `.` (`qr.png` → part name `qr`), so Telegram can never
+/// match the attachment and the upload silently fails. We post the multipart
+/// `sendPhoto` ourselves via `reqwest` (already a dependency), which also lets us
+/// attach a proper `reply_markup` keyboard (telexide's button struct serialises
+/// `null` optional fields, which Telegram rejects — see this module's header).
+pub async fn send_photo_bytes(
+    token: &str,
     chat_id: i64,
-    path: &str,
+    png: Vec<u8>,
     caption: &str,
+    rows: &[Row],
 ) -> Result<(), CommandError> {
-    let photo = SendPhoto {
-        chat_id: chat_id.into(),
-        photo: InputFile::from_path(path)?,
-        caption: (!caption.is_empty()).then(|| caption.to_string()),
-        message_thread_id: None,
-        caption_entities: None,
-        parse_mode: None,
-        has_spoiler: None,
-        disable_notification: None,
-        protect_content: None,
-        reply_to_message_id: None,
-        allow_sending_without_reply: None,
-        reply_markup: None,
-    };
-    ctx.api.send_photo(photo).await?;
+    let part = reqwest::multipart::Part::bytes(png)
+        .file_name("qr.png")
+        .mime_str("image/png")
+        .map_err(|e| CommandError(e.to_string()))?;
+    let form = reqwest::multipart::Form::new()
+        .text("chat_id", chat_id.to_string())
+        .text("caption", caption.to_string())
+        .text("reply_markup", build_keyboard(rows).to_string())
+        .part("photo", part);
+
+    let url = format!("https://api.telegram.org/bot{token}/sendPhoto");
+    let resp = reqwest::Client::new()
+        .post(url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| CommandError(e.to_string()))?;
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(CommandError(format!("sendPhoto failed: {body}")));
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod qr_tests {
+    #[test]
+    fn qr_produces_valid_png() {
+        let png = qrcode_generator::to_png_to_vec(
+            "https://t.me/foo?start=123",
+            qrcode_generator::QrCodeEcc::Medium,
+            512,
+        )
+        .expect("qr gen");
+        assert!(png.len() > 100);
+        assert_eq!(&png[1..4], b"PNG");
+    }
 }

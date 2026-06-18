@@ -164,6 +164,16 @@ pub fn is_dev(ctx: &Context) -> bool {
         .unwrap_or(false)
 }
 
+/// The configured `BOT_TOKEN`, copied out so the (non-`Send`) read guard never
+/// crosses an `.await`. Empty string if the config is somehow missing.
+pub fn bot_token(ctx: &Context) -> String {
+    ctx.data
+        .read()
+        .get::<ConfigKey>()
+        .map(|cfg| cfg.token.clone())
+        .unwrap_or_default()
+}
+
 /// True when `user_id` is the configured `BOT_OWNER`. The read guard is dropped
 /// on the same statement (it is not `Send`, so it must not cross an `.await`).
 pub fn is_owner(ctx: &Context, user_id: i64) -> bool {

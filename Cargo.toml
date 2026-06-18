@@ -16,5 +16,5 @@ anyhow = "1.0"
 thiserror = "1.0"
 tokio = { version = "1", features = ["full"] }
 chrono = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart"] }
 qrcode-generator = "4"
