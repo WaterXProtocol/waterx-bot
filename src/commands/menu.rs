@@ -5,7 +5,6 @@
 
 use crate::commands::tg::Row;
 use crate::i18n::{self, Lang};
-use telexide::prelude::Context;
 
 /// Callback-data prefixes routed in `callbacks::on_callback`.
 pub const SET_LANG: &str = "setlang:";
@@ -50,8 +49,11 @@ pub fn menu_text(lang: Lang, name: &str) -> String {
 /// balance/fruit, so it deliberately carries **no** referral deep-link button —
 /// the `[Play]` URL button lives only in the `menu:invite` output, which has no
 /// private info and is meant to be shared.
-pub fn main_menu_rows(_ctx: &Context, lang: Lang, _user_id: i64, checkin_available: bool) -> Vec<Row> {
+pub fn main_menu_rows(lang: Lang, checkin_available: bool, is_group: bool) -> Vec<Row> {
     // One button per row (vertical stack), check-in on top only when claimable.
+    // In a **group** the menu is a single shared message, so the per-user actions
+    // ([Check assets], [Invite friends]) are hidden — only the shared check-in
+    // and today's-matches buttons show.
     let mut rows: Vec<Row> = Vec::new();
     if checkin_available {
         rows.push(vec![(
@@ -59,17 +61,21 @@ pub fn main_menu_rows(_ctx: &Context, lang: Lang, _user_id: i64, checkin_availab
             MENU_CHECKIN.to_string(),
         )]);
     }
-    rows.push(vec![(
-        i18n::btn_balance(lang).to_string(),
-        MENU_BALANCE.to_string(),
-    )]);
+    if !is_group {
+        rows.push(vec![(
+            i18n::btn_balance(lang).to_string(),
+            MENU_BALANCE.to_string(),
+        )]);
+    }
     rows.push(vec![(
         i18n::btn_matches(lang).to_string(),
         MENU_MATCHES.to_string(),
     )]);
-    rows.push(vec![(
-        i18n::btn_invite(lang).to_string(),
-        MENU_INVITE.to_string(),
-    )]);
+    if !is_group {
+        rows.push(vec![(
+            i18n::btn_invite(lang).to_string(),
+            MENU_INVITE.to_string(),
+        )]);
+    }
     rows
 }

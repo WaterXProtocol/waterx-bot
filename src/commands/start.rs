@@ -45,7 +45,7 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
                 &ctx,
                 chat_id,
                 &menu::menu_text(lang, &full_name(&user)),
-                &menu::main_menu_rows(&ctx, lang, uid, available),
+                &menu::main_menu_rows(lang, available, is_group_chat(chat_id)),
             )
             .await?;
         }

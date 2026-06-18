@@ -343,7 +343,7 @@ async fn handle_set_lang(
             message.chat.get_id(),
             message.message_id,
             &menu::menu_text(lang, &full_name(&cb.from)),
-            &menu::main_menu_rows(ctx, lang, cb.from.id, available),
+            &menu::main_menu_rows(lang, available, is_group_chat(message.chat.get_id())),
         )
         .await;
     }
@@ -381,7 +381,7 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
                         message.chat.get_id(),
                         message.message_id,
                         &menu::menu_text(lang, &full_name(&cb.from)),
-                        &menu::main_menu_rows(ctx, lang, cb.from.id, false),
+                        &menu::main_menu_rows(lang, false, false),
                     )
                     .await;
                 }
