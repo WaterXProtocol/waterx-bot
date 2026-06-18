@@ -4,8 +4,8 @@ use crate::game::BetGame;
 use crate::i18n;
 use telexide::prelude::*;
 
-#[command(description = "host a betting game or show open ones")]
-pub async fn host(ctx: Context, message: Message) -> CommandResult {
+#[command(description = "open a prediction game or show open ones")]
+pub async fn predict(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
     }

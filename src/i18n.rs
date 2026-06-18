@@ -752,17 +752,17 @@ pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 5] {
         ("start", menu_start(l)),
         ("balance", menu_balance(l)),
         ("send", menu_send(l)),
-        ("host", menu_host(l)),
+        ("predict", menu_predict(l)),
         ("language", menu_language(l)),
     ]
 }
 
 fn menu_start(l: Lang) -> &'static str {
     tr!(l;
-        "Menu", "選單", "菜单", "メニュー", "메뉴",
-        "Меню", "Menu", "Menú", "Menü", "Menu",
-        "Menu", "Menu", "เมนู", "Menu", "Menü",
-        "Menu", "मेन्यू", "القائمة")
+        "Home page", "首頁", "首页", "ホーム", "홈",
+        "Главная", "Accueil", "Inicio", "Startseite", "Trang chính",
+        "Beranda", "Home", "หน้าหลัก", "Startpagina", "Ana sayfa",
+        "Página inicial", "होम", "الصفحة الرئيسية")
 }
 
 fn menu_language(l: Lang) -> &'static str {
@@ -775,26 +775,26 @@ fn menu_language(l: Lang) -> &'static str {
 
 fn menu_balance(l: Lang) -> &'static str {
     tr!(l;
-        "Balance", "餘額", "余额", "残高", "잔액",
-        "Баланс", "Solde", "Saldo", "Guthaben", "Số dư",
-        "Saldo", "Balanse", "ยอดเงิน", "Saldo", "Bakiye",
-        "Saldo", "बैलेंस", "الرصيد")
+        "Asset status", "資產狀況", "资产状况", "資産状況", "자산 현황",
+        "Состояние активов", "État des actifs", "Estado de activos", "Vermögensstatus", "Tình trạng tài sản",
+        "Status aset", "Estado ng asset", "สถานะสินทรัพย์", "Activastatus", "Varlık durumu",
+        "Status dos ativos", "संपत्ति स्थिति", "حالة الأصول")
 }
 
 fn menu_send(l: Lang) -> &'static str {
     tr!(l;
-        "Reply and transfer", "回覆並轉帳", "回复并转账", "返信して送金", "답장해서 송금",
-        "Ответить и перевести", "Répondre et transférer", "Responder y transferir", "Antworten und überweisen", "Trả lời và chuyển",
-        "Balas dan transfer", "Mag-reply at maglipat", "ตอบกลับและโอน", "Reageren en overmaken", "Yanıtla ve aktar",
-        "Responder e transferir", "जवाब देकर भेजें", "ردّ وحوّل")
+        "Transfer assets", "轉移資產", "转移资产", "資産を送る", "자산 이전",
+        "Перевести активы", "Transférer des actifs", "Transferir activos", "Vermögen übertragen", "Chuyển tài sản",
+        "Transfer aset", "Maglipat ng asset", "โอนสินทรัพย์", "Activa overdragen", "Varlık aktar",
+        "Transferir ativos", "संपत्ति ट्रांसफर करें", "تحويل الأصول")
 }
 
-fn menu_host(l: Lang) -> &'static str {
+fn menu_predict(l: Lang) -> &'static str {
     tr!(l;
-        "Host a game", "開設賭局", "开设赌局", "ゲームを開く", "게임 열기",
-        "Создать игру", "Lancer un jeu", "Crear un juego", "Spiel starten", "Mở ván cược",
-        "Buat permainan", "Mag-host ng laro", "เปิดเกม", "Spel starten", "Oyun başlat",
-        "Criar um jogo", "गेम होस्ट करें", "استضف لعبة")
+        "Create a prediction", "開啟預測", "开启预测", "予測を開く", "예측 열기",
+        "Открыть прогноз", "Ouvrir une prédiction", "Abrir predicción", "Vorhersage öffnen", "Mở dự đoán",
+        "Buka prediksi", "Magbukas ng prediksyon", "เปิดการทำนาย", "Voorspelling openen", "Tahmin aç",
+        "Abrir previsão", "प्रिडिक्शन खोलें", "افتح التوقع")
 }
 
 /// Per-staker settlement line, e.g. `***1234 won 50 water-coins`. `verb` is
