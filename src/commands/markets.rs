@@ -11,9 +11,9 @@ use telexide::prelude::*;
 /// waterx prediction-market browse endpoint.
 const BROWSE_URL: &str = "https://api.waterx.app/predict/browse";
 /// How long a fetched feed is reused before re-hitting the API (per locale),
-/// to stay under the upstream rate limit. The bet quote has its own 60s TTL, so
-/// odds shown can be at most ~2 min old worst case — fine for a casual bot.
-const FEED_CACHE_TTL: i64 = 60;
+/// to stay under the upstream rate limit. The bet quote adds its own 60s TTL, so
+/// locked odds can be at most ~90s old worst case — acceptable for a casual bot.
+const FEED_CACHE_TTL: i64 = 30;
 /// Cap so the brief stays well under Telegram's 4096-char message limit; the
 /// overflow is summarised with a "…and N more" tail.
 const MAX_MATCHES: usize = 8;
