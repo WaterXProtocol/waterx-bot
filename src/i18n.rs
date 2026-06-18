@@ -894,10 +894,10 @@ pub fn minted(l: Lang, name: &str, amt: &str) -> String {
 
 pub fn mint_usage(l: Lang) -> &'static str {
     tr!(l;
-        "Reply to someone with /mint <amount> 🪄", "回覆對方並輸入 /mint <數量> 🪄", "回复对方并输入 /mint <数量> 🪄", "相手に返信して /mint <数量> 🪄", "상대에게 답장하고 /mint <수량> 🪄",
-        "Ответьте на сообщение: /mint <сумма> 🪄", "Réponds à quelqu'un avec /mint <montant> 🪄", "Responde a alguien con /mint <cantidad> 🪄", "Antworte jemandem mit /mint <Betrag> 🪄", "Trả lời ai đó với /mint <số lượng> 🪄",
-        "Balas seseorang dengan /mint <jumlah> 🪄", "Mag-reply gamit ang /mint <halaga> 🪄", "ตอบกลับใครสักคนด้วย /mint <จำนวน> 🪄", "Reageer met /mint <bedrag> 🪄", "Birine /mint <miktar> ile yanıt ver 🪄",
-        "Responda a alguém com /mint <quantia> 🪄", "किसी को /mint <राशि> से जवाब दें 🪄", "ردّ على أحدهم بـ /mint <المبلغ> 🪄")
+        "/mint <amount> — reply to someone, or omit the reply to mint to yourself 🪄", "/mint <數量> — 回覆對方，或不回覆則鑄給自己 🪄", "/mint <数量> — 回复对方，或不回复则铸给自己 🪄", "/mint <数量> — 相手に返信、または返信なしで自分に 🪄", "/mint <수량> — 상대에게 답장, 또는 답장 없이 자신에게 🪄",
+        "/mint <сумма> — ответьте кому-то или без ответа себе 🪄", "/mint <montant> — réponds à quelqu'un, ou sans réponse pour toi 🪄", "/mint <cantidad> — responde a alguien, o sin respuesta para ti 🪄", "/mint <Betrag> — antworte jemandem, oder ohne Antwort an dich 🪄", "/mint <số lượng> — trả lời ai đó, hoặc không trả lời để tự nhận 🪄",
+        "/mint <jumlah> — balas seseorang, atau tanpa balasan untuk diri sendiri 🪄", "/mint <halaga> — mag-reply, o walang reply para sa sarili 🪄", "/mint <จำนวน> — ตอบกลับใครสักคน หรือไม่ตอบกลับเพื่อให้ตัวเอง 🪄", "/mint <bedrag> — reageer op iemand, of zonder reply voor jezelf 🪄", "/mint <miktar> — birine yanıt ver veya yanıtsız kendine 🪄",
+        "/mint <quantia> — responda a alguém, ou sem resposta para você 🪄", "/mint <राशि> — किसी को जवाब दें, या बिना जवाब खुद को 🪄", "/mint <المبلغ> — ردّ على أحدهم أو بدون ردّ لنفسك 🪄")
 }
 
 pub fn broadcast_sent(l: Lang, n: &str) -> String {

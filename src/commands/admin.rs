@@ -272,21 +272,20 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
     if !is_owner(&ctx, uid) {
         return Ok(());
     }
-    let lang = lang_for(&ctx, message.from.as_ref().unwrap());
+    let sender = message.from.clone().expect("from_id ensured a sender");
+    let lang = lang_for(&ctx, &sender);
 
     let parts = args(&message);
     let Some(amount) = parts.first().and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) else {
         reply(&ctx, &message, i18n::mint_usage(lang)).await?;
         return Ok(());
     };
-    let target = message
+    // Target: the replied-to user, or the owner themselves when there's no reply.
+    let receiver = message
         .reply_to_message
         .as_ref()
-        .and_then(|r| r.from.clone());
-    let Some(receiver) = target else {
-        reply(&ctx, &message, i18n::mint_usage(lang)).await?;
-        return Ok(());
-    };
+        .and_then(|r| r.from.clone())
+        .unwrap_or_else(|| sender.clone());
 
     db(&ctx).force_change(receiver.id, amount * COIN)?;
     reply(
