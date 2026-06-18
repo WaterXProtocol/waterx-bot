@@ -218,6 +218,22 @@ pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandE
 pub const ERR_REPLY: &str = "🤯";
 pub const ERR_NEG_REPLY: &str = "😐";
 
+/// Largest whole-coin amount a user may name in a single operation. Kept far
+/// below `i64::MAX / COIN` so the `* COIN` conversion can never overflow.
+pub const MAX_COINS: i64 = 1_000_000_000;
+
+/// Convert a user-typed whole-coin `amount` into micro-coins, rejecting
+/// non-positive or implausibly large values. Returning `None` (rather than
+/// letting `amount * COIN` silently wrap in release builds) keeps the ledger's
+/// conservation invariant intact — without this guard a single large `/send`
+/// could overflow `i64` and mint coins out of thin air.
+pub fn to_micro(amount: i64) -> Option<i64> {
+    if amount <= 0 || amount > MAX_COINS {
+        return None;
+    }
+    amount.checked_mul(crate::database::COIN)
+}
+
 /// Consolation fruits used by `open_envelope` when amount ≤ 0 and the
 /// fruit-set restriction enforced on `/buy`. Matches the original Python
 /// `sorry_reply` array.
@@ -287,6 +303,22 @@ mod tests {
         // Sub-cent amounts round to 0 (no "-0").
         assert_eq!(fmt_coins(COIN / 1000), "0"); // 0.001 → 0
         assert_eq!(fmt_coins(-(COIN / 1000)), "0");
+    }
+
+    #[test]
+    fn to_micro_rejects_overflow_and_nonpositive() {
+        // Normal amounts convert to micro-coins.
+        assert_eq!(to_micro(1), Some(COIN));
+        assert_eq!(to_micro(1234), Some(1234 * COIN));
+        assert_eq!(to_micro(MAX_COINS), Some(MAX_COINS * COIN));
+        // Non-positive is rejected.
+        assert_eq!(to_micro(0), None);
+        assert_eq!(to_micro(-5), None);
+        // Above the cap is rejected (would otherwise overflow i64 on * COIN).
+        assert_eq!(to_micro(MAX_COINS + 1), None);
+        // The concrete exploit input that wrapped i64 in release builds.
+        assert_eq!(to_micro(9_300_000_000_000), None);
+        assert_eq!(to_micro(i64::MAX), None);
     }
 
     #[test]

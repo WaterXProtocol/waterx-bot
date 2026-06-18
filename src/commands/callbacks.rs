@@ -1,6 +1,6 @@
 use crate::bot::{DbKey, GamesKey};
 use crate::commands::util::{
-    bot_token, fmt_coins, format_number, full_name, is_group_chat, SORRY_FRUITS,
+    bot_token, fmt_coins, format_number, full_name, is_group_chat, to_micro, SORRY_FRUITS,
 };
 use crate::database::COIN;
 use crate::commands::{admin, assets, betting, markets, menu, referral, tg};
@@ -195,7 +195,10 @@ async fn handle_envelope(
             Err(_) => return answer(ctx, cb, i18n::db_error(lang), true).await,
         }
     }
-    if db.balance_change(cb.from.id, amount * COIN).is_err() {
+    let Some(units) = to_micro(amount) else {
+        return answer(ctx, cb, i18n::db_error(lang), true).await;
+    };
+    if db.balance_change(cb.from.id, units).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
     db.delete_buffer(chat_id, msg_id).ok();

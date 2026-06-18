@@ -154,6 +154,11 @@ impl BetGame {
         rows
     }
 
+    // `f64` is a bounded, rounded odds intermediate; the ledger stays integer
+    // micro-coins and stakes are capped (`util::MAX_COINS`), so there is no
+    // precision loss at the bot's magnitudes — same tradeoff as
+    // `database::wager::decimal_payout`.
+    #[allow(clippy::cast_precision_loss)]
     pub fn stake(&mut self, user: i64, option: &str, amount: i64) -> bool {
         if self.state != BetState::betting {
             return false;
@@ -187,6 +192,9 @@ impl BetGame {
         true
     }
 
+    // See `stake`: the payout ratio is an `f64` intermediate over capped,
+    // integer micro-coin stakes — no precision loss at the bot's magnitudes.
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     pub fn settle(&mut self, outcome: &str) -> (HashMap<i64, i64>, String) {
         if self.state != BetState::closed {
             return (HashMap::new(), String::new());

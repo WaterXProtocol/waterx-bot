@@ -24,10 +24,10 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, i18n::usage_sell(lang)).await?;
         return Ok(());
     };
-    if price <= 0 {
+    let Some(price_units) = to_micro(price) else {
         reply(&ctx, &message, ERR_NEG_REPLY).await?;
         return Ok(());
-    }
+    };
 
     // Send placeholder with a (cleanly-serialised) inline button first to claim
     // a message id; then escrow fruit against that id atomically.
@@ -44,7 +44,7 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
         sent.message_id,
         seller.id,
         &fruits,
-        price * crate::database::COIN,
+        price_units,
     )?;
     if escrowed.is_empty() {
         // Nothing to escrow — clean up the placeholder.

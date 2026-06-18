@@ -33,10 +33,10 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, i18n::usage_buy(lang)).await?;
         return Ok(());
     };
-    if price <= 0 {
+    let Some(price_units) = to_micro(price) else {
         reply(&ctx, &message, ERR_NEG_REPLY).await?;
         return Ok(());
-    }
+    };
 
     // Placeholder first → claim msg id → escrow coin against it.
     let rows = vec![vec![(
@@ -52,7 +52,7 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
         sent.message_id,
         buyer.id,
         &fruits,
-        price * crate::database::COIN,
+        price_units,
     )? {
         let _ = ctx
             .api

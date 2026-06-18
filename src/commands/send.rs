@@ -1,7 +1,6 @@
 use crate::bot::BotIdKey;
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::database::COIN;
 use crate::i18n;
 use std::time::Duration;
 use telexide::prelude::*;
@@ -32,11 +31,11 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
 
     // === coin path ===
     if let Ok(amount) = parts[0].parse::<i64>() {
-        if amount <= 0 {
+        let Some(units) = to_micro(amount) else {
             reply(&ctx, &message, ERR_NEG_REPLY).await?;
             return Ok(());
-        }
-        if !database.balance_change(sender.id, -amount * COIN)? {
+        };
+        if !database.balance_change(sender.id, -units)? {
             reply(&ctx, &message, i18n::not_enough_money(lang)).await?;
             return Ok(());
         }
@@ -47,7 +46,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
             .cloned();
         if let Some(receiver) = direct_target {
             // Reply target is a real user → direct transfer.
-            database.force_change(receiver.id, amount * COIN)?;
+            database.force_change(receiver.id, units)?;
             reply(
                 &ctx,
                 &message,

@@ -4,7 +4,7 @@
 
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::database::{OpenMarket, COIN};
+use crate::database::OpenMarket;
 use crate::i18n::{self, Lang};
 use telexide::api::types::AnswerCallbackQuery;
 use telexide::model::CallbackQuery;
@@ -327,6 +327,10 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, i18n::mint_usage(lang)).await?;
         return Ok(());
     };
+    let Some(units) = to_micro(amount) else {
+        reply(&ctx, &message, i18n::mint_usage(lang)).await?;
+        return Ok(());
+    };
     // Target: the replied-to user, or the owner themselves when there's no reply.
     let receiver = message
         .reply_to_message
@@ -334,7 +338,7 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
         .and_then(|r| r.from.clone())
         .unwrap_or_else(|| sender.clone());
 
-    db(&ctx).force_change(receiver.id, amount * COIN)?;
+    db(&ctx).force_change(receiver.id, units)?;
     reply(
         &ctx,
         &message,
