@@ -693,13 +693,25 @@ pub fn board_footer_closed(l: Lang, total: &str) -> String {
     .replace("{total}", total)
 }
 
-pub fn bets_for_option(l: Lang, opt: &str) -> String {
+/// Private toast (only the tapper sees it) showing their accumulated, not-yet-
+/// confirmed stake on an option in a shared `/predict` board.
+pub fn bet_pending(l: Lang, amt: &str, opt: &str) -> String {
     tr!(l;
-        "Bets on {opt}", "{opt} 的押注", "{opt} 的押注", "{opt} への賭け", "{opt} 에 대한 베팅",
-        "Ставки на {opt}", "Mises sur {opt}", "Apuestas a {opt}", "Wetten auf {opt}", "Cược cho {opt}",
-        "Taruhan untuk {opt}", "Pusta para sa {opt}", "เดิมพันสำหรับ {opt}", "Inzetten op {opt}", "{opt} için bahisler",
-        "Apostas em {opt}", "{opt} पर दांव", "رهانات على {opt}")
+        "Pending: {amt} 🪙 on {opt}", "待確認：{amt} 🪙 押 {opt}", "待确认：{amt} 🪙 押 {opt}", "保留中：{opt} に {amt} 🪙", "대기 중: {opt} 에 {amt} 🪙",
+        "Ожидает: {amt} 🪙 на {opt}", "En attente : {amt} 🪙 sur {opt}", "Pendiente: {amt} 🪙 a {opt}", "Ausstehend: {amt} 🪙 auf {opt}", "Đang chờ: {amt} 🪙 cho {opt}",
+        "Tertunda: {amt} 🪙 pada {opt}", "Nakabinbin: {amt} 🪙 sa {opt}", "รอยืนยัน: {amt} 🪙 ที่ {opt}", "In afwachting: {amt} 🪙 op {opt}", "Beklemede: {opt} için {amt} 🪙",
+        "Pendente: {amt} 🪙 em {opt}", "लंबित: {opt} पर {amt} 🪙", "معلّق: {amt} 🪙 على {opt}")
+    .replace("{amt}", amt)
     .replace("{opt}", opt)
+}
+
+/// Private toast confirming the tapper's pending stake was cleared.
+pub fn bet_cleared(l: Lang) -> &'static str {
+    tr!(l;
+        "Pending stake cleared", "已清除待確認下注", "已清除待确认下注", "保留中の賭けをクリアしました", "대기 중인 베팅을 지웠어요",
+        "Ставка сброшена", "Mise en attente effacée", "Apuesta pendiente borrada", "Ausstehender Einsatz gelöscht", "Đã xóa cược đang chờ",
+        "Taruhan tertunda dihapus", "Na-clear ang nakabinbing taya", "ล้างเดิมพันที่รอยืนยันแล้ว", "Openstaande inzet gewist", "Bekleyen bahis temizlendi",
+        "Aposta pendente apagada", "लंबित दांव साफ़ किया गया", "تم مسح الرهان المعلّق")
 }
 
 pub fn bought_msg(l: Lang, name: &str, price: &str, fruits: &str) -> String {
@@ -1316,7 +1328,7 @@ mod tests {
                 buy_listing(l, "A", "🍎", "1"),
                 received_fruit(l, "A", "🍎"),
                 received_coins(l, "A", "1"),
-                bets_for_option(l, "X"),
+                bet_pending(l, "5", "X"),
                 bought_msg(l, "A", "1", "🍎"),
                 bought_toast(l, "🍎"),
                 sold_msg(l, "A", "🍎", "1"),

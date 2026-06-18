@@ -120,21 +120,27 @@ impl BetGame {
     }
 
     /// Inline-keyboard rows used by `commands::tg::send_with_buttons` /
-    /// `edit_with_buttons`. While betting is open, each option gets a
-    /// no-op label button followed by a stake row; settling shows one
-    /// pick-a-winner button per option plus a 流局 (draw) button.
+    /// `edit_with_buttons`. While betting is open, each option gets a row of
+    /// amount buttons that **accumulate** the tapper's pending stake (handled
+    /// per-user in `callbacks`), followed by a Confirm/Clear row and the host's
+    /// Close button; settling shows one pick-a-winner button per option plus a
+    /// draw button. Amount/option are referenced by **index** (`gamble:add:<i>:
+    /// <amt>`) so an option's text can't break the callback data.
     pub fn get_buttons(&self) -> Vec<Vec<(String, String)>> {
         let mut rows: Vec<Vec<(String, String)>> = Vec::new();
         match self.state {
             BetState::betting => {
-                for opt in &self.option_order {
-                    rows.push(vec![(opt.clone(), format!("gamble:label:{opt}"))]);
+                for (i, opt) in self.option_order.iter().enumerate() {
                     let row: Vec<(String, String)> = STAKE_AMOUNTS
                         .iter()
-                        .map(|stake| (stake.to_string(), format!("gamble:{opt}:{stake}")))
+                        .map(|amt| (format!("{opt} +{amt}"), format!("gamble:add:{i}:{amt}")))
                         .collect();
                     rows.push(row);
                 }
+                rows.push(vec![
+                    (i18n::bet_btn_confirm(self.lang).to_string(), "gamble:confirm".to_string()),
+                    (i18n::bet_btn_clear(self.lang).to_string(), "gamble:clear".to_string()),
+                ]);
                 rows.push(vec![(
                     i18n::close_button(self.lang).to_string(),
                     "gamble:".to_string(),

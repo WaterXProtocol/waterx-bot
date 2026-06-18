@@ -210,26 +210,14 @@ async fn handle_gamble(
     let chat_id = message.chat.get_id();
     let msg_id = message.message_id;
     let key = format!("{chat_id}:{msg_id}");
-    let lang = Lang::from_user(&cb.from);
-
+    // Tapper's locale for the private toast; the shared board uses the host's
+    // `game.lang`.
+    let lang = cb_lang(ctx, cb);
     let games = games_arc(ctx);
     let db = db_arc(ctx);
 
-    let parts: Vec<&str> = if rest.is_empty() {
-        Vec::new()
-    } else {
-        rest.split(':').collect()
-    };
-
-    // label noop: gamble:label:<option>  (option-header buttons in the
-    // betting keyboard; tap just dismisses the spinner with no state change)
-    if parts.len() >= 2 && parts[0] == "label" {
-        let opt = parts[1..].join(":");
-        return answer(ctx, cb, i18n::bets_for_option(lang, &opt), false).await;
-    }
-
-    // close: gamble:
-    if parts.is_empty() {
+    // close: gamble:  (host only)
+    if rest.is_empty() {
         let (text, rows) = {
             let mut g = games.lock().await;
             let Some(game) = g.get_mut(&key) else {
@@ -250,26 +238,74 @@ async fn handle_gamble(
         return answer(ctx, cb, i18n::close_game_toast(lang), false).await;
     }
 
-    // bet: gamble:<option>:<stake>
-    if parts.len() == 2 {
-        let option = parts[0];
-        let Ok(stake) = parts[1].parse::<i64>() else {
+    // accumulate: gamble:add:<idx>:<amt> — add to the tapper's pending stake.
+    // Nothing is debited; feedback is a private toast (only the tapper sees it),
+    // so the shared board isn't edited. Pending is per (game, user).
+    if let Some(spec) = rest.strip_prefix("add:") {
+        let parts: Vec<&str> = spec.split(':').collect();
+        let [idx_s, amt_s] = parts.as_slice() else {
+            return answer(ctx, cb, "", false).await;
+        };
+        let (Ok(idx), Ok(amt)) = (idx_s.parse::<usize>(), amt_s.parse::<i64>()) else {
+            return answer(ctx, cb, "", false).await;
+        };
+        let opt = {
+            let g = games.lock().await;
+            let Some(game) = g.get(&key) else {
+                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
+            };
+            if game.state != BetState::betting {
+                return answer(ctx, cb, i18n::already_closed(lang), true).await;
+            }
+            match game.option_order.get(idx) {
+                Some(o) => o.clone(),
+                None => return answer(ctx, cb, "", false).await,
+            }
+        };
+        let pending = {
+            let mut drafts = bet_drafts().lock();
+            let entry = drafts.entry((key.clone(), cb.from.id)).or_insert((idx, 0));
+            if entry.0 != idx {
+                *entry = (idx, 0); // switched option → start fresh on the new one
+            }
+            entry.1 += amt;
+            entry.1
+        };
+        return answer(ctx, cb, &i18n::bet_pending(lang, &pending.to_string(), &opt), false).await;
+    }
+
+    // clear: gamble:clear — drop the tapper's pending stake
+    if rest == "clear" {
+        bet_drafts().lock().remove(&(key.clone(), cb.from.id));
+        return answer(ctx, cb, i18n::bet_cleared(lang), false).await;
+    }
+
+    // confirm: gamble:confirm — commit the tapper's pending stake (the only step
+    // that moves money) and edit the shared board with the new pool/odds.
+    if rest == "confirm" {
+        let Some((idx, amount)) = bet_drafts().lock().remove(&(key.clone(), cb.from.id)) else {
             return answer(ctx, cb, i18n::bad_stake(lang), true).await;
         };
-        if stake <= 0 {
+        if amount <= 0 {
             return answer(ctx, cb, i18n::bad_stake(lang), true).await;
         }
-        if !db.balance_change(cb.from.id, -stake * COIN).unwrap_or(false) {
+        if !db.balance_change(cb.from.id, -amount * COIN).unwrap_or(false) {
+            // Keep the draft so the user can adjust or clear it.
+            bet_drafts().lock().insert((key.clone(), cb.from.id), (idx, amount));
             return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
         }
         let (text, rows) = {
             let mut g = games.lock().await;
             let Some(game) = g.get_mut(&key) else {
-                db.force_change(cb.from.id, stake * COIN).ok();
+                db.force_change(cb.from.id, amount * COIN).ok();
                 return answer(ctx, cb, i18n::game_invalid(lang), true).await;
             };
-            if !game.stake(cb.from.id, option, stake) {
-                db.force_change(cb.from.id, stake * COIN).ok();
+            let Some(option) = game.option_order.get(idx).cloned() else {
+                db.force_change(cb.from.id, amount * COIN).ok();
+                return answer(ctx, cb, i18n::bet_failed(lang), true).await;
+            };
+            if !game.stake(cb.from.id, &option, amount) {
+                db.force_change(cb.from.id, amount * COIN).ok();
                 return answer(ctx, cb, i18n::bet_failed(lang), true).await;
             }
             if let Err(err) = db.save_bet_game(game) {
@@ -281,44 +317,50 @@ async fn handle_gamble(
         return answer(ctx, cb, i18n::bet_success(lang), false).await;
     }
 
-    // settle: gamble:<outcome>
-    if parts.len() == 1 {
-        let outcome = parts[0];
-        // The settled board is rendered in the host's language (game.lang),
-        // not the tapper's — it's a single shared message.
-        let (outputs, display, state, game_lang) = {
-            let mut g = games.lock().await;
-            let Some(game) = g.get_mut(&key) else {
-                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
-            };
-            if game.host != cb.from.id {
-                return answer(ctx, cb, i18n::not_host(lang), true).await;
-            }
-            if game.state != BetState::closed {
-                return answer(ctx, cb, i18n::not_closed_yet(lang), true).await;
-            }
-            let (outputs, display) = game.settle(outcome);
-            if let Err(err) = db.save_bet_game(game) {
-                eprintln!("save_bet_game(settle) error: {err}");
-            }
-            (outputs, display, game.state.clone(), game.lang)
+    // settle: gamble:<outcome>  (host only, after close). The settled board is
+    // rendered in the host's language (game.lang) — it's a shared message.
+    let outcome = rest;
+    let (outputs, display, state, game_lang) = {
+        let mut g = games.lock().await;
+        let Some(game) = g.get_mut(&key) else {
+            return answer(ctx, cb, i18n::game_invalid(lang), true).await;
         };
-        for (user, win) in &outputs {
-            if *win > 0 {
-                db.force_change(*user, *win * COIN).ok();
-            }
+        if game.host != cb.from.id {
+            return answer(ctx, cb, i18n::not_host(lang), true).await;
         }
-        let _ = tg::edit_text_only(
-            ctx,
-            chat_id,
-            msg_id,
-            &format!("{}\n---{}\n", display, state.label(game_lang)),
-        )
-        .await;
-        return answer(ctx, cb, i18n::settle_success(lang), false).await;
+        if game.state != BetState::closed {
+            return answer(ctx, cb, i18n::not_closed_yet(lang), true).await;
+        }
+        let (outputs, display) = game.settle(outcome);
+        if let Err(err) = db.save_bet_game(game) {
+            eprintln!("save_bet_game(settle) error: {err}");
+        }
+        (outputs, display, game.state.clone(), game.lang)
+    };
+    for (user, win) in &outputs {
+        if *win > 0 {
+            db.force_change(*user, *win * COIN).ok();
+        }
     }
+    let _ = tg::edit_text_only(
+        ctx,
+        chat_id,
+        msg_id,
+        &format!("{}\n---{}\n", display, state.label(game_lang)),
+    )
+    .await;
+    answer(ctx, cb, i18n::settle_success(lang), false).await
+}
 
-    answer(ctx, cb, i18n::system_error(lang), true).await
+/// `(game_key, user_id) → (option_index, accumulated_whole_coins)`.
+type BetDrafts = HashMap<(String, i64), (usize, i64)>;
+
+/// Per-(game, user) pending stake for the shared `/predict` board. In memory —
+/// nothing is debited until the user taps Confirm, so a restart just drops
+/// uncommitted drafts. parking_lot Mutex; never locked across an `.await`.
+fn bet_drafts() -> &'static parking_lot::Mutex<BetDrafts> {
+    static D: std::sync::OnceLock<parking_lot::Mutex<BetDrafts>> = std::sync::OnceLock::new();
+    D.get_or_init(|| parking_lot::Mutex::new(BetDrafts::new()))
 }
 
 /// Resolve the locale for a callback presser: their saved choice if any, else
