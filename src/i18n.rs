@@ -769,7 +769,7 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 5] {
     [
         ("start", menu_start(l)),
-        ("status", menu_balance(l)),
+        ("balance", menu_balance(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
         ("language", menu_language(l)),
@@ -929,15 +929,15 @@ pub fn menu_prompt(l: Lang) -> &'static str {
         "O que você quer?", "आप क्या करना चाहते हैं?", "ماذا تريد؟")
 }
 
-/// Balance + fruit summary shown under the menu intro.
-pub fn menu_status(l: Lang, coins: &str, fruits: &str) -> String {
+/// Balance summary shown under the menu intro. (Fruit is hidden until the
+/// fruit feature is designed.)
+pub fn menu_status(l: Lang, coins: &str) -> String {
     tr!(l;
-        "🪙 Balance: {coins}\n🍇 Fruits: {fruits}", "🪙 餘額：{coins}\n🍇 水果：{fruits}", "🪙 余额：{coins}\n🍇 水果：{fruits}", "🪙 残高：{coins}\n🍇 フルーツ：{fruits}", "🪙 잔액: {coins}\n🍇 과일: {fruits}",
-        "🪙 Баланс: {coins}\n🍇 Фрукты: {fruits}", "🪙 Solde : {coins}\n🍇 Fruits : {fruits}", "🪙 Saldo: {coins}\n🍇 Frutas: {fruits}", "🪙 Guthaben: {coins}\n🍇 Obst: {fruits}", "🪙 Số dư: {coins}\n🍇 Trái cây: {fruits}",
-        "🪙 Saldo: {coins}\n🍇 Buah: {fruits}", "🪙 Balanse: {coins}\n🍇 Prutas: {fruits}", "🪙 ยอดเงิน: {coins}\n🍇 ผลไม้: {fruits}", "🪙 Saldo: {coins}\n🍇 Fruit: {fruits}", "🪙 Bakiye: {coins}\n🍇 Meyve: {fruits}",
-        "🪙 Saldo: {coins}\n🍇 Frutas: {fruits}", "🪙 बैलेंस: {coins}\n🍇 फल: {fruits}", "🪙 الرصيد: {coins}\n🍇 الفاكهة: {fruits}")
+        "🪙 Balance: {coins}", "🪙 餘額：{coins}", "🪙 余额：{coins}", "🪙 残高：{coins}", "🪙 잔액: {coins}",
+        "🪙 Баланс: {coins}", "🪙 Solde : {coins}", "🪙 Saldo: {coins}", "🪙 Guthaben: {coins}", "🪙 Số dư: {coins}",
+        "🪙 Saldo: {coins}", "🪙 Balanse: {coins}", "🪙 ยอดเงิน: {coins}", "🪙 Saldo: {coins}", "🪙 Bakiye: {coins}",
+        "🪙 Saldo: {coins}", "🪙 बैलेंस: {coins}", "🪙 الرصيد: {coins}")
     .replace("{coins}", coins)
-    .replace("{fruits}", fruits)
 }
 
 pub fn btn_checkin(l: Lang) -> &'static str {
@@ -1212,7 +1212,7 @@ mod tests {
                 checkin_done(l, "10"),
                 minted(l, "A", "10"),
                 broadcast_sent(l, "5"),
-                menu_status(l, "10", "🍎"),
+                menu_status(l, "10"),
                 checkin_already(l, "1h 2m"),
                 invite_text(l, "link", "3"),
                 referral_bonus(l, "A", "20"),

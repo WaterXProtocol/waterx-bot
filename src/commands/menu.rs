@@ -38,18 +38,13 @@ pub fn lang_picker_rows() -> Vec<Row> {
 }
 
 /// The Xaliah main-menu body: intro line followed by the user's current
-/// balance and fruit inventory.
+/// balance. (Fruit is hidden until the fruit feature is designed.)
 pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
     let info = db(ctx).get_user_info(user_id).unwrap_or_default();
-    let fruits = if info.fruit.is_empty() {
-        "—".to_string()
-    } else {
-        info.fruit
-    };
     format!(
         "{}\n\n{}\n\n{}",
         i18n::intro(lang),
-        i18n::menu_status(lang, &fmt_coins(info.balance), &fruits),
+        i18n::menu_status(lang, &fmt_coins(info.balance)),
         i18n::menu_prompt(lang)
     )
 }

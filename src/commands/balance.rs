@@ -5,7 +5,7 @@ use crate::types::BetState;
 use telexide::prelude::*;
 
 #[command(description = "show the caller's balance and open positions")]
-pub async fn status(ctx: Context, message: Message) -> CommandResult {
+pub async fn balance(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
     }
@@ -16,23 +16,24 @@ pub async fn status(ctx: Context, message: Message) -> CommandResult {
     let lang = lang_for(&ctx, user);
     let database = db(&ctx);
     let info = database.get_user_info(user.id)?;
-    let fruits = if info.fruit.is_empty() {
-        "—".to_string()
-    } else {
-        info.fruit
-    };
 
     let mut body = format!(
         "{}\n{}",
         full_name(user),
-        i18n::menu_status(lang, &fmt_coins(info.balance), &fruits)
+        i18n::menu_status(lang, &fmt_coins(info.balance))
     );
 
-    // Open (unsettled) bets, if any. Lines are language-neutral — the side name
-    // is already localized, the rest is teams + numbers + symbols.
+    // Open (unsettled) match bets, if any, with the section's staked total in
+    // the heading. Lines are language-neutral — the side name is already
+    // localized, the rest is teams + numbers + symbols.
     let positions = database.list_open_wagers(user.id).unwrap_or_default();
     if !positions.is_empty() {
-        body.push_str(&format!("\n\n{}", i18n::positions_title(lang)));
+        let total: i64 = positions.iter().map(|p| p.stake).sum();
+        body.push_str(&format!(
+            "\n\n{} · Σ🪙{}",
+            i18n::positions_title(lang),
+            fmt_coins(total)
+        ));
         for p in &positions {
             let side = match p.outcome.as_str() {
                 "teamA" => p.team_a.clone(),
@@ -55,6 +56,7 @@ pub async fn status(ctx: Context, message: Message) -> CommandResult {
     // reconciled into the balance (settled/draw games already are, so skip them).
     // Game stakes are stored in whole coins; render via fmt_coins(× COIN).
     let mut game_lines = String::new();
+    let mut game_total: i64 = 0;
     {
         let games = games(&ctx);
         let guard = games.lock().await;
@@ -83,12 +85,18 @@ pub async fn status(ctx: Context, message: Message) -> CommandResult {
                 .map_or(g.description.as_str(), |(_, rest)| rest);
             game_lines.push_str(&format!("\n🎲 {desc}"));
             for (opt, stake) in staked {
+                game_total += stake;
                 game_lines.push_str(&format!("\n  {} · 🪙{}", opt, fmt_coins(stake * COIN)));
             }
         }
     }
     if !game_lines.is_empty() {
-        body.push_str(&format!("\n\n{}{}", i18n::predictions_title(lang), game_lines));
+        body.push_str(&format!(
+            "\n\n{} · Σ🪙{}{}",
+            i18n::predictions_title(lang),
+            fmt_coins(game_total * COIN),
+            game_lines
+        ));
     }
 
     reply(&ctx, &message, body).await?;

@@ -85,19 +85,23 @@ pub fn fmt_coins(units: i64) -> String {
     let coin = crate::database::COIN;
     let neg = units < 0;
     let u = units.abs();
-    let int_str = format_number(u / coin);
-    let frac = u % coin; // 0..COIN
+    // Display rounds to at most 2 decimals (the ledger keeps full micro-coin
+    // precision). Round half-up to the nearest 0.01 coin, then trim trailing
+    // zeros so whole amounts read "42", not "42.00".
+    let per_cent = coin / 100; // micro-coins in 0.01 coin
+    let cents = (u + per_cent / 2) / per_cent; // hundredths of a coin
+    let int_str = format_number(cents / 100);
+    let frac = cents % 100;
     let body = if frac == 0 {
         int_str
     } else {
-        // Six-digit fractional part, trailing zeros trimmed.
-        let mut f = format!("{frac:06}");
+        let mut f = format!("{frac:02}");
         while f.ends_with('0') {
             f.pop();
         }
         format!("{int_str}.{f}")
     };
-    if neg {
+    if neg && cents != 0 {
         format!("-{body}")
     } else {
         body
@@ -233,6 +237,17 @@ mod tests {
         assert_eq!(fmt_coins(COIN / 100), "0.01");
         assert_eq!(fmt_coins(COIN + COIN / 100), "1.01");
         assert_eq!(fmt_coins(-(COIN * 5)), "-5");
+    }
+
+    #[test]
+    fn fmt_coins_rounds_to_two_decimals() {
+        // 5 coins @ 1.54 decimal odds = 7.692308… → display caps at 2 dp.
+        assert_eq!(fmt_coins(7_692_308), "7.69");
+        // Half-up rounding at the 3rd decimal.
+        assert_eq!(fmt_coins(1_005_000), "1.01"); // 1.005 → 1.01
+        // Sub-cent amounts round to 0 (no "-0").
+        assert_eq!(fmt_coins(COIN / 1000), "0"); // 0.001 → 0
+        assert_eq!(fmt_coins(-(COIN / 1000)), "0");
     }
 
     #[test]
