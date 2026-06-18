@@ -142,11 +142,19 @@ coin balance:
    The quote is stored in-memory (`bot::QuotesKey` → `QuoteStore`) under a short
    id and is valid for `QUOTE_TTL_SECS` (60s) — odds move, so it must be fresh.
    If the user has no DM open, a toast tells them to start the bot privately.
-2. Picking a side shows whole-coin **preset stake buttons** (`sz:<qid>:<outcome>:<n>`).
-3. Confirming a stake re-checks the quote is still fresh (else "open /matches
-   again"), debits `stake × COIN` via `balance_change`, and records the wager
+2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder**: whole-coin
+   preset buttons that **accumulate** (`sz:<qid>:<outcome>:<total>` — each preset
+   re-renders the builder at `total + preset`; `Clear` → `…:0`), plus a
+   `[✅ Confirm] [🗑 Clear]` row. The running total rides in the callback data, so
+   there is **no server-side per-user stake state**.
+3. `Confirm` (`szc:<qid>:<outcome>:<total>`) shows a **confirmation screen** (the
+   "modal": `[✅ Place bet] [⬅ Back]`). Only `Place` (`szp:<qid>:<outcome>:<total>`)
+   moves money — it re-checks the quote is still fresh (else "open /matches
+   again"), debits `total × COIN` via `balance_change`, and records the wager
    (`Database::place_wager`) with the **locked** `odds_cents`. Payout on a win is
-   `stake × 100 / odds_cents` (= stake × the decimal odds shown).
+   `stake × 100 / odds_cents` (= stake × the decimal odds shown). Self-host
+   `/predict` game betting still uses its own direct-tap `gamble:` flow (a planned
+   follow-up will align it with this builder).
 
 Settlement is **manual** (no results endpoint exists on the API — browse only
 lists scheduled/live matches, and resolution is on-chain Polymarket), owner-only,

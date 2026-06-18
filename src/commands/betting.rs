@@ -1,7 +1,10 @@
 //! Real-money match betting: tap a match in `/matches` → the bot DMs a fresh
-//! odds quote → pick a side → pick a stake. The quote is valid for
-//! [`QUOTE_TTL_SECS`]; after that the user must re-open `/matches` because the
-//! odds move. Wagers are stored and settled later by an admin (`/settle`).
+//! odds quote → pick a side → **build a stake** (preset buttons add up; `Clear`
+//! resets) → **Confirm** (a confirmation screen — the only step that debits the
+//! balance and records the wager). The running total rides in the buttons'
+//! callback data, so no per-user state is stored server-side. The quote is valid
+//! for [`QUOTE_TTL_SECS`]; after that the user must re-open `/matches` because the
+//! odds move. Wagers are settled later by an admin (`/settle`).
 
 use crate::bot::QuotesKey;
 use crate::commands::markets;
@@ -18,12 +21,14 @@ use telexide::prelude::*;
 
 /// How long a quoted set of odds stays valid.
 const QUOTE_TTL_SECS: i64 = 60;
-/// Whole-coin stake presets offered as buttons.
+/// Whole-coin stake presets — each button *adds* this much to the running stake.
 const SIZE_PRESETS: [i64; 5] = [1, 5, 10, 50, 100];
 
 /// Callback-data prefixes (the `bet:` prefix lives in `markets`).
-pub const OPT: &str = "opt:";
-pub const SIZE: &str = "sz:";
+pub const OPT: &str = "opt:"; // pick a side → open the stake builder
+pub const SIZE: &str = "sz:"; // re-render the builder at an accumulated total
+pub const SIZE_CONFIRM: &str = "szc:"; // builder → confirmation screen
+pub const SIZE_PLACE: &str = "szp:"; // confirmation → debit + place the wager
 
 /// A snapshot of one match's odds, locked for [`QUOTE_TTL_SECS`].
 #[derive(Clone)]
@@ -184,12 +189,70 @@ pub async fn handle_bet(
     }
 }
 
-/// `opt:<qid>:<outcome>` — show the stake presets for the chosen side.
+/// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0.
 pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some((qid, outcome)) = parse_qid_outcome(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    render_builder(ctx, cb, lang, qid, &outcome, 0).await
+}
+
+/// `sz:<qid>:<outcome>:<total>` — re-render the builder at the accumulated total
+/// (preset buttons add, `Clear` resets to 0, `Back` from confirm lands here).
+pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    render_builder(ctx, cb, lang, qid, &outcome, total).await
+}
+
+/// `szc:<qid>:<outcome>:<total>` — the builder's Confirm: show the final
+/// confirmation screen (the "modal" before any debit).
+pub async fn handle_size_confirm(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    rest: &str,
+) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    if total <= 0 {
+        return answer(ctx, cb, i18n::bad_stake(lang), true).await;
+    }
+    let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
+        return expire(ctx, cb, lang).await;
+    };
+    let Some(odds) = q.odds(&outcome).filter(|c| *c > 0.0) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let side = q.side_name(lang, &outcome);
+    let win = fmt_coins(decimal_payout(total * COIN, odds));
+    let text = i18n::bet_confirm(lang, &fmt_coins(total * COIN), &side, &win);
+    let rows = vec![
+        vec![(i18n::bet_btn_place(lang).to_string(), format!("{SIZE_PLACE}{qid}:{outcome}:{total}"))],
+        vec![(i18n::bet_btn_back(lang).to_string(), format!("{SIZE}{qid}:{outcome}:{total}"))],
+    ];
+    edit(ctx, cb, &text, &rows).await?;
+    answer(ctx, cb, "", false).await
+}
+
+/// `szp:<qid>:<outcome>:<total>` — the only step that moves money: re-check
+/// freshness + balance, debit, and record the wager.
+pub async fn handle_size_place(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    rest: &str,
+) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    if total <= 0 {
+        return answer(ctx, cb, i18n::bad_stake(lang), true).await;
+    }
     let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
         return expire(ctx, cb, lang).await;
     };
@@ -197,39 +260,7 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         return answer(ctx, cb, "", false).await;
     };
 
-    let side = q.side_name(lang, &outcome);
-    let rows: Vec<tg::Row> = vec![SIZE_PRESETS
-        .iter()
-        .map(|s| (s.to_string(), format!("{SIZE}{qid}:{outcome}:{s}")))
-        .collect()];
-    edit(
-        ctx,
-        cb,
-        &i18n::bet_how_much(lang, &side, &format!("{:.2}", decimal_odds(odds))),
-        &rows,
-    )
-    .await?;
-    answer(ctx, cb, "", false).await
-}
-
-/// `sz:<qid>:<outcome>:<stake>` — validate freshness + balance, place the wager.
-pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let parts: Vec<&str> = rest.split(':').collect();
-    let [qid_s, outcome, stake_s] = parts.as_slice() else {
-        return answer(ctx, cb, "", false).await;
-    };
-    let (Ok(qid), Ok(stake_coins)) = (qid_s.parse::<u64>(), stake_s.parse::<i64>()) else {
-        return answer(ctx, cb, "", false).await;
-    };
-    let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
-        return expire(ctx, cb, lang).await;
-    };
-    let Some(odds) = q.odds(outcome).filter(|c| *c > 0.0) else {
-        return answer(ctx, cb, "", false).await;
-    };
-
-    let stake_units = stake_coins * COIN;
+    let stake_units = total * COIN;
     let database = db(ctx);
     if !database.balance_change(cb.from.id, -stake_units).unwrap_or(false) {
         return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
@@ -240,7 +271,7 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
         &q.slug,
         &q.team_a,
         &q.team_b,
-        outcome,
+        &outcome,
         stake_units,
         odds,
         q.ends_at,
@@ -253,7 +284,7 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     quotes(ctx).lock().remove(qid);
 
     let payout = decimal_payout(stake_units, odds);
-    let side = q.side_name(lang, outcome);
+    let side = q.side_name(lang, &outcome);
     let text = i18n::bet_placed(
         lang,
         &fmt_coins(stake_units),
@@ -263,6 +294,46 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     );
     let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &text).await;
     answer(ctx, cb, i18n::bet_done(lang), false).await
+}
+
+/// Render the accumulate screen for `total` coins on `outcome`: presets that add,
+/// then a `[Confirm] [Clear]` row.
+async fn render_builder(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    lang: Lang,
+    qid: u64,
+    outcome: &str,
+    total: i64,
+) -> Result<(), telexide::Error> {
+    let Some(q) = quotes(ctx).lock().get(qid).filter(|q| q.fresh(now())) else {
+        return expire(ctx, cb, lang).await;
+    };
+    let Some(odds) = q.odds(outcome).filter(|c| *c > 0.0) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let side = q.side_name(lang, outcome);
+    let win = fmt_coins(decimal_payout(total.max(0) * COIN, odds));
+    let text = i18n::bet_build(
+        lang,
+        &side,
+        &format!("{:.2}", decimal_odds(odds)),
+        &fmt_coins(total.max(0) * COIN),
+        &win,
+    );
+    let add_row: tg::Row = SIZE_PRESETS
+        .iter()
+        .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{outcome}:{}", total + p)))
+        .collect();
+    let rows = vec![
+        add_row,
+        vec![
+            (i18n::bet_btn_confirm(lang).to_string(), format!("{SIZE_CONFIRM}{qid}:{outcome}:{total}")),
+            (i18n::bet_btn_clear(lang).to_string(), format!("{SIZE}{qid}:{outcome}:0")),
+        ],
+    ];
+    edit(ctx, cb, &text, &rows).await?;
+    answer(ctx, cb, "", false).await
 }
 
 async fn expire(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<(), telexide::Error> {
@@ -283,6 +354,15 @@ async fn edit(
 fn parse_qid_outcome(rest: &str) -> Option<(u64, String)> {
     let (qid, outcome) = rest.split_once(':')?;
     Some((qid.parse().ok()?, outcome.to_string()))
+}
+
+/// Parse `<qid>:<outcome>:<total>` (outcome is `teamA`/`teamB`/`draw`, no colon).
+fn parse_qid_outcome_total(rest: &str) -> Option<(u64, String, i64)> {
+    let parts: Vec<&str> = rest.split(':').collect();
+    let [qid, outcome, total] = parts.as_slice() else {
+        return None;
+    };
+    Some((qid.parse().ok()?, (*outcome).to_string(), total.parse().ok()?))
 }
 
 /// Small extension so the handlers can read the message coordinates concisely.

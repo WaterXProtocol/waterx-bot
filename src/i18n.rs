@@ -1117,14 +1117,62 @@ pub fn bet_lost(l: Lang) -> &'static str {
         "😔 Sua aposta não ganhou desta vez.", "😔 इस बार आपका दांव नहीं जीता।", "😔 لم يفز رهانك هذه المرة.")
 }
 
-pub fn bet_how_much(l: Lang, side: &str, odds: &str) -> String {
+/// Stake-builder screen: the chosen side/odds, the running stake and potential
+/// win, and a prompt to tap presets to add.
+pub fn bet_build(l: Lang, side: &str, odds: &str, stake: &str, win: &str) -> String {
     tr!(l;
-        "How much on {side} @ {odds}?", "在 {side} @ {odds} 上下注多少？", "在 {side} @ {odds} 上下注多少？", "{side} @ {odds} にいくら賭ける？", "{side} @ {odds} 에 얼마 걸까?",
-        "Сколько на {side} @ {odds}?", "Combien sur {side} @ {odds} ?", "¿Cuánto a {side} @ {odds}?", "Wie viel auf {side} @ {odds}?", "Cược bao nhiêu cho {side} @ {odds}?",
-        "Berapa untuk {side} @ {odds}?", "Magkano sa {side} @ {odds}?", "เดิมพันเท่าไรกับ {side} @ {odds}?", "Hoeveel op {side} @ {odds}?", "{side} @ {odds} için ne kadar?",
-        "Quanto em {side} @ {odds}?", "{side} @ {odds} पर कितना?", "كم على {side} @ {odds}؟")
+        "{side} @ {odds}\nStake: {stake} 🪙 → win {win} 🪙\nTap to add:", "{side} @ {odds}\n下注：{stake} 🪙 → 贏 {win} 🪙\n點擊加注：", "{side} @ {odds}\n下注：{stake} 🪙 → 赢 {win} 🪙\n点击加注：", "{side} @ {odds}\nステーク：{stake} 🪙 → 勝てば {win} 🪙\nタップで追加：", "{side} @ {odds}\n베팅: {stake} 🪙 → 당첨 시 {win} 🪙\n탭하여 추가:",
+        "{side} @ {odds}\nСтавка: {stake} 🪙 → выигрыш {win} 🪙\nНажмите, чтобы добавить:", "{side} @ {odds}\nMise : {stake} 🪙 → gain {win} 🪙\nAppuyez pour ajouter :", "{side} @ {odds}\nApuesta: {stake} 🪙 → ganas {win} 🪙\nToca para añadir:", "{side} @ {odds}\nEinsatz: {stake} 🪙 → Gewinn {win} 🪙\nZum Hinzufügen tippen:", "{side} @ {odds}\nĐặt: {stake} 🪙 → thắng {win} 🪙\nChạm để thêm:",
+        "{side} @ {odds}\nTaruhan: {stake} 🪙 → menang {win} 🪙\nKetuk untuk menambah:", "{side} @ {odds}\nTaya: {stake} 🪙 → panalo {win} 🪙\nI-tap para magdagdag:", "{side} @ {odds}\nเดิมพัน: {stake} 🪙 → ชนะ {win} 🪙\nแตะเพื่อเพิ่ม:", "{side} @ {odds}\nInzet: {stake} 🪙 → winst {win} 🪙\nTik om toe te voegen:", "{side} @ {odds}\nBahis: {stake} 🪙 → kazanç {win} 🪙\nEklemek için dokun:",
+        "{side} @ {odds}\nAposta: {stake} 🪙 → ganha {win} 🪙\nToque para adicionar:", "{side} @ {odds}\nदांव: {stake} 🪙 → जीत {win} 🪙\nजोड़ने के लिए टैप करें:", "{side} @ {odds}\nالرهان: {stake} 🪙 → الربح {win} 🪙\nانقر للإضافة:")
     .replace("{side}", side)
     .replace("{odds}", odds)
+    .replace("{stake}", stake)
+    .replace("{win}", win)
+}
+
+/// Final confirmation screen before debiting the balance.
+pub fn bet_confirm(l: Lang, stake: &str, side: &str, win: &str) -> String {
+    tr!(l;
+        "Place {stake} 🪙 on {side}?\nPotential win: {win} 🪙", "確定下注 {stake} 🪙 於 {side}？\n潛在贏得：{win} 🪙", "确定下注 {stake} 🪙 于 {side}？\n潜在赢得：{win} 🪙", "{side} に {stake} 🪙 を賭けますか？\n勝てば：{win} 🪙", "{side} 에 {stake} 🪙 베팅할까요?\n당첨 시: {win} 🪙",
+        "Поставить {stake} 🪙 на {side}?\nВозможный выигрыш: {win} 🪙", "Miser {stake} 🪙 sur {side} ?\nGain potentiel : {win} 🪙", "¿Apostar {stake} 🪙 a {side}?\nGanancia potencial: {win} 🪙", "{stake} 🪙 auf {side} setzen?\nMöglicher Gewinn: {win} 🪙", "Đặt {stake} 🪙 cho {side}?\nTiền thắng dự kiến: {win} 🪙",
+        "Pasang {stake} 🪙 pada {side}?\nPotensi menang: {win} 🪙", "Itaya ang {stake} 🪙 sa {side}?\nPosibleng panalo: {win} 🪙", "วางเดิมพัน {stake} 🪙 ที่ {side}?\nเงินรางวัลที่อาจได้: {win} 🪙", "{stake} 🪙 op {side} inzetten?\nMogelijke winst: {win} 🪙", "{side} için {stake} 🪙 yatırılsın mı?\nOlası kazanç: {win} 🪙",
+        "Apostar {stake} 🪙 em {side}?\nGanho potencial: {win} 🪙", "{side} पर {stake} 🪙 लगाएं?\nसंभावित जीत: {win} 🪙", "وضع {stake} 🪙 على {side}؟\nالربح المحتمل: {win} 🪙")
+    .replace("{stake}", stake)
+    .replace("{side}", side)
+    .replace("{win}", win)
+}
+
+pub fn bet_btn_confirm(l: Lang) -> &'static str {
+    tr!(l;
+        "✅ Confirm", "✅ 確認", "✅ 确认", "✅ 確認", "✅ 확인",
+        "✅ Подтвердить", "✅ Confirmer", "✅ Confirmar", "✅ Bestätigen", "✅ Xác nhận",
+        "✅ Konfirmasi", "✅ Kumpirmahin", "✅ ยืนยัน", "✅ Bevestigen", "✅ Onayla",
+        "✅ Confirmar", "✅ पुष्टि करें", "✅ تأكيد")
+}
+
+pub fn bet_btn_clear(l: Lang) -> &'static str {
+    tr!(l;
+        "🗑 Clear", "🗑 清除", "🗑 清除", "🗑 クリア", "🗑 초기화",
+        "🗑 Сбросить", "🗑 Effacer", "🗑 Borrar", "🗑 Löschen", "🗑 Xóa",
+        "🗑 Hapus", "🗑 Burahin", "🗑 ล้าง", "🗑 Wissen", "🗑 Temizle",
+        "🗑 Limpar", "🗑 साफ़ करें", "🗑 مسح")
+}
+
+pub fn bet_btn_place(l: Lang) -> &'static str {
+    tr!(l;
+        "✅ Place bet", "✅ 確定下注", "✅ 确定下注", "✅ 賭ける", "✅ 베팅하기",
+        "✅ Сделать ставку", "✅ Parier", "✅ Apostar", "✅ Wetten", "✅ Đặt cược",
+        "✅ Pasang", "✅ Itaya", "✅ วางเดิมพัน", "✅ Inzetten", "✅ Bahis yap",
+        "✅ Apostar", "✅ दांव लगाएं", "✅ ضع الرهان")
+}
+
+pub fn bet_btn_back(l: Lang) -> &'static str {
+    tr!(l;
+        "⬅ Back", "⬅ 返回", "⬅ 返回", "⬅ 戻る", "⬅ 뒤로",
+        "⬅ Назад", "⬅ Retour", "⬅ Atrás", "⬅ Zurück", "⬅ Quay lại",
+        "⬅ Kembali", "⬅ Bumalik", "⬅ ย้อนกลับ", "⬅ Terug", "⬅ Geri",
+        "⬅ Voltar", "⬅ वापस", "⬅ رجوع")
 }
 
 pub fn bet_placed(l: Lang, stake: &str, side: &str, odds: &str, payout: &str) -> String {
@@ -1209,7 +1257,8 @@ mod tests {
                 checkin_already(l, "1h 2m"),
                 invite_text(l, "link", "3"),
                 referral_bonus(l, "A", "20"),
-                bet_how_much(l, "A", "1.54"),
+                bet_build(l, "A", "1.54", "5", "8"),
+                bet_confirm(l, "5", "A", "8"),
                 bet_placed(l, "10", "A", "1.54", "15"),
                 bet_won(l, "15"),
             ];
