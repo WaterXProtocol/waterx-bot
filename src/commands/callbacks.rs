@@ -660,7 +660,9 @@ fn referral_link_of(ctx: &Context, user_id: i64) -> String {
     menu::referral_link(&username, user_id)
 }
 
-/// `inv:link` — the referral link in a tap-to-copy `<code>` span.
+/// `inv:link` — the referral link in a tap-to-copy `<code>` span, posted as a
+/// **new** message so the format chooser stays put (the user can pick another
+/// format) and the link stands on its own.
 async fn handle_invite_link(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some(message) = cb.message.clone() else {
@@ -668,21 +670,15 @@ async fn handle_invite_link(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
     };
     answer(ctx, cb, "", false).await?;
     let link = referral_link_of(ctx, cb.from.id);
-    let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_INVITE.to_string())]];
-    let _ = tg::edit_html_with_buttons(
-        ctx,
-        message.chat.get_id(),
-        message.message_id,
-        &i18n::invite_copy(lang, &link),
-        &rows,
-    )
-    .await;
+    let _ = tg::send_html(ctx, message.chat.get_id(), &i18n::invite_copy(lang, &link)).await;
     Ok(())
 }
 
 /// `inv:fwd` — a forward-safe message: the link is baked into the **text** (so a
 /// forward keeps it), plus a `[🎮 Play now]` URL button for tapping in place
 /// (inline keyboards are stripped on forward, hence the link also lives in text).
+/// Posted as a **new** message — a clean standalone the user can forward, with
+/// the chooser left intact above it.
 async fn handle_invite_fwd(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some(message) = cb.message.clone() else {
@@ -690,18 +686,8 @@ async fn handle_invite_fwd(ctx: &Context, cb: &CallbackQuery) -> Result<(), tele
     };
     answer(ctx, cb, "", false).await?;
     let link = referral_link_of(ctx, cb.from.id);
-    let rows = vec![
-        vec![(i18n::btn_join(lang).to_string(), link.clone())],
-        vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_INVITE.to_string())],
-    ];
-    let _ = tg::edit_with_buttons(
-        ctx,
-        message.chat.get_id(),
-        message.message_id,
-        &i18n::invite_forward(lang, &link),
-        &rows,
-    )
-    .await;
+    let rows = vec![vec![(i18n::btn_join(lang).to_string(), link.clone())]];
+    let _ = tg::send_with_buttons(ctx, message.chat.get_id(), &i18n::invite_forward(lang, &link), &rows).await;
     Ok(())
 }
 

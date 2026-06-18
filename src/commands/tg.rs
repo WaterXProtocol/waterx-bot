@@ -110,30 +110,6 @@ pub async fn edit_with_buttons(
     Ok(())
 }
 
-/// Like [`edit_with_buttons`] but with `parse_mode: HTML` (for the tap-to-copy
-/// `<code>` invite link edited in place).
-pub async fn edit_html_with_buttons(
-    ctx: &Context,
-    chat_id: i64,
-    message_id: i64,
-    text: &str,
-    rows: &[Row],
-) -> Result<(), CommandError> {
-    let payload = json!({
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "reply_markup": build_keyboard(rows),
-    });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::EditMessageText, Some(payload))
-        .await?;
-    let _: telexide::Result<serde_json::Value> = resp.into();
-    Ok(())
-}
-
 pub async fn edit_text_only(
     ctx: &Context,
     chat_id: i64,
