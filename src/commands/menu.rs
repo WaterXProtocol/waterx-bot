@@ -12,6 +12,10 @@ pub const MENU_CHECKIN: &str = "menu:checkin";
 pub const MENU_BALANCE: &str = "menu:balance";
 pub const MENU_MATCHES: &str = "menu:matches";
 pub const MENU_INVITE: &str = "menu:invite";
+/// Invite-format chooser (shown after `menu:invite`).
+pub const INVITE_LINK: &str = "inv:link";
+pub const INVITE_FWD: &str = "inv:fwd";
+pub const INVITE_QR: &str = "inv:qr";
 
 /// A user's personal referral deep link: opening it sends `/start <user_id>`.
 pub fn referral_link(bot_username: &str, user_id: i64) -> String {

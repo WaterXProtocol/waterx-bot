@@ -978,6 +978,61 @@ pub fn invite_text(l: Lang, link: &str, count: &str) -> String {
     .replace("{count}", count)
 }
 
+/// Chooser shown when the user taps [Invite friends]: pick a share format.
+pub fn invite_how(l: Lang) -> &'static str {
+    tr!(l;
+        "How do you want to share your invite? 👇", "你想怎麼分享邀請？👇", "你想怎么分享邀请？👇", "どの方法で招待を共有する？👇", "어떻게 초대를 공유할까요? 👇",
+        "Как поделиться приглашением? 👇", "Comment partager ton invitation ? 👇", "¿Cómo quieres compartir tu invitación? 👇", "Wie möchtest du deine Einladung teilen? 👇", "Bạn muốn chia sẻ lời mời thế nào? 👇",
+        "Bagaimana kamu ingin membagikan undangan? 👇", "Paano mo gustong ibahagi ang imbitasyon? 👇", "อยากแชร์คำเชิญแบบไหน? 👇", "Hoe wil je je uitnodiging delen? 👇", "Davetini nasıl paylaşmak istersin? 👇",
+        "Como você quer compartilhar seu convite? 👇", "आप अपना निमंत्रण कैसे साझा करना चाहते हैं? 👇", "كيف تريد مشاركة دعوتك؟ 👇")
+}
+
+pub fn btn_invite_link(l: Lang) -> &'static str {
+    tr!(l;
+        "🔗 Copyable link", "🔗 可複製連結", "🔗 可复制链接", "🔗 コピー用リンク", "🔗 복사용 링크",
+        "🔗 Ссылка для копирования", "🔗 Lien à copier", "🔗 Enlace para copiar", "🔗 Link zum Kopieren", "🔗 Liên kết sao chép",
+        "🔗 Tautan salin", "🔗 Kopyahin ang link", "🔗 ลิงก์คัดลอก", "🔗 Kopieerbare link", "🔗 Kopyalanabilir bağlantı",
+        "🔗 Link para copiar", "🔗 कॉपी करने योग्य लिंक", "🔗 رابط قابل للنسخ")
+}
+
+pub fn btn_invite_fwd(l: Lang) -> &'static str {
+    tr!(l;
+        "📤 Forwardable message", "📤 可轉發訊息", "📤 可转发消息", "📤 転送用メッセージ", "📤 전달용 메시지",
+        "📤 Сообщение для пересылки", "📤 Message à transférer", "📤 Mensaje para reenviar", "📤 Weiterleitbare Nachricht", "📤 Tin nhắn để chuyển tiếp",
+        "📤 Pesan untuk diteruskan", "📤 Maipapasa na mensahe", "📤 ข้อความส่งต่อ", "📤 Doorstuurbaar bericht", "📤 İletilebilir mesaj",
+        "📤 Mensagem para encaminhar", "📤 फ़ॉरवर्ड करने योग्य संदेश", "📤 رسالة قابلة لإعادة التوجيه")
+}
+
+pub fn btn_invite_qr(l: Lang) -> &'static str {
+    tr!(l;
+        "🔳 QR code", "🔳 QR 碼", "🔳 二维码", "🔳 QRコード", "🔳 QR 코드",
+        "🔳 QR-код", "🔳 Code QR", "🔳 Código QR", "🔳 QR-Code", "🔳 Mã QR",
+        "🔳 Kode QR", "🔳 QR code", "🔳 คิวอาร์โค้ด", "🔳 QR-code", "🔳 QR kodu",
+        "🔳 Código QR", "🔳 QR कोड", "🔳 رمز QR")
+}
+
+/// Copyable-link output (HTML `parse_mode`): the link in a `<code>` span renders
+/// monospace and is tap-to-copy on Telegram clients.
+pub fn invite_copy(l: Lang, link: &str) -> String {
+    tr!(l;
+        "Tap the link to copy it:\n<code>{link}</code>", "點擊連結即可複製：\n<code>{link}</code>", "点击链接即可复制：\n<code>{link}</code>", "リンクをタップしてコピー：\n<code>{link}</code>", "링크를 탭하여 복사:\n<code>{link}</code>",
+        "Нажмите на ссылку, чтобы скопировать:\n<code>{link}</code>", "Touche le lien pour le copier :\n<code>{link}</code>", "Toca el enlace para copiarlo:\n<code>{link}</code>", "Tippe auf den Link, um ihn zu kopieren:\n<code>{link}</code>", "Chạm vào liên kết để sao chép:\n<code>{link}</code>",
+        "Ketuk tautan untuk menyalin:\n<code>{link}</code>", "I-tap ang link para kopyahin:\n<code>{link}</code>", "แตะลิงก์เพื่อคัดลอก:\n<code>{link}</code>", "Tik op de link om te kopiëren:\n<code>{link}</code>", "Kopyalamak için bağlantıya dokun:\n<code>{link}</code>",
+        "Toque no link para copiar:\n<code>{link}</code>", "लिंक कॉपी करने के लिए टैप करें:\n<code>{link}</code>", "انقر على الرابط لنسخه:\n<code>{link}</code>")
+    .replace("{link}", link)
+}
+
+/// Forwardable message: friendly one-liner with the link in plain text, so it
+/// survives a forward (inline keyboards don't).
+pub fn invite_forward(l: Lang, link: &str) -> String {
+    tr!(l;
+        "🎮 Come play with me on Xaliah!\n{link}", "🎮 來 Xaliah 跟我一起玩！\n{link}", "🎮 来 Xaliah 跟我一起玩！\n{link}", "🎮 Xaliah で一緒に遊ぼう！\n{link}", "🎮 Xaliah에서 같이 놀자!\n{link}",
+        "🎮 Заходи играть со мной в Xaliah!\n{link}", "🎮 Viens jouer avec moi sur Xaliah !\n{link}", "🎮 ¡Ven a jugar conmigo en Xaliah!\n{link}", "🎮 Komm und spiel mit mir auf Xaliah!\n{link}", "🎮 Vào chơi với mình trên Xaliah nhé!\n{link}",
+        "🎮 Ayo main bareng aku di Xaliah!\n{link}", "🎮 Halika't maglaro tayo sa Xaliah!\n{link}", "🎮 มาเล่นกับฉันบน Xaliah สิ!\n{link}", "🎮 Kom met me spelen op Xaliah!\n{link}", "🎮 Gel Xaliah'da birlikte oynayalım!\n{link}",
+        "🎮 Venha jogar comigo no Xaliah!\n{link}", "🎮 Xaliah पर मेरे साथ खेलने आओ!\n{link}", "🎮 تعال نلعب معًا على Xaliah!\n{link}")
+    .replace("{link}", link)
+}
+
 /// DM to the referrer when a new user joins through their link.
 pub fn referral_bonus(l: Lang, name: &str, amt: &str) -> String {
     tr!(l;
@@ -1256,6 +1311,8 @@ mod tests {
                 menu_status(l, "10"),
                 checkin_already(l, "1h 2m"),
                 invite_text(l, "link", "3"),
+                invite_copy(l, "link"),
+                invite_forward(l, "link"),
                 referral_bonus(l, "A", "20"),
                 bet_build(l, "A", "1.54", "5", "8"),
                 bet_confirm(l, "5", "A", "8"),

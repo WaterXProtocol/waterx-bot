@@ -77,6 +77,12 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_matches(&ctx, &cb).await
     } else if data == menu::MENU_INVITE {
         handle_menu_invite(&ctx, &cb).await
+    } else if data == menu::INVITE_LINK {
+        handle_invite_link(&ctx, &cb).await
+    } else if data == menu::INVITE_FWD {
+        handle_invite_fwd(&ctx, &cb).await
+    } else if data == menu::INVITE_QR {
+        handle_invite_qr(&ctx, &cb).await
     } else if let Some(rest) = data.strip_prefix(markets::BET) {
         betting::handle_bet(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(betting::OPT) {
@@ -397,35 +403,74 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     }
 }
 
-/// `menu:invite` — post the presser's personal referral link and their current
-/// referral count as a fresh message.
+/// `menu:invite` — show a chooser: copyable link / forwardable message / QR.
+/// The actual artefact is generated only when the user picks one.
 async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some(message) = cb.message.clone() else {
         return Ok(());
     };
+    answer(ctx, cb, "", false).await?;
+    let rows = vec![
+        vec![(i18n::btn_invite_link(lang).to_string(), menu::INVITE_LINK.to_string())],
+        vec![(i18n::btn_invite_fwd(lang).to_string(), menu::INVITE_FWD.to_string())],
+        vec![(i18n::btn_invite_qr(lang).to_string(), menu::INVITE_QR.to_string())],
+    ];
+    tg::send_with_buttons(ctx, message.chat.get_id(), i18n::invite_how(lang), &rows).await?;
+    Ok(())
+}
+
+/// This user's referral deep link, from the cached bot username.
+fn referral_link_of(ctx: &Context, user_id: i64) -> String {
     let username = ctx
         .data
         .read()
         .get::<crate::bot::BotUsernameKey>()
         .cloned()
         .unwrap_or_default();
-    let link = menu::referral_link(&username, cb.from.id);
-    let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
+    menu::referral_link(&username, user_id)
+}
+
+/// `inv:link` — the referral link in a tap-to-copy `<code>` span.
+async fn handle_invite_link(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    answer(ctx, cb, "", false).await?;
+    let link = referral_link_of(ctx, cb.from.id);
+    tg::send_html(ctx, message.chat.get_id(), &i18n::invite_copy(lang, &link)).await?;
+    Ok(())
+}
+
+/// `inv:fwd` — a forward-safe message (link baked into the text).
+async fn handle_invite_fwd(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    answer(ctx, cb, "", false).await?;
+    let link = referral_link_of(ctx, cb.from.id);
+    crate::commands::util::send_text(ctx, message.chat.get_id(), i18n::invite_forward(lang, &link))
+        .await?;
+    Ok(())
+}
+
+/// `inv:qr` — a QR photo (caption = link + count, keyboard = `[Play]`). The QR is
+/// generated locally and its Telegram `file_id` cached per user, so repeat taps
+/// re-send by id with no regeneration/upload (caption rebuilt fresh each time).
+async fn handle_invite_qr(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
     answer(ctx, cb, "", false).await?;
     let chat_id = message.chat.get_id();
+    let link = referral_link_of(ctx, cb.from.id);
+    let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
     let text = i18n::invite_text(lang, &link, &count.to_string());
-
-    // The invite output (unlike the home page) carries no private balance/fruit,
-    // so it's the share-safe surface for the referral link. The `[Play]` URL
-    // deep-link button lives here.
     let rows = vec![vec![(i18n::btn_join(lang).to_string(), link.clone())]];
 
-    // The QR encodes the user's referral link, which never changes, so the photo
-    // is identical every time. Reuse Telegram's `file_id` from the first upload
-    // (cached per user) to avoid regenerating + re-uploading on every tap; the
-    // caption (link + current count) and keyboard are still rebuilt fresh.
-    // Best-effort throughout: any failure falls through to a plain text+button.
     let token = bot_token(ctx);
     let cached = qr_cache().lock().get(&cb.from.id).cloned();
     let sent = if let Some(file_id) = cached {
@@ -434,7 +479,6 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
         false
     };
     if !sent {
-        // No (or stale) cache: generate the QR locally, upload, cache its file_id.
         match qrcode_generator::to_png_to_vec(&link, qrcode_generator::QrCodeEcc::Medium, 512) {
             Ok(png) => match tg::send_photo_bytes(&token, chat_id, png, &text, &rows).await {
                 Ok(Some(file_id)) => {

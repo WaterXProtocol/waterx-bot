@@ -67,6 +67,23 @@ pub async fn send_with_buttons(
     Ok(msg?)
 }
 
+/// Send a plain message with `parse_mode: HTML` (used for the tap-to-copy
+/// `<code>` invite link). No inline keyboard.
+pub async fn send_html(ctx: &Context, chat_id: i64, text: &str) -> Result<(), CommandError> {
+    let payload = json!({
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+    });
+    let resp = ctx
+        .api
+        .post(APIEndpoint::SendMessage, Some(payload))
+        .await?;
+    let msg: telexide::Result<Message> = resp.into();
+    msg?;
+    Ok(())
+}
+
 pub async fn edit_with_buttons(
     ctx: &Context,
     chat_id: i64,
