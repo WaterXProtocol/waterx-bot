@@ -644,20 +644,20 @@ pub fn buy_listing(l: Lang, buyer: &str, fruits: &str, price: &str) -> String {
 
 pub fn received_fruit(l: Lang, name: &str, fruit: &str) -> String {
     tr!(l;
-        "{name} received a {fruit}", "{name} 收到一顆 {fruit}", "{name} 收到一颗 {fruit}", "{name} が {fruit} を1つ受け取った", "{name} 님이 {fruit} 한 개 받음",
-        "{name} получил {fruit}", "{name} a reçu un {fruit}", "{name} recibió un {fruit}", "{name} hat ein {fruit} erhalten", "{name} nhận được một {fruit}",
-        "{name} menerima sebuah {fruit}", "Nakatanggap si {name} ng {fruit}", "{name} ได้รับ {fruit} หนึ่งลูก", "{name} ontving een {fruit}", "{name} bir {fruit} aldı",
-        "{name} recebeu um {fruit}", "{name} को एक {fruit} मिला", "{name} حصل على {fruit}")
+        "🧧 {name} received a {fruit}", "🧧 {name} 收到一顆 {fruit}", "🧧 {name} 收到一颗 {fruit}", "🧧 {name} が {fruit} を1つ受け取った", "🧧 {name} 님이 {fruit} 한 개 받음",
+        "🧧 {name} получил {fruit}", "🧧 {name} a reçu un {fruit}", "🧧 {name} recibió un {fruit}", "🧧 {name} hat ein {fruit} erhalten", "🧧 {name} nhận được một {fruit}",
+        "🧧 {name} menerima sebuah {fruit}", "🧧 Nakatanggap si {name} ng {fruit}", "🧧 {name} ได้รับ {fruit} หนึ่งลูก", "🧧 {name} ontving een {fruit}", "🧧 {name} bir {fruit} aldı",
+        "🧧 {name} recebeu um {fruit}", "🧧 {name} को एक {fruit} मिला", "🧧 {name} حصل على {fruit}")
     .replace("{name}", name)
     .replace("{fruit}", fruit)
 }
 
 pub fn received_coins(l: Lang, name: &str, coins: &str) -> String {
     tr!(l;
-        "{name} received {coins} water-coins", "{name} 收到 {coins} 顆 水幣", "{name} 收到 {coins} 颗 水币", "{name} が水コインを {coins} 枚 受け取った", "{name} 님이 물코인 {coins} 개 받음",
-        "{name} получил {coins} водных монет", "{name} a reçu {coins} pièces d'eau", "{name} recibió {coins} monedas de agua", "{name} hat {coins} Wassermünzen erhalten", "{name} nhận được {coins} xu nước",
-        "{name} menerima {coins} koin air", "Nakatanggap si {name} ng {coins} water-coins", "{name} ได้รับ {coins} เหรียญน้ำ", "{name} ontving {coins} watermunten", "{name}, {coins} su parası aldı",
-        "{name} recebeu {coins} moedas de água", "{name} को {coins} वॉटर-कॉइन मिले", "{name} حصل على {coins} عملة مائية")
+        "🧧 {name} received {coins} water-coins", "🧧 {name} 收到 {coins} 顆 水幣", "🧧 {name} 收到 {coins} 颗 水币", "🧧 {name} が水コインを {coins} 枚 受け取った", "🧧 {name} 님이 물코인 {coins} 개 받음",
+        "🧧 {name} получил {coins} водных монет", "🧧 {name} a reçu {coins} pièces d'eau", "🧧 {name} recibió {coins} monedas de agua", "🧧 {name} hat {coins} Wassermünzen erhalten", "🧧 {name} nhận được {coins} xu nước",
+        "🧧 {name} menerima {coins} koin air", "🧧 Nakatanggap si {name} ng {coins} water-coins", "🧧 {name} ได้รับ {coins} เหรียญน้ำ", "🧧 {name} ontving {coins} watermunten", "🧧 {name}, {coins} su parası aldı",
+        "🧧 {name} recebeu {coins} moedas de água", "🧧 {name} को {coins} वॉटर-कॉइन मिले", "🧧 {name} حصل على {coins} عملة مائية")
     .replace("{name}", name)
     .replace("{coins}", coins)
 }
