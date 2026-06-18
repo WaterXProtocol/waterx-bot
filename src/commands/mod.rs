@@ -3,7 +3,7 @@ pub mod tg;
 pub mod util;
 
 pub mod admin;
-pub mod balance;
+pub mod assets;
 pub mod betting;
 pub mod buy;
 pub mod checkin;
@@ -17,7 +17,7 @@ pub mod send;
 pub mod start;
 
 pub use admin::*;
-pub use balance::*;
+pub use assets::*;
 pub use buy::*;
 pub use checkin::*;
 pub use predict::*;

@@ -7,7 +7,7 @@ use telexide::model::User;
 use telexide::prelude::*;
 
 #[command(description = "show the caller's balance and open positions")]
-pub async fn balance(ctx: Context, message: Message) -> CommandResult {
+pub async fn assets(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
     }
@@ -16,15 +16,15 @@ pub async fn balance(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     let lang = lang_for(&ctx, user);
-    let body = balance_text(&ctx, lang, user).await;
+    let body = assets_text(&ctx, lang, user).await;
     reply(&ctx, &message, body).await?;
     Ok(())
 }
 
-/// Build the `/balance` body for `user`: name + balance, then any open match
-/// bets and self-host predictions (each section with its staked total).
-/// Shared by the `/balance` command and the `menu:balance` button.
-pub async fn balance_text(ctx: &Context, lang: Lang, user: &User) -> String {
+/// Build the `/assets` body for `user`: name + balance, then any open match
+/// bets and self-host predictions. Shared by the `/assets` command and the
+/// `menu:balance` button.
+pub async fn assets_text(ctx: &Context, lang: Lang, user: &User) -> String {
     let database = db(ctx);
     let info = database.get_user_info(user.id).unwrap_or_default();
 

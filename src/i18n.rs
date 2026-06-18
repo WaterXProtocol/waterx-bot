@@ -761,7 +761,7 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 5] {
     [
         ("start", menu_start(l)),
-        ("balance", menu_balance(l)),
+        ("assets", menu_balance(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
         ("language", menu_language(l)),

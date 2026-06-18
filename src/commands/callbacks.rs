@@ -3,7 +3,7 @@ use crate::commands::util::{
     bot_token, fmt_coins, format_number, full_name, is_group_chat, SORRY_FRUITS,
 };
 use crate::database::COIN;
-use crate::commands::{admin, balance, betting, markets, menu, referral, tg};
+use crate::commands::{admin, assets, betting, markets, menu, referral, tg};
 use crate::database::OfferOutcome;
 use crate::game::BetGame;
 use crate::i18n::{self, Lang};
@@ -448,7 +448,7 @@ async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         return Ok(());
     };
     answer(ctx, cb, "", false).await?;
-    let text = balance::balance_text(ctx, lang, &cb.from).await;
+    let text = assets::assets_text(ctx, lang, &cb.from).await;
     crate::commands::util::send_text(ctx, message.chat.get_id(), text).await?;
     Ok(())
 }
