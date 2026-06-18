@@ -421,23 +421,45 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
     // deep-link button lives here.
     let rows = vec![vec![(i18n::btn_join(lang).to_string(), link.clone())]];
 
-    // Render the link to a QR locally (it never leaves the bot — no third-party
-    // QR service) and post it as a photo whose caption is the invite text and
-    // keyboard is the deep-link button — all in one message. The QR is the
-    // forward-safe carrier: a forward strips the inline keyboard, but the link is
-    // baked into the QR image. Best-effort: if QR/upload fails, fall back to a
-    // plain text message with the same link + button.
-    let qr = qrcode_generator::to_png_to_vec(&link, qrcode_generator::QrCodeEcc::Medium, 512);
-    let sent = match qr {
-        Ok(png) => tg::send_photo_bytes(&bot_token(ctx), chat_id, png, &text, &rows)
-            .await
-            .is_ok(),
-        Err(_) => false,
+    // The QR encodes the user's referral link, which never changes, so the photo
+    // is identical every time. Reuse Telegram's `file_id` from the first upload
+    // (cached per user) to avoid regenerating + re-uploading on every tap; the
+    // caption (link + current count) and keyboard are still rebuilt fresh.
+    // Best-effort throughout: any failure falls through to a plain text+button.
+    let token = bot_token(ctx);
+    let cached = qr_cache().lock().get(&cb.from.id).cloned();
+    let sent = if let Some(file_id) = cached {
+        tg::send_photo_id(&token, chat_id, &file_id, &text, &rows).await.is_ok()
+    } else {
+        false
     };
     if !sent {
-        tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
+        // No (or stale) cache: generate the QR locally, upload, cache its file_id.
+        match qrcode_generator::to_png_to_vec(&link, qrcode_generator::QrCodeEcc::Medium, 512) {
+            Ok(png) => match tg::send_photo_bytes(&token, chat_id, png, &text, &rows).await {
+                Ok(Some(file_id)) => {
+                    qr_cache().lock().insert(cb.from.id, file_id);
+                }
+                Ok(None) => {} // sent, but couldn't read the id — re-upload next time
+                Err(_) => {
+                    tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
+                }
+            },
+            Err(_) => {
+                tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
+            }
+        }
     }
     Ok(())
+}
+
+/// Per-user cache of the referral QR's Telegram `file_id`. The QR is a function
+/// of the user's (immutable) referral link, so the id stays valid indefinitely;
+/// a process restart just costs one re-upload per user. In-memory on purpose.
+fn qr_cache() -> &'static parking_lot::Mutex<HashMap<i64, String>> {
+    static CACHE: std::sync::OnceLock<parking_lot::Mutex<HashMap<i64, String>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
 /// `menu:balance` — post the presser's balance + open positions as a fresh
