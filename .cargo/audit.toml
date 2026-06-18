@@ -1,0 +1,30 @@
+# cargo-audit configuration.
+#
+# Every advisory below is confined to the dependency tree of `telexide 0.1.17`,
+# the Telegram bot framework. It is pinned: 0.1.17 is the only resolvable
+# version (see CLAUDE.md), and a [patch.crates-io] rustls bump won't compile
+# against telexide's rustls-0.21-era API. There is therefore no upstream fix
+# path short of forking/replacing telexide.
+#
+# Blast radius is narrow: our own outbound HTTPS (reqwest 0.12 — markets fetch
+# and the QR `sendPhoto` upload) already resolves to the patched rustls 0.23.40
+# + rustls-webpki 0.103.13. The vulnerable rustls-webpki 0.101.7 is reached
+# ONLY through telexide's hyper client, which talks to exactly one endpoint:
+# api.telegram.org. Exploiting the cert/name-constraint bugs would require an
+# active MITM of Telegram's API (which already breaks the bot's trust model),
+# and the CRL panic needs a malicious CRL the bot never requests.
+#
+# Re-run `/audit` and drop these ignores if telexide ships a TLS-modernized
+# release or the bot migrates off telexide.
+
+[advisories]
+ignore = [
+    # rustls-webpki 0.101.7 (via telexide → rustls 0.21.12)
+    "RUSTSEC-2026-0104", # reachable panic in CRL parsing (DoS)
+    "RUSTSEC-2026-0098", # name constraints for URI names incorrectly accepted
+    "RUSTSEC-2026-0099", # name constraints accepted for wildcard certs
+
+    # unmaintained crates pulled only by telexide
+    "RUSTSEC-2024-0436", # paste 1.0.15 — unmaintained
+    "RUSTSEC-2025-0134", # rustls-pemfile 1.0.4 — unmaintained
+]
