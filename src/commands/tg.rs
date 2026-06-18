@@ -13,6 +13,7 @@
 //! inline-keyboard code paths in the bot go through the helpers here.
 
 use serde_json::{json, Value};
+use telexide::api::types::{InputFile, SendPhoto};
 use telexide::api::APIEndpoint;
 use telexide::framework::CommandError;
 use telexide::model::Message;
@@ -103,5 +104,31 @@ pub async fn edit_text_only(
         .post(APIEndpoint::EditMessageText, Some(payload))
         .await?;
     let _: telexide::Result<serde_json::Value> = resp.into();
+    Ok(())
+}
+
+/// Send a local image file as a photo with a caption — used for the referral
+/// QR code. Uploaded via multipart, so nothing leaves the bot.
+pub async fn send_photo_file(
+    ctx: &Context,
+    chat_id: i64,
+    path: &str,
+    caption: &str,
+) -> Result<(), CommandError> {
+    let photo = SendPhoto {
+        chat_id: chat_id.into(),
+        photo: InputFile::from_path(path)?,
+        caption: (!caption.is_empty()).then(|| caption.to_string()),
+        message_thread_id: None,
+        caption_entities: None,
+        parse_mode: None,
+        has_spoiler: None,
+        disable_notification: None,
+        protect_content: None,
+        reply_to_message_id: None,
+        allow_sending_without_reply: None,
+        reply_markup: None,
+    };
+    ctx.api.send_photo(photo).await?;
     Ok(())
 }

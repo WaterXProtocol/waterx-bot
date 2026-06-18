@@ -3,7 +3,6 @@
 //! message) and the callback handlers (which *edit* the existing one) reuse
 //! these so the keyboards stay in one place.
 
-use crate::bot::BotUsernameKey;
 use crate::commands::tg::Row;
 use crate::commands::util::{db, fmt_coins};
 use crate::i18n::{self, Lang};
@@ -56,26 +55,19 @@ pub fn menu_text(ctx: &Context, lang: Lang, user_id: i64) -> String {
 }
 
 /// The Xaliah main-menu keyboard: today's matches, the daily check-in button
-/// (only when claimable), the invite button, and a forward-safe `[Play]`
-/// deep-link button. Telegram strips callback buttons from a forwarded message
-/// but keeps URL buttons — so the `[Play]` link is how a forwarded home page
-/// still earns `user_id` a referral (recipient taps it → `/start <user_id>`).
-pub fn main_menu_rows(ctx: &Context, lang: Lang, user_id: i64, checkin_available: bool) -> Vec<Row> {
+/// (only when claimable), and the invite button. The home page shows the user's
+/// balance/fruit, so it deliberately carries **no** referral deep-link button —
+/// the `[Play]` URL button lives only in the `menu:invite` output, which has no
+/// private info and is meant to be shared.
+pub fn main_menu_rows(_ctx: &Context, lang: Lang, _user_id: i64, checkin_available: bool) -> Vec<Row> {
     let mut row: Row = Vec::new();
     if checkin_available {
         row.push((i18n::btn_checkin(lang).to_string(), MENU_CHECKIN.to_string()));
     }
     row.push((i18n::btn_matches(lang).to_string(), MENU_MATCHES.to_string()));
 
-    let username = ctx
-        .data
-        .read()
-        .get::<BotUsernameKey>()
-        .cloned()
-        .unwrap_or_default();
     vec![
         row,
         vec![(i18n::btn_invite(lang).to_string(), MENU_INVITE.to_string())],
-        vec![(i18n::btn_join(lang).to_string(), referral_link(&username, user_id))],
     ]
 }

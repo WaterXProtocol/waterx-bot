@@ -403,8 +403,26 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
     let link = menu::referral_link(&username, cb.from.id);
     let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
     answer(ctx, cb, "", false).await?;
+    let chat_id = message.chat.get_id();
     let text = i18n::invite_text(lang, &link, &count.to_string());
-    crate::commands::util::send_text(ctx, message.chat.get_id(), text).await?;
+
+    // Render the link as a QR locally (the link never leaves the bot) and post it
+    // as a standalone image — the QR is forward-safe because the link is baked
+    // into the picture. Best-effort: a QR/upload failure just skips the image.
+    let path = std::env::temp_dir().join(format!("wxqr_{}.png", cb.from.id));
+    if qrcode_generator::to_png_to_file(&link, qrcode_generator::QrCodeEcc::Medium, 512, &path)
+        .is_ok()
+    {
+        let path_str = path.to_string_lossy().to_string();
+        let _ = tg::send_photo_file(ctx, chat_id, &path_str, "").await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // The invite text (link + count) plus a tappable deep-link button. Unlike the
+    // home page, this output carries no private balance/fruit info, so the
+    // `[Play]` URL button lives here — it's the share-safe surface.
+    let rows = vec![vec![(i18n::btn_join(lang).to_string(), link)]];
+    tg::send_with_buttons(ctx, chat_id, &text, &rows).await?;
     Ok(())
 }
 
