@@ -411,12 +411,19 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
         return Ok(());
     };
     answer(ctx, cb, "", false).await?;
+    // Show the caller's referral count above the format chooser.
+    let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
+    let text = format!(
+        "{}\n\n{}",
+        i18n::invite_count(lang, &count.to_string()),
+        i18n::invite_how(lang)
+    );
     let rows = vec![
         vec![(i18n::btn_invite_link(lang).to_string(), menu::INVITE_LINK.to_string())],
         vec![(i18n::btn_invite_fwd(lang).to_string(), menu::INVITE_FWD.to_string())],
         vec![(i18n::btn_invite_qr(lang).to_string(), menu::INVITE_QR.to_string())],
     ];
-    tg::send_with_buttons(ctx, message.chat.get_id(), i18n::invite_how(lang), &rows).await?;
+    tg::send_with_buttons(ctx, message.chat.get_id(), &text, &rows).await?;
     Ok(())
 }
 
@@ -459,21 +466,20 @@ async fn handle_invite_fwd(ctx: &Context, cb: &CallbackQuery) -> Result<(), tele
     Ok(())
 }
 
-/// `inv:qr` — a QR photo (caption = link + count, keyboard = `[Play]`). The QR is
+/// `inv:qr` — a QR photo, caption = the bare link, no keyboard. The QR is
 /// generated locally and its Telegram `file_id` cached per user, so repeat taps
-/// re-send by id with no regeneration/upload (caption rebuilt fresh each time).
+/// re-send by id with no regeneration/upload.
 async fn handle_invite_qr(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
     let Some(message) = cb.message.clone() else {
         return Ok(());
     };
     answer(ctx, cb, "", false).await?;
     let chat_id = message.chat.get_id();
     let link = referral_link_of(ctx, cb.from.id);
-    let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
-    let text = i18n::invite_text(lang, &link, &count.to_string());
-    // The QR photo carries no keyboard — the link is in the caption (and the QR
-    // image); the [Play] button lives on the forwardable message instead.
+    // Caption is just the link (count is shown on the chooser, not here); no
+    // keyboard — the link rides in the caption and the QR image. The [Play]
+    // button lives on the forwardable message instead.
+    let text = link.clone();
     let rows: &[tg::Row] = &[];
 
     let token = bot_token(ctx);

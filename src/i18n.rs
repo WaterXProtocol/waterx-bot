@@ -968,13 +968,13 @@ pub fn btn_join(l: Lang) -> &'static str {
 }
 
 /// Invite-link message: the user's referral link plus how many they've referred.
-pub fn invite_text(l: Lang, link: &str, count: &str) -> String {
+/// Referral count line, shown above the invite-format chooser.
+pub fn invite_count(l: Lang, count: &str) -> String {
     tr!(l;
-        "🔗 Invite friends with your link:\n{link}\n\nReferrals: {count} 🎉", "🔗 用你的連結邀請好友：\n{link}\n\n已邀請：{count} 人 🎉", "🔗 用你的链接邀请好友：\n{link}\n\n已邀请：{count} 人 🎉", "🔗 あなたのリンクで友達を招待：\n{link}\n\n招待数：{count} 🎉", "🔗 내 링크로 친구 초대:\n{link}\n\n초대 수: {count} 🎉",
-        "🔗 Приглашайте друзей по ссылке:\n{link}\n\nПриглашено: {count} 🎉", "🔗 Invite des amis avec ton lien :\n{link}\n\nParrainages : {count} 🎉", "🔗 Invita amigos con tu enlace:\n{link}\n\nReferidos: {count} 🎉", "🔗 Lade Freunde mit deinem Link ein:\n{link}\n\nEinladungen: {count} 🎉", "🔗 Mời bạn bè bằng liên kết của bạn:\n{link}\n\nĐã mời: {count} 🎉",
-        "🔗 Undang teman dengan tautanmu:\n{link}\n\nReferral: {count} 🎉", "🔗 Mag-imbita gamit ang iyong link:\n{link}\n\nReferrals: {count} 🎉", "🔗 ชวนเพื่อนด้วยลิงก์ของคุณ:\n{link}\n\nผู้ที่ชวนมา: {count} 🎉", "🔗 Nodig vrienden uit met je link:\n{link}\n\nVerwijzingen: {count} 🎉", "🔗 Bağlantınla arkadaşlarını davet et:\n{link}\n\nDavetler: {count} 🎉",
-        "🔗 Convide amigos com seu link:\n{link}\n\nIndicações: {count} 🎉", "🔗 अपने लिंक से दोस्तों को बुलाएं:\n{link}\n\nरेफ़रल: {count} 🎉", "🔗 ادعُ أصدقاءك عبر رابطك:\n{link}\n\nالإحالات: {count} 🎉")
-    .replace("{link}", link)
+        "Your referrals: {count} 🎉", "你已邀請：{count} 人 🎉", "你已邀请：{count} 人 🎉", "招待数：{count} 🎉", "초대 수: {count} 🎉",
+        "Приглашено: {count} 🎉", "Tes parrainages : {count} 🎉", "Tus referidos: {count} 🎉", "Deine Einladungen: {count} 🎉", "Đã mời: {count} 🎉",
+        "Referralmu: {count} 🎉", "Iyong referrals: {count} 🎉", "ผู้ที่คุณชวนมา: {count} 🎉", "Jouw verwijzingen: {count} 🎉", "Davetlerin: {count} 🎉",
+        "Suas indicações: {count} 🎉", "आपके रेफ़रल: {count} 🎉", "إحالاتك: {count} 🎉")
     .replace("{count}", count)
 }
 
@@ -1310,7 +1310,7 @@ mod tests {
                 broadcast_sent(l, "5"),
                 menu_status(l, "10"),
                 checkin_already(l, "1h 2m"),
-                invite_text(l, "link", "3"),
+                invite_count(l, "3"),
                 invite_copy(l, "link"),
                 invite_forward(l, "link"),
                 referral_bonus(l, "A", "20"),
