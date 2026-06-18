@@ -223,18 +223,33 @@ pub const ERR_NEG_REPLY: &str = "😐";
 /// `sorry_reply` array.
 pub const SORRY_FRUITS: &[char] = &['🍑', '🍓', '🍎', '🍊', '🥭', '🍍', '🍅', '🍈', '🍋', '🍐'];
 
-/// Render a UTC offset in minutes as a label: `0 → "UTC"`, `480 → "UTC+8"`,
-/// `330 → "UTC+5:30"`, `-300 → "UTC-5"`.
-pub fn tz_label(minutes: i64) -> String {
+/// The signed offset part only: `0 → ""`, `480 → "+8"`, `330 → "+5:30"`,
+/// `-300 → "-5"`.
+fn tz_offset_str(minutes: i64) -> String {
     if minutes == 0 {
-        return "UTC".to_string();
+        return String::new();
     }
     let sign = if minutes > 0 { '+' } else { '-' };
     let (h, m) = (minutes.abs() / 60, minutes.abs() % 60);
     if m == 0 {
-        format!("UTC{sign}{h}")
+        format!("{sign}{h}")
     } else {
-        format!("UTC{sign}{h}:{m:02}")
+        format!("{sign}{h}:{m:02}")
+    }
+}
+
+/// Full label for in-text use: `0 → "UTC"`, `480 → "UTC+8"`, `-300 → "UTC-5"`.
+pub fn tz_label(minutes: i64) -> String {
+    format!("UTC{}", tz_offset_str(minutes))
+}
+
+/// Short label for picker buttons (no "UTC" prefix to keep them compact):
+/// `0 → "UTC"`, `480 → "+8"`, `330 → "+5:30"`, `-300 → "-5"`.
+pub fn tz_button_label(minutes: i64) -> String {
+    if minutes == 0 {
+        "UTC".to_string()
+    } else {
+        tz_offset_str(minutes)
     }
 }
 
@@ -281,6 +296,11 @@ mod tests {
         assert_eq!(tz_label(-300), "UTC-5");
         assert_eq!(tz_label(330), "UTC+5:30");
         assert_eq!(tz_label(-210), "UTC-3:30");
+        // Picker buttons drop the "UTC" prefix (except for 0).
+        assert_eq!(tz_button_label(0), "UTC");
+        assert_eq!(tz_button_label(480), "+8");
+        assert_eq!(tz_button_label(-300), "-5");
+        assert_eq!(tz_button_label(330), "+5:30");
     }
 
     #[test]

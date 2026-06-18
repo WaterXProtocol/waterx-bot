@@ -4,7 +4,7 @@
 //! these so the keyboards stay in one place.
 
 use crate::commands::tg::Row;
-use crate::commands::util::tz_label;
+use crate::commands::util::tz_button_label;
 use crate::i18n::{self, Lang};
 
 /// Callback-data prefixes routed in `callbacks::on_callback`.
@@ -25,7 +25,7 @@ pub fn tz_picker_rows() -> Vec<Row> {
         .map(|chunk| {
             chunk
                 .iter()
-                .map(|&m| (tz_label(m), format!("{SET_TZ}{m}")))
+                .map(|&m| (tz_button_label(m), format!("{SET_TZ}{m}")))
                 .collect()
         })
         .collect()
