@@ -53,11 +53,17 @@ pub async fn on_callback(ctx: Context, update: Update) {
         let _ = db_arc(&ctx).touch_chat(m.chat.get_id());
     }
     // Admin pause kill-switch: block every non-owner button press while paused.
-    if !crate::commands::util::is_owner(&ctx, cb.from.id)
-        && db_arc(&ctx).is_paused().unwrap_or(false)
-    {
-        let _ = answer(&ctx, &cb, i18n::service_paused(cb_lang(&ctx, &cb)), false).await;
-        return;
+    // Fail **closed** — if we can't read the flag, treat the bot as paused (a
+    // kill-switch that can't confirm "off" should stop, not pass through).
+    if !crate::commands::util::is_owner(&ctx, cb.from.id) {
+        let paused = db_arc(&ctx).is_paused().unwrap_or_else(|e| {
+            eprintln!("on_callback is_paused error (failing closed): {e}");
+            true
+        });
+        if paused {
+            let _ = answer(&ctx, &cb, i18n::service_paused(cb_lang(&ctx, &cb)), false).await;
+            return;
+        }
     }
     // Group-add referral: the first button a brand-new user taps in a group binds
     // them to whoever added the bot. Runs before dispatch so the row is created
@@ -202,10 +208,16 @@ async fn handle_envelope(
     let Some(units) = to_micro(amount) else {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     };
-    if db.balance_change(cb.from.id, units).is_err() {
-        return answer(ctx, cb, i18n::db_error(lang), true).await;
+    // Atomically claim: the buffer row is deleted and the credit applied only if
+    // THIS tap won the delete, so a concurrent double-tap can't double-credit.
+    match db.claim_envelope(chat_id, msg_id, cb.from.id, units) {
+        Ok(true) => {}
+        Ok(false) => return answer(ctx, cb, i18n::someone_took_it(lang), false).await,
+        Err(e) => {
+            eprintln!("claim_envelope error (chat {chat_id}, msg {msg_id}): {e}");
+            return answer(ctx, cb, i18n::db_error(lang), true).await;
+        }
     }
-    db.delete_buffer(chat_id, msg_id).ok();
     let _ = tg::edit_text_only(
         ctx,
         chat_id,

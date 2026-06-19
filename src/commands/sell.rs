@@ -66,13 +66,16 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
         format!("sell:{}:{escrowed}:{price}", seller.id),
     )]];
     let listing = i18n::sell_listing(lang, &full_name(&seller), &escrowed, &format_number(price));
-    tg::edit_with_buttons(
+    // Best-effort: the escrow + offer row are already committed and the
+    // placeholder already carries a working (DB-backed) button, so a failed
+    // cosmetic refresh must not report the whole `/sell` as failed.
+    let _ = tg::edit_with_buttons(
         &ctx,
         sent.chat.get_id(),
         sent.message_id,
         &listing,
         &final_rows,
     )
-    .await?;
+    .await;
     Ok(())
 }

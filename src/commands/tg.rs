@@ -148,7 +148,11 @@ pub async fn edit_text_only(
         .api
         .post(APIEndpoint::EditMessageText, Some(payload))
         .await?;
-    let _: telexide::Result<serde_json::Value> = resp.into();
+    // Surface logical rejections (HTTP 200 + `{"ok":false}`, e.g. message too
+    // long) instead of discarding them silently — matches `edit_with_buttons`.
+    if let Err(e) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
+        eprintln!("[tg] editMessageText (text) failed (chat {chat_id}, msg {message_id}): {e}");
+    }
     Ok(())
 }
 

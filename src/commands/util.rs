@@ -217,7 +217,14 @@ pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandE
     if is_owner(ctx, uid) {
         return Ok(false);
     }
-    if db(ctx).is_paused().unwrap_or(false) {
+    // Fail **closed**: if the pause flag can't be read, treat the bot as paused
+    // (a kill-switch that can't confirm "off" should stop, not pass through). The
+    // owner is already let through above, so they can still recover.
+    let paused = db(ctx).is_paused().unwrap_or_else(|e| {
+        eprintln!("paused_block is_paused error (failing closed): {e}");
+        true
+    });
+    if paused {
         reply(ctx, msg, crate::i18n::service_paused(lang_for_msg(ctx, msg))).await?;
         return Ok(true);
     }

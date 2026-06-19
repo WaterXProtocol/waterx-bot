@@ -29,7 +29,11 @@ pub async fn feedback(ctx: Context, message: Message) -> CommandResult {
             Some(u) if !u.is_empty() => format!("{} (@{u}, id {})", full_name(user), user.id),
             _ => format!("{} (id {})", full_name(user), user.id),
         };
-        let _ = send_text(&ctx, owner, format!("📣 Feedback from {who}:\n\n{body}")).await;
+        // Best-effort, but log a bounce so feedback isn't lost without a trace
+        // (e.g. the owner never opened a DM with the bot).
+        if let Err(e) = send_text(&ctx, owner, format!("📣 Feedback from {who}:\n\n{body}")).await {
+            eprintln!("feedback owner DM failed (owner {owner}): {e:?}");
+        }
     }
 
     reply(&ctx, &message, i18n::feedback_sent(lang)).await?;

@@ -56,6 +56,31 @@ impl Database {
         Ok(())
     }
 
+    /// Atomically claim a coin envelope: in one transaction, delete its buffer
+    /// row and — only if this call won that delete (so a concurrent double-tap
+    /// produces exactly one winner) — credit `units` to `user`. Returns `true`
+    /// when claimed+credited, `false` when the row was already gone (someone
+    /// else took it). Closes the has_buffer-then-credit-then-delete double-credit
+    /// race in the envelope claim path.
+    pub fn claim_envelope(&self, chat: i64, msg: i64, user: i64, units: i64) -> SqlResult<bool> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let claimed = tx.execute(
+            "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
+            params![chat, msg],
+        )?;
+        if claimed != 1 {
+            return Ok(false); // already taken → rollback
+        }
+        ensure_row_locked(&tx, user)?;
+        tx.execute(
+            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+            params![units, user],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Open a sell offer. Atomically deducts each char of `fruits` that the
     /// seller actually owns from their inventory and inserts a sell-kind
     /// buffer row holding the escrow. Returns the *actually-escrowed* fruits
@@ -433,6 +458,19 @@ mod tests {
         let db = mk_db();
         assert!(!db.open_buy_offer(CHAT, MSG, BUYER, "🍑", 50).unwrap());
         assert!(!db.has_buffer(CHAT, MSG).unwrap());
+    }
+
+    #[test]
+    fn claim_envelope_credits_exactly_once() {
+        let db = mk_db();
+        db.insert_buffer(CHAT, MSG).unwrap();
+        // First claim wins: credits and consumes the row.
+        assert!(db.claim_envelope(CHAT, MSG, BUYER, 50).unwrap());
+        assert_eq!(db.get_user_info(BUYER).unwrap().balance, 50);
+        assert!(!db.has_buffer(CHAT, MSG).unwrap());
+        // A second (racing) claim finds the row gone → no double-credit.
+        assert!(!db.claim_envelope(CHAT, MSG, BUYER, 50).unwrap());
+        assert_eq!(db.get_user_info(BUYER).unwrap().balance, 50);
     }
 
     #[test]

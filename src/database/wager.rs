@@ -48,8 +48,11 @@ pub struct Settlement {
 /// loss (verified by `settle_pays_winner_by_decimal_odds`).
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 pub fn decimal_payout(stake: i64, odds_cents: f64) -> i64 {
-    if odds_cents <= 0.0 {
-        return stake; // degenerate quote → just return the stake
+    // Guard non-finite too: a NaN slips past `<= 0.0` (every NaN comparison is
+    // false) and would otherwise become `NaN as i64 = 0`, silently paying a
+    // winner nothing. Treat any degenerate quote as "return the stake".
+    if !odds_cents.is_finite() || odds_cents <= 0.0 {
+        return stake;
     }
     (stake as f64 * 100.0 / odds_cents).round() as i64
 }

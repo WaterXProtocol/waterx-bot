@@ -204,31 +204,35 @@ impl Database {
             })?
             .collect::<SqlResult<Vec<_>>>()?;
         drop(stmt);
+        // Refund every expired offer AND delete the rows in one transaction, so a
+        // crash mid-refund can't leave rows behind to be refunded again next
+        // startup (double-credit).
+        let tx = conn.unchecked_transaction()?;
         for (_chat, _msg, kind, owner, fruits, price) in &rows {
             match (kind.as_str(), owner, fruits, price) {
                 ("sell", Some(seller), Some(fruits), Some(_)) => {
                     // Return escrowed fruit to the seller.
-                    conn.execute(
+                    tx.execute(
                         "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
                         params![seller],
                     )?;
-                    let current: String = conn.query_row(
+                    let current: String = tx.query_row(
                         "SELECT fruit FROM balance WHERE user = ?1",
                         params![seller],
                         |r| r.get(0),
                     )?;
                     let new = format!("{current}{fruits}");
-                    conn.execute(
+                    tx.execute(
                         "UPDATE balance SET fruit = ?1 WHERE user = ?2",
                         params![new, seller],
                     )?;
                 }
                 ("buy", Some(buyer), _, Some(price)) => {
-                    conn.execute(
+                    tx.execute(
                         "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
                         params![buyer],
                     )?;
-                    conn.execute(
+                    tx.execute(
                         "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
                         params![price, buyer],
                     )?;
@@ -239,7 +243,8 @@ impl Database {
                 }
             }
         }
-        conn.execute("DELETE FROM buffer WHERE created_at < ?1", params![cutoff])?;
+        tx.execute("DELETE FROM buffer WHERE created_at < ?1", params![cutoff])?;
+        tx.commit()?;
         Ok(())
     }
 

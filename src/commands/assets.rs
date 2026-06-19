@@ -33,12 +33,18 @@ pub async fn assets_text(ctx: &Context, lang: Lang, user: &User, show_balance: b
     let database = db(ctx);
 
     let mut body = if show_balance {
-        let info = database.get_user_info(user.id).unwrap_or_default();
-        format!(
-            "{}\n{}",
-            full_name(user),
-            i18n::menu_status(lang, &fmt_coins(info.balance))
-        )
+        // Surface a DB read error rather than masking it as a zero balance.
+        match database.get_user_info(user.id) {
+            Ok(info) => format!(
+                "{}\n{}",
+                full_name(user),
+                i18n::menu_status(lang, &fmt_coins(info.balance))
+            ),
+            Err(e) => {
+                eprintln!("assets get_user_info error (user {}): {e}", user.id);
+                return format!("{}\n{}", full_name(user), i18n::db_error(lang));
+            }
+        }
     } else {
         full_name(user)
     };
@@ -46,7 +52,10 @@ pub async fn assets_text(ctx: &Context, lang: Lang, user: &User, show_balance: b
     // Open (unsettled) match bets, if any, with the section's staked total in
     // Lines are language-neutral — the side name is already localized, the rest
     // is teams + numbers + symbols.
-    let positions = database.list_open_wagers(user.id).unwrap_or_default();
+    let positions = database.list_open_wagers(user.id).unwrap_or_else(|e| {
+        eprintln!("assets list_open_wagers error (user {}): {e}", user.id);
+        Vec::new()
+    });
     if !positions.is_empty() {
         body.push_str(&format!("\n\n{}", i18n::positions_title(lang)));
         for p in &positions {

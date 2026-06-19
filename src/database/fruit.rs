@@ -16,15 +16,19 @@ impl Database {
             }
             let new_recv = format!("{}{}", recv_info.fruit, fruit);
             let new_send = send_info.fruit.replacen(fruit, "", 1);
-            let conn = self.conn.lock();
-            conn.execute(
+            // Debit sender + credit receiver atomically: a partial failure must
+            // not destroy the sender's fruit without the receiver gaining it.
+            let mut conn = self.conn.lock();
+            let tx = conn.transaction()?;
+            tx.execute(
                 "UPDATE balance SET fruit = ?1 WHERE user = ?2",
                 params![new_send, sender],
             )?;
-            conn.execute(
+            tx.execute(
                 "UPDATE balance SET fruit = ?1 WHERE user = ?2",
                 params![new_recv, receiver],
             )?;
+            tx.commit()?;
         } else {
             // Bot is the receiver — fruit is eaten, not stored.
             let new_send = send_info.fruit.replacen(fruit, "", 1);

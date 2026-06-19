@@ -396,9 +396,11 @@ pub async fn handle_size_confirm(
     let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    if total <= 0 {
+    // Guard the conversion here too (caps at MAX_COINS, rejects overflow) so a
+    // crafted `total` can't wrap i64 even on this display-only confirm screen.
+    let Some(stake_units) = to_micro(total) else {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
-    }
+    };
     let Some(q) = fresh_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
     };
@@ -406,8 +408,8 @@ pub async fn handle_size_confirm(
         return answer(ctx, cb, "", false).await;
     };
     let side = q.side_name(lang, &outcome);
-    let win = fmt_coins(decimal_payout(total * COIN, odds));
-    let text = i18n::bet_confirm(lang, &fmt_coins(total * COIN), &side, &win);
+    let win = fmt_coins(decimal_payout(stake_units, odds));
+    let text = i18n::bet_confirm(lang, &fmt_coins(stake_units), &side, &win);
     let rows = vec![
         vec![(i18n::bet_btn_place(lang).to_string(), format!("{SIZE_PLACE}{qid}:{outcome}:{total}"))],
         vec![(i18n::bet_btn_back(lang).to_string(), format!("{SIZE}{qid}:{outcome}:{total}"))],
@@ -498,17 +500,20 @@ fn builder_text_rows(
 ) -> Option<(String, Vec<tg::Row>)> {
     let odds = q.odds(outcome).filter(|c| *c > 0.0)?;
     let side = q.side_name(lang, outcome);
-    let win = fmt_coins(decimal_payout(total.max(0) * COIN, odds));
+    // Builder runs from 0 upward, so `to_micro` (which rejects 0) doesn't fit;
+    // saturate the display conversion instead so a crafted `total` can't overflow.
+    let stake_units = total.max(0).saturating_mul(COIN);
+    let win = fmt_coins(decimal_payout(stake_units, odds));
     let text = i18n::bet_build(
         lang,
         &side,
         &format!("{:.2}", decimal_odds(odds)),
-        &fmt_coins(total.max(0) * COIN),
+        &fmt_coins(stake_units),
         &win,
     );
     let add_row: tg::Row = SIZE_PRESETS
         .iter()
-        .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{outcome}:{}", total + p)))
+        .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{outcome}:{}", total.saturating_add(*p))))
         .collect();
     let rows = vec![
         add_row,

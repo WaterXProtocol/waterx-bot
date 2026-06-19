@@ -62,16 +62,19 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
         tg::send_with_buttons(&ctx, message.chat.get_id(), &game.get_text(), &rows).await?;
     game.set_id(sent.chat.get_id(), sent.message_id);
     let key = format!("{}:{}", sent.chat.get_id(), sent.message_id);
-    // Re-edit so the description shows the freshly-assigned id tail.
+    // Re-edit so the description shows the freshly-assigned id tail. Best-effort:
+    // a failed cosmetic edit must NOT abort the command before the game is
+    // registered below (that would orphan the posted board with live-but-unknown
+    // buttons). `edit_with_buttons` already logs logical rejects.
     let new_rows = game.get_buttons();
-    tg::edit_with_buttons(
+    let _ = tg::edit_with_buttons(
         &ctx,
         sent.chat.get_id(),
         sent.message_id,
         &game.get_text(),
         &new_rows,
     )
-    .await?;
+    .await;
 
     if let Err(err) = db(&ctx).save_bet_game(&game) {
         eprintln!("save_bet_game error (continuing in-memory only): {err}");

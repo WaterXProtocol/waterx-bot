@@ -66,6 +66,9 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
     }
 
     let listing = i18n::buy_listing(lang, &full_name(&buyer), &fruits, &format_number(price));
-    tg::edit_with_buttons(&ctx, sent.chat.get_id(), sent.message_id, &listing, &rows).await?;
+    // Best-effort: the coin escrow + offer row are already committed and the
+    // placeholder already carries a working (DB-backed) button, so a failed
+    // cosmetic refresh must not report the whole `/buy` as failed.
+    let _ = tg::edit_with_buttons(&ctx, sent.chat.get_id(), sent.message_id, &listing, &rows).await;
     Ok(())
 }

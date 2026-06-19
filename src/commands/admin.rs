@@ -44,7 +44,14 @@ pub async fn settle(ctx: Context, message: Message) -> CommandResult {
     let parts = args(&message);
 
     if parts.len() < 2 {
-        let open = database.list_open_markets().unwrap_or_default();
+        let open = match database.list_open_markets() {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("settle list_open_markets error: {e}");
+                reply(&ctx, &message, "⚠️ DB error — couldn't list open markets.").await?;
+                return Ok(());
+            }
+        };
         if open.is_empty() {
             reply(&ctx, &message, "No open wagers.").await?;
             return Ok(());
@@ -65,26 +72,37 @@ pub async fn settle(ctx: Context, message: Message) -> CommandResult {
         reply(&ctx, &message, "Winner must be one of: a | b | draw").await?;
         return Ok(());
     };
-    let open = database.list_open_markets().unwrap_or_default();
+    let open = match database.list_open_markets() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("settle list_open_markets error: {e}");
+            reply(&ctx, &message, "⚠️ DB error — couldn't load markets.").await?;
+            return Ok(());
+        }
+    };
     let Some(target) = open.iter().find(|m| m.market_id == parts[0] || m.slug == parts[0]) else {
         reply(&ctx, &message, "No open market with that id/slug.").await?;
         return Ok(());
     };
     let market_id = target.market_id.clone();
-    let summary = run_settle(&ctx, &market_id, winner).await;
+    let (_ok, summary) = run_settle(&ctx, &market_id, winner).await;
     reply(&ctx, &message, summary).await?;
     Ok(())
 }
 
 /// Settle one market against `winner` (a stored outcome key: `teamA`/`teamB`/
-/// `draw`): pay winners, mark wagers, DM every bettor, and return a one-line
-/// admin summary. Shared by the `/settle <id> <a|b|draw>` text path and the
-/// button-driven confirm flow.
-async fn run_settle(ctx: &Context, market_id: &str, winner: &str) -> String {
+/// `draw`): pay winners, mark wagers, DM every bettor, and return `(ok, summary)`
+/// — `ok` is false when the settlement itself failed, so the button flow can
+/// avoid a false "Settled ✅" toast. Shared by the `/settle <id> <a|b|draw>`
+/// text path and the button-driven confirm flow.
+async fn run_settle(ctx: &Context, market_id: &str, winner: &str) -> (bool, String) {
     let database = db(ctx);
     let settlements = match database.settle_market(market_id, winner) {
         Ok(s) => s,
-        Err(e) => return format!("Settle error: {e}"),
+        Err(e) => {
+            eprintln!("settle_market error ({market_id}): {e}");
+            return (false, format!("⚠️ Settle error: {e}"));
+        }
     };
     let (mut won, mut lost, mut paid) = (0u32, 0u32, 0i64);
     for st in &settlements {
@@ -97,13 +115,16 @@ async fn run_settle(ctx: &Context, market_id: &str, winner: &str) -> String {
             lost += 1;
             i18n::bet_lost(blang).to_string()
         };
-        let _ = send_text(ctx, st.user, dm).await;
+        if let Err(e) = send_text(ctx, st.user, dm).await {
+            eprintln!("settle result DM failed (user {}): {e:?}", st.user);
+        }
     }
-    format!(
+    let summary = format!(
         "Settled {} wager(s): {won} won (paid {}), {lost} lost.",
         settlements.len(),
         fmt_coins(paid)
-    )
+    );
+    (true, summary)
 }
 
 /// Human-readable button label for a market (title, never the raw id).
@@ -186,7 +207,14 @@ pub async fn handle_settle_cb(
     let chat = message.chat.get_id();
     let mid = message.message_id;
     let database = db(ctx);
-    let open = database.list_open_markets().unwrap_or_default();
+    let open = match database.list_open_markets() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("handle_settle_cb list_open_markets error: {e}");
+            tg::edit_text_only(ctx, chat, mid, "⚠️ DB error — couldn't load markets.").await.ok();
+            return ack(ctx, cb, "").await;
+        }
+    };
 
     let (action, arg) = rest.split_once(':').unwrap_or((rest, ""));
     match action {
@@ -259,9 +287,9 @@ pub async fn handle_settle_cb(
                 tg::edit_text_only(ctx, chat, mid, "That market is no longer open.").await.ok();
                 return ack(ctx, cb, "").await;
             }
-            let summary = run_settle(ctx, market_id, winner).await;
+            let (ok, summary) = run_settle(ctx, market_id, winner).await;
             tg::edit_text_only(ctx, chat, mid, &summary).await.ok();
-            return ack(ctx, cb, "Settled ✅").await;
+            return ack(ctx, cb, if ok { "Settled ✅" } else { "⚠️ Settle failed" }).await;
         }
         _ => {}
     }
@@ -492,7 +520,14 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
     };
 
     // Every chat the bot knows — private DMs and groups alike.
-    let ids = db(&ctx).all_chat_ids().unwrap_or_default();
+    let ids = match db(&ctx).all_chat_ids() {
+        Ok(ids) => ids,
+        Err(e) => {
+            eprintln!("broadcast all_chat_ids error: {e}");
+            reply(&ctx, &message, "⚠️ DB error — couldn't load chat list; nothing sent.").await?;
+            return Ok(());
+        }
+    };
     let mut delivered = 0usize;
     for id in ids {
         if send_text(&ctx, id, body).await.is_ok() {

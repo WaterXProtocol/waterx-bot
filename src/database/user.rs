@@ -155,21 +155,25 @@ impl Database {
     pub fn try_checkin(&self, user_id: i64, reward: i64) -> SqlResult<bool> {
         self.ensure_row(user_id)?;
         let today = super::current_unix_time() / 86_400;
-        let conn = self.conn.lock();
-        let last: i64 = conn.query_row(
+        let mut conn = self.conn.lock();
+        // One transaction over the reward + the referral cascade: a mid-cascade
+        // failure must not leave the user credited (and the day consumed) while
+        // an upline referrer goes unpaid.
+        let tx = conn.transaction()?;
+        let last: i64 = tx.query_row(
             "SELECT last_checkin FROM balance WHERE user = ?1",
             params![user_id],
             |r| r.get(0),
         )?;
         if last >= today {
-            return Ok(false);
+            return Ok(false); // already claimed today → rollback (no writes)
         }
-        conn.execute(
+        tx.execute(
             "UPDATE balance SET balance = balance + ?1, last_checkin = ?2 WHERE user = ?3",
             params![reward, today, user_id],
         )?;
         // Referral cascade: pay the direct referrer and up to two levels above.
-        let mut up: i64 = conn.query_row(
+        let mut up: i64 = tx.query_row(
             "SELECT referrer FROM balance WHERE user = ?1",
             params![user_id],
             |r| r.get(0),
@@ -178,11 +182,11 @@ impl Database {
             if up == 0 {
                 break;
             }
-            conn.execute(
+            tx.execute(
                 "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
                 params![bonus, up],
             )?;
-            up = conn
+            up = tx
                 .query_row(
                     "SELECT referrer FROM balance WHERE user = ?1",
                     params![up],
@@ -191,6 +195,7 @@ impl Database {
                 .optional()?
                 .unwrap_or(0);
         }
+        tx.commit()?;
         Ok(true)
     }
 
