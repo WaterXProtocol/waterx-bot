@@ -18,7 +18,7 @@ pub async fn timezone(ctx: Context, message: Message) -> CommandResult {
         &ctx,
         message.chat.get_id(),
         i18n::choose_timezone(lang),
-        &menu::tz_picker_rows(current),
+        &menu::tz_picker_rows(current, false),
     )
     .await?;
     Ok(())

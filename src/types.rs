@@ -62,7 +62,7 @@ impl BetState {
 /// per user in `balance.odds_fmt` (a stable store code); `Decimal` is the default
 /// and the fallback for any unknown/legacy value. The conversion lives in
 /// `util::format_odds`; the localized picker labels in `i18n::odds_fmt_label`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum OddsFormat {
     #[default]
     Decimal,

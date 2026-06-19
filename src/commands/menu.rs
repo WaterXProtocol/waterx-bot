@@ -17,6 +17,10 @@ pub const CFG_LANG: &str = "cfg:lang"; // open the language picker
 pub const CFG_TZ: &str = "cfg:tz"; // open the timezone picker
 pub const CFG_ODDS: &str = "cfg:odds"; // open the odds-format picker
 pub const CFG_HOME: &str = "cfg:home"; // back to the settings hub
+/// Settings-variant pick callbacks: persist + return to the hub (vs the onboarding
+/// `setlang:`/`settz:`, which chain lang→timezone→menu).
+pub const SLANG: &str = "slang:"; // slang:<store_code>
+pub const STZ: &str = "stz:"; // stz:<minutes>
 
 /// `/settings` hub keyboard: three uniform buttons — `[🌐 Language]`,
 /// `[🕐 Timezone]`, `[🎲 Odds format]` — each opening its own picker (where the
@@ -61,10 +65,12 @@ const TZ_OFFSETS: &[i64] = &[
     -600, -480, -300, -180, 0, 60, 120, 180, 210, 300, 330, 420, 480, 540, 600, 720,
 ];
 
-/// Timezone picker: one button per curated offset (`settz:<minutes>`), four per
-/// row, labelled `UTC±h[:mm]`. `current` (the user's saved offset, if any) is
-/// `✅`-marked.
-pub fn tz_picker_rows(current: Option<i64>) -> Vec<Row> {
+/// Timezone picker: one button per curated offset, four per row, labelled
+/// `UTC±h[:mm]`. `current` (the user's saved offset, if any) is `✅`-marked.
+/// `settings`: when opened from the `/settings` hub the pick emits `stz:` (persist
+/// + back to hub); from onboarding it emits `settz:` (chain → main menu).
+pub fn tz_picker_rows(current: Option<i64>, settings: bool) -> Vec<Row> {
+    let prefix = if settings { STZ } else { SET_TZ };
     TZ_OFFSETS
         .chunks(4)
         .map(|chunk| {
@@ -72,7 +78,7 @@ pub fn tz_picker_rows(current: Option<i64>) -> Vec<Row> {
                 .iter()
                 .map(|&m| {
                     let mark = if current == Some(m) { "✅ " } else { "" };
-                    (format!("{mark}{}", tz_button_label(m)), format!("{SET_TZ}{m}"))
+                    (format!("{mark}{}", tz_button_label(m)), format!("{prefix}{m}"))
                 })
                 .collect()
         })
@@ -95,9 +101,12 @@ pub fn referral_link(bot_username: &str, user_id: i64) -> String {
 }
 
 /// Language-picker keyboard: every supported locale, two per row, labelled with
-/// its flag + endonym. Payload is `setlang:<store_code>`. `current` (the user's
-/// saved locale, if any) is `✅`-marked.
-pub fn lang_picker_rows(current: Option<Lang>) -> Vec<Row> {
+/// its flag + endonym. `current` (the user's saved locale, if any) is `✅`-marked.
+/// `settings`: when opened from the `/settings` hub the pick emits `slang:`
+/// (persist + back to hub); from onboarding it emits `setlang:` (chain →
+/// timezone → main menu).
+pub fn lang_picker_rows(current: Option<Lang>, settings: bool) -> Vec<Row> {
+    let prefix = if settings { SLANG } else { SET_LANG };
     Lang::ALL
         .chunks(2)
         .map(|pair| {
@@ -106,7 +115,7 @@ pub fn lang_picker_rows(current: Option<Lang>) -> Vec<Row> {
                     let mark = if current == Some(*l) { "✅ " } else { "" };
                     (
                         format!("{mark}{}", l.native_label()),
-                        format!("{}{}", SET_LANG, l.store_code()),
+                        format!("{prefix}{}", l.store_code()),
                     )
                 })
                 .collect()

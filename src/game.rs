@@ -1,5 +1,5 @@
 use crate::i18n::{self, Lang};
-use crate::types::BetState;
+use crate::types::{BetState, OddsFormat};
 use std::collections::HashMap;
 
 /// Stake amounts shown as per-option buttons in the betting keyboard.
@@ -45,6 +45,12 @@ pub struct BetGame {
     /// still closes/settles manually. `#[serde(default)]` for pre-deadline games.
     #[serde(default)]
     pub ends_at: i64,
+    /// Odds display format for the **shared board**, pinned to the host's pref at
+    /// creation (like `lang`) — so the board never flips format per viewer. The
+    /// per-bettor DM builder uses the *bettor's* format instead. `#[serde(default)]`
+    /// loads pre-feature games as `Decimal`.
+    #[serde(default)]
+    pub odds_fmt: OddsFormat,
 }
 
 impl BetGame {
@@ -69,6 +75,7 @@ impl BetGame {
             changes: HashMap::new(),
             names: HashMap::new(),
             ends_at: 0,
+            odds_fmt: OddsFormat::Decimal,
         }
     }
 
@@ -76,6 +83,23 @@ impl BetGame {
     /// be `betting` since there's no scheduler to auto-close).
     pub fn ended(&self, now: i64) -> bool {
         self.ends_at != 0 && now >= self.ends_at
+    }
+
+    /// An option's current pari-mutuel payout, rendered in `fmt`. The natural form
+    /// is the **decimal multiplier** `pool ÷ option-stake` (shown as `×2.50` — "your
+    /// stake ×"); other formats convert via `cents = 100 / multiplier`. `×—` when
+    /// the option has no bets yet (no defined multiplier). Used by the shared board
+    /// (host's `odds_fmt`) and the per-bettor DM builder (the bettor's format).
+    pub fn option_odds(&self, opt: &str, fmt: OddsFormat) -> String {
+        let bet = self.options.get(opt).map_or(0, |d| d.bet);
+        if bet <= 0 || self.total <= 0 {
+            return "×—".to_string();
+        }
+        let mult = self.total as f64 / bet as f64;
+        match fmt {
+            OddsFormat::Decimal => format!("×{mult:.2}"),
+            _ => crate::commands::util::format_odds(100.0 / mult, fmt),
+        }
     }
 
     pub fn set_id(&mut self, chat_id: i64, msg_id: i64) {
@@ -126,11 +150,8 @@ impl BetGame {
         }
         for (i, opt) in self.option_order.iter().enumerate() {
             if let Some(d) = self.options.get(opt) {
-                let mult = if d.bet > 0 {
-                    format!("×{}", d.odd)
-                } else {
-                    "×—".to_string()
-                };
+                // Board renders in the host's pinned format (shared message).
+                let mult = self.option_odds(opt, self.odds_fmt);
                 s.push_str(&format!("\n{} {opt}   {} 🪙 → {mult}", circled(i + 1), d.bet));
             }
         }

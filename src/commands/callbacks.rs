@@ -88,6 +88,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_sell(&ctx, &cb).await
     } else if data.starts_with("buy:") {
         handle_buy(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(menu::STZ) {
+        handle_settings_tz(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(menu::SET_TZ) {
         handle_set_tz(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(menu::SET_FMT) {
@@ -100,6 +102,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_cfg_odds(&ctx, &cb).await
     } else if data == menu::CFG_HOME {
         handle_cfg_home(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(menu::SLANG) {
+        handle_settings_lang(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(menu::SET_LANG) {
         handle_set_lang(&ctx, &cb, rest).await
     } else if data == menu::MENU_CHECKIN {
@@ -286,7 +290,9 @@ async fn handle_gamble(
         let Ok(idx) = idx_s.parse::<usize>() else {
             return answer(ctx, cb, "", false).await;
         };
-        let opt = {
+        // The builder shows the odds in the *bettor's* format (not the host's).
+        let fmt = db.get_odds_fmt(cb.from.id).unwrap_or_default();
+        let label = {
             let g = games.lock().await;
             let Some(game) = g.get(&key) else {
                 return answer(ctx, cb, i18n::game_invalid(lang), true).await;
@@ -295,11 +301,11 @@ async fn handle_gamble(
                 return answer(ctx, cb, i18n::already_closed(lang), true).await;
             }
             match game.option_order.get(idx) {
-                Some(o) => o.clone(),
+                Some(o) => opt_label(o, &game.option_odds(o, fmt)),
                 None => return answer(ctx, cb, "", false).await,
             }
         };
-        let text = i18n::game_build(lang, &opt, "0");
+        let text = i18n::game_build(lang, &label, "0");
         let rows = game_builder_rows(lang, &key, idx, 0);
         return match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
             Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
@@ -371,9 +377,16 @@ fn parse_game_draft(rest: &str) -> Option<(String, usize, i64)> {
     Some((format!("{chat}:{msg}"), idx.parse().ok()?, total.parse().ok()?))
 }
 
-/// The option's name for `(key, idx)` if the game is still open; else the toast
-/// to show (`game_invalid`/`already_closed`).
-async fn game_option(ctx: &Context, lang: Lang, key: &str, idx: usize) -> Result<String, &'static str> {
+/// The option's `(name, odds-in-`fmt`)` for `(key, idx)` if the game is still
+/// open; else the toast to show (`game_invalid`/`already_closed`). The odds are
+/// the pari-mutuel multiplier rendered in the *bettor's* format for the DM builder.
+async fn game_option(
+    ctx: &Context,
+    lang: Lang,
+    key: &str,
+    idx: usize,
+    fmt: crate::types::OddsFormat,
+) -> Result<(String, String), &'static str> {
     let games = games_arc(ctx);
     let g = games.lock().await;
     let Some(game) = g.get(key) else {
@@ -382,7 +395,14 @@ async fn game_option(ctx: &Context, lang: Lang, key: &str, idx: usize) -> Result
     if game.state != BetState::betting || game.ended(chrono::Utc::now().timestamp()) {
         return Err(i18n::already_closed(lang));
     }
-    game.option_order.get(idx).cloned().ok_or_else(|| i18n::game_invalid(lang))
+    let name = game.option_order.get(idx).cloned().ok_or_else(|| i18n::game_invalid(lang))?;
+    let odds = game.option_odds(&name, fmt);
+    Ok((name, odds))
+}
+
+/// `[name (odds)]` — the option label shown in the DM stake builder/confirm.
+fn opt_label(name: &str, odds: &str) -> String {
+    format!("{name} ({odds})")
 }
 
 /// `gsz:…` — re-render the DM builder at the accumulated total.
@@ -391,8 +411,9 @@ async fn handle_game_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
     let Some((key, idx, total)) = parse_game_draft(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    let opt = match game_option(ctx, lang, &key, idx).await {
-        Ok(o) => o,
+    let fmt = db_arc(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let (opt, odds) = match game_option(ctx, lang, &key, idx, fmt).await {
+        Ok(p) => p,
         Err(t) => return answer(ctx, cb, t, true).await,
     };
     if let Some(m) = &cb.message {
@@ -400,7 +421,7 @@ async fn handle_game_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
             ctx,
             m.chat.get_id(),
             m.message_id,
-            &i18n::game_build(lang, &opt, &total.max(0).to_string()),
+            &i18n::game_build(lang, &opt_label(&opt, &odds), &total.max(0).to_string()),
             &game_builder_rows(lang, &key, idx, total),
         )
         .await;
@@ -417,8 +438,9 @@ async fn handle_game_confirm(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
     if total <= 0 {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
     }
-    let opt = match game_option(ctx, lang, &key, idx).await {
-        Ok(o) => o,
+    let fmt = db_arc(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let (opt, odds) = match game_option(ctx, lang, &key, idx, fmt).await {
+        Ok(p) => p,
         Err(t) => return answer(ctx, cb, t, true).await,
     };
     let rows = vec![
@@ -430,7 +452,7 @@ async fn handle_game_confirm(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
             ctx,
             m.chat.get_id(),
             m.message_id,
-            &i18n::game_confirm(lang, &total.to_string(), &opt),
+            &i18n::game_confirm(lang, &total.to_string(), &opt_label(&opt, &odds)),
             &rows,
         )
         .await;
@@ -562,7 +584,7 @@ async fn handle_set_lang(
                 chat,
                 message.message_id,
                 i18n::choose_timezone(lang),
-                &menu::tz_picker_rows(db.get_tz(cb.from.id).ok().flatten()),
+                &menu::tz_picker_rows(db.get_tz(cb.from.id).ok().flatten(), false),
             )
             .await;
         }
@@ -636,8 +658,7 @@ async fn handle_cfg_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
 }
 
 /// `cfg:lang` — open the language picker from the `/settings` hub, ✅-marking the
-/// current locale (the picker's `setlang:` buttons then run the existing
-/// lang→timezone→menu flow).
+/// current locale. The picker's `slang:` buttons persist + return to the hub.
 async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     if let Some(message) = cb.message.clone() {
@@ -646,7 +667,7 @@ async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
             message.chat.get_id(),
             message.message_id,
             i18n::CHOOSE_LANGUAGE,
-            &menu::lang_picker_rows(Some(lang)),
+            &menu::lang_picker_rows(Some(lang), true),
         )
         .await;
     }
@@ -654,7 +675,7 @@ async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
 }
 
 /// `cfg:tz` — open the timezone picker from the `/settings` hub, ✅-marking the
-/// current offset.
+/// current offset. The picker's `stz:` buttons persist + return to the hub.
 async fn handle_cfg_tz(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let current = db_arc(ctx).get_tz(cb.from.id).ok().flatten();
@@ -664,7 +685,54 @@ async fn handle_cfg_tz(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide
             message.chat.get_id(),
             message.message_id,
             i18n::choose_timezone(lang),
-            &menu::tz_picker_rows(current),
+            &menu::tz_picker_rows(current, true),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `slang:<store_code>` — settings-variant language pick: persist the locale and
+/// return to the `/settings` hub in place (re-rendered in the *new* locale).
+async fn handle_settings_lang(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let Some(lang) = Lang::from_store_code(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let db = db_arc(ctx);
+    if db.set_lang(cb.from.id, lang).is_err() {
+        return answer(ctx, cb, i18n::db_error(lang), true).await;
+    }
+    if let Some(message) = cb.message.clone() {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            message.chat.get_id(),
+            message.message_id,
+            i18n::settings_title(lang),
+            &menu::settings_rows(lang),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `stz:<minutes>` — settings-variant timezone pick: persist the UTC offset and
+/// return to the `/settings` hub in place.
+async fn handle_settings_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let Ok(minutes) = rest.parse::<i64>() else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let db = db_arc(ctx);
+    let lang = cb_lang(ctx, cb);
+    if db.set_tz(cb.from.id, minutes).is_err() {
+        return answer(ctx, cb, i18n::db_error(lang), true).await;
+    }
+    if let Some(message) = cb.message.clone() {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            message.chat.get_id(),
+            message.message_id,
+            i18n::settings_title(lang),
+            &menu::settings_rows(lang),
         )
         .await;
     }

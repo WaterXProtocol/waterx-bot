@@ -207,6 +207,8 @@ pub async fn handle_predict_endtime(
     let opt_refs: Vec<&str> = options.iter().map(String::as_str).collect();
     let mut game = BetGame::new(cb.from.id, lang, &description, &opt_refs);
     game.ends_at = ends_at;
+    // Pin the board to the host's odds format (shared message — like its locale).
+    game.odds_fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
 
     // Post the card to the origin chat; only on success do we register the game.
     let sent = match tg::send_with_buttons(ctx, draft.origin_chat, &game.get_text(), &game.get_buttons()).await {

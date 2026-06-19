@@ -50,7 +50,7 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
             .await?;
         }
         None => {
-            tg::send_with_buttons(&ctx, chat_id, i18n::CHOOSE_LANGUAGE, &menu::lang_picker_rows(saved))
+            tg::send_with_buttons(&ctx, chat_id, i18n::CHOOSE_LANGUAGE, &menu::lang_picker_rows(saved, false))
                 .await?;
         }
     }
