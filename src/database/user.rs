@@ -29,17 +29,63 @@ impl Database {
 
     /// Adds `change` to user balance. Returns false when the operation would
     /// push balance below zero (and nothing is written).
+    ///
+    /// The guard and the write are a **single atomic statement** (the
+    /// `WHERE balance + ?1 >= 0` clause), so two concurrent debits can't both
+    /// pass a stale read and overdraw the account (the previous read-then-write
+    /// split had that TOCTOU race).
     pub fn balance_change(&self, user_id: i64, change: i64) -> SqlResult<bool> {
-        let info = self.get_user_info(user_id)?;
-        if info.balance + change < 0 {
-            return Ok(false);
-        }
+        self.ensure_row(user_id)?;
         let conn = self.conn.lock();
-        conn.execute(
-            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+        let affected = conn.execute(
+            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2 AND balance + ?1 >= 0",
             params![change, user_id],
         )?;
+        Ok(affected == 1)
+    }
+
+    /// Atomically move `amount` (micro-coins, must be ≥ 0) from `from` to `to`
+    /// in one transaction: a single failure rolls back both legs, so coins can
+    /// never be debited without being credited (or vice-versa). Returns false
+    /// (writing nothing) when `from` can't cover `amount`.
+    pub fn transfer(&self, from: i64, to: i64, amount: i64) -> SqlResult<bool> {
+        self.ensure_row(from)?;
+        self.ensure_row(to)?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let debited = tx.execute(
+            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
+            params![amount, from],
+        )?;
+        if debited != 1 {
+            return Ok(false); // tx drops here → rollback, nothing written
+        }
+        tx.execute(
+            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+            params![amount, to],
+        )?;
+        tx.commit()?;
         Ok(true)
+    }
+
+    /// Credit `amount` (micro-coins) to **both** `a` and `b` in one transaction
+    /// — used for the referral signup reward so the referrer and referee are
+    /// paid atomically (both or neither). No non-negative guard: it's a credit.
+    pub fn reward_referral(&self, a: i64, b: i64, amount: i64) -> SqlResult<()> {
+        self.ensure_row(a)?;
+        self.ensure_row(b)?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+            params![amount, a],
+        )?;
+        tx.execute(
+            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+            params![amount, b],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// The user's persisted UI locale, or `None` if they haven't picked one
@@ -157,5 +203,42 @@ impl Database {
             params![change, user_id],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::COIN;
+    use super::*;
+
+    #[test]
+    fn balance_change_rejects_overdraw_and_writes_nothing() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 5 * COIN).unwrap();
+        assert!(!db.balance_change(1, -6 * COIN).unwrap()); // would go negative
+        assert_eq!(db.get_user_info(1).unwrap().balance, 5 * COIN); // untouched
+        assert!(db.balance_change(1, -5 * COIN).unwrap()); // exact spend ok
+        assert_eq!(db.get_user_info(1).unwrap().balance, 0);
+    }
+
+    #[test]
+    fn transfer_is_atomic_and_guards_funds() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 10 * COIN).unwrap();
+        assert!(db.transfer(1, 2, 4 * COIN).unwrap());
+        assert_eq!(db.get_user_info(1).unwrap().balance, 6 * COIN);
+        assert_eq!(db.get_user_info(2).unwrap().balance, 4 * COIN);
+        // Insufficient → both balances unchanged (neither leg applied).
+        assert!(!db.transfer(1, 2, 100 * COIN).unwrap());
+        assert_eq!(db.get_user_info(1).unwrap().balance, 6 * COIN);
+        assert_eq!(db.get_user_info(2).unwrap().balance, 4 * COIN);
+    }
+
+    #[test]
+    fn reward_referral_credits_both_sides() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.reward_referral(1, 2, 10 * COIN).unwrap();
+        assert_eq!(db.get_user_info(1).unwrap().balance, 10 * COIN);
+        assert_eq!(db.get_user_info(2).unwrap().balance, 10 * COIN);
     }
 }

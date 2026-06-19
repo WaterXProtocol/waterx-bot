@@ -427,9 +427,11 @@ pub async fn handle_size_place(
     let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    if total <= 0 {
+    // Guard the whole-coin → micro-coin conversion (caps at MAX_COINS, rejects
+    // overflow and non-positive) so a crafted stake can't wrap i64 and mint coins.
+    let Some(stake_units) = to_micro(total) else {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
-    }
+    };
     // Re-price every placement from the live feed so the wager is booked at the
     // current odds, never the locked snapshot the user was looking at.
     let Some(q) = refetch_quote(ctx, lang, qid).await else {
@@ -439,12 +441,11 @@ pub async fn handle_size_place(
         return answer(ctx, cb, "", false).await;
     };
 
-    let stake_units = total * COIN;
     let database = db(ctx);
-    if !database.balance_change(cb.from.id, -stake_units).unwrap_or(false) {
-        return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
-    }
-    if let Err(err) = database.place_wager(
+    // Atomic debit + record in one DB transaction: `false` = insufficient funds
+    // (nothing written), `Err` = DB fault. There's no separate debit to roll
+    // back, so the old swallowed-rollback path is gone entirely.
+    match database.place_wager(
         cb.from.id,
         &q.market_id,
         &q.slug,
@@ -455,10 +456,12 @@ pub async fn handle_size_place(
         odds,
         q.ends_at,
     ) {
-        // Roll the debit back if the insert failed.
-        database.force_change(cb.from.id, stake_units).ok();
-        eprintln!("place_wager error: {err}");
-        return answer(ctx, cb, i18n::db_error(lang), true).await;
+        Ok(true) => {}
+        Ok(false) => return answer(ctx, cb, i18n::not_enough_money(lang), true).await,
+        Err(err) => {
+            eprintln!("place_wager error: {err}");
+            return answer(ctx, cb, i18n::db_error(lang), true).await;
+        }
     }
     quotes(ctx).lock().remove(qid);
 

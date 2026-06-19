@@ -70,9 +70,10 @@ impl Database {
         fruits: &str,
         price: i64,
     ) -> SqlResult<String> {
-        let conn = self.conn.lock();
-        ensure_row_locked(&conn, seller)?;
-        let mut sf: String = conn.query_row(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        ensure_row_locked(&tx, seller)?;
+        let mut sf: String = tx.query_row(
             "SELECT fruit FROM balance WHERE user = ?1",
             params![seller],
             |r| r.get(0),
@@ -86,17 +87,20 @@ impl Database {
             }
         }
         if escrowed.is_empty() {
-            return Ok(escrowed);
+            return Ok(escrowed); // tx drops → rollback (only the ensure_row insert)
         }
-        conn.execute(
+        // Debit the escrowed fruit and record the offer atomically: a failure on
+        // either statement leaves the seller's inventory untouched.
+        tx.execute(
             "UPDATE balance SET fruit = ?1 WHERE user = ?2",
             params![sf, seller],
         )?;
-        conn.execute(
+        tx.execute(
             "INSERT OR REPLACE INTO buffer (chat, msg, kind, owner, fruits, price, created_at)
              VALUES (?1, ?2, 'sell', ?3, ?4, ?5, ?6)",
             params![chat, msg, seller, escrowed, price, current_unix_time()],
         )?;
+        tx.commit()?;
         Ok(escrowed)
     }
 
@@ -111,25 +115,29 @@ impl Database {
         fruits: &str,
         price: i64,
     ) -> SqlResult<bool> {
-        let conn = self.conn.lock();
-        ensure_row_locked(&conn, buyer)?;
-        let bal: i64 = conn.query_row(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        ensure_row_locked(&tx, buyer)?;
+        let bal: i64 = tx.query_row(
             "SELECT balance FROM balance WHERE user = ?1",
             params![buyer],
             |r| r.get(0),
         )?;
         if bal < price {
-            return Ok(false);
+            return Ok(false); // tx drops → rollback
         }
-        conn.execute(
+        // Escrow the coins and record the offer atomically: a failure on either
+        // statement leaves the buyer's balance untouched (no coins-into-the-void).
+        tx.execute(
             "UPDATE balance SET balance = balance - ?1 WHERE user = ?2",
             params![price, buyer],
         )?;
-        conn.execute(
+        tx.execute(
             "INSERT OR REPLACE INTO buffer (chat, msg, kind, owner, fruits, price, created_at)
              VALUES (?1, ?2, 'buy', ?3, ?4, ?5, ?6)",
             params![chat, msg, buyer, fruits, price, current_unix_time()],
         )?;
+        tx.commit()?;
         Ok(true)
     }
 
@@ -137,8 +145,9 @@ impl Database {
     /// success, the buffer row is deleted, the buyer pays the asking price,
     /// the seller gets the coins, and the escrowed fruit moves to the buyer.
     pub fn consume_sell(&self, chat: i64, msg: i64, taker: i64) -> SqlResult<OfferOutcome> {
-        let conn = self.conn.lock();
-        let row = conn
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let row = tx
             .query_row(
                 "SELECT kind, owner, fruits, price FROM buffer WHERE chat = ?1 AND msg = ?2",
                 params![chat, msg],
@@ -161,52 +170,57 @@ impl Database {
 
         // Self-cancel: seller tapped own sell button → return fruit, delete buffer
         if taker == seller {
-            ensure_row_locked(&conn, seller)?;
-            let sf: String = conn.query_row(
+            ensure_row_locked(&tx, seller)?;
+            let sf: String = tx.query_row(
                 "SELECT fruit FROM balance WHERE user = ?1",
                 params![seller],
                 |r| r.get(0),
             )?;
             let new_sf = format!("{sf}{fruits}");
-            conn.execute(
+            tx.execute(
                 "UPDATE balance SET fruit = ?1 WHERE user = ?2",
                 params![new_sf, seller],
             )?;
-            conn.execute(
+            tx.execute(
                 "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
                 params![chat, msg],
             )?;
+            tx.commit()?;
             return Ok(OfferOutcome::SelfCancelled);
         }
 
         // Validate taker side
-        ensure_row_locked(&conn, taker)?;
-        let (bal, bf): (i64, String) = conn.query_row(
+        ensure_row_locked(&tx, taker)?;
+        let (bal, bf): (i64, String) = tx.query_row(
             "SELECT balance, fruit FROM balance WHERE user = ?1",
             params![taker],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         if bal < price {
-            return Ok(OfferOutcome::TakerNotEnoughBalance);
+            return Ok(OfferOutcome::TakerNotEnoughBalance); // tx drops → rollback
         }
         if bf.chars().count() + fruits.chars().count() > 5 {
-            return Ok(OfferOutcome::TakerFruitFull);
+            return Ok(OfferOutcome::TakerFruitFull); // tx drops → rollback
         }
 
-        ensure_row_locked(&conn, seller)?;
+        // Fill: pay seller, move fruit to taker, drop the offer — all atomic so a
+        // partial failure can't leave the buyer charged without the fruit (or the
+        // buffer row surviving for a replay).
+        ensure_row_locked(&tx, seller)?;
         let new_bf = format!("{bf}{fruits}");
-        conn.execute(
+        tx.execute(
             "UPDATE balance SET balance = ?1, fruit = ?2 WHERE user = ?3",
             params![bal - price, new_bf, taker],
         )?;
-        conn.execute(
+        tx.execute(
             "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
             params![price, seller],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
             params![chat, msg],
         )?;
+        tx.commit()?;
         Ok(OfferOutcome::Filled { fruits, price })
     }
 
@@ -214,8 +228,9 @@ impl Database {
     /// success the buyer (escrow owner) gets the listed fruit, the seller
     /// loses that fruit and gains the escrowed coins.
     pub fn consume_buy(&self, chat: i64, msg: i64, taker: i64) -> SqlResult<OfferOutcome> {
-        let conn = self.conn.lock();
-        let row = conn
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let row = tx
             .query_row(
                 "SELECT kind, owner, fruits, price FROM buffer WHERE chat = ?1 AND msg = ?2",
                 params![chat, msg],
@@ -238,21 +253,24 @@ impl Database {
 
         // Self-cancel: buyer tapped own buy button → refund coin, delete buffer
         if taker == buyer {
-            ensure_row_locked(&conn, buyer)?;
-            conn.execute(
+            ensure_row_locked(&tx, buyer)?;
+            // Refund and delete atomically: if the DELETE failed after the
+            // refund committed, the buyer could retap and be refunded again.
+            tx.execute(
                 "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
                 params![price, buyer],
             )?;
-            conn.execute(
+            tx.execute(
                 "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
                 params![chat, msg],
             )?;
+            tx.commit()?;
             return Ok(OfferOutcome::SelfCancelled);
         }
 
         // Validate taker (seller) side
-        ensure_row_locked(&conn, taker)?;
-        let sf: String = conn.query_row(
+        ensure_row_locked(&tx, taker)?;
+        let sf: String = tx.query_row(
             "SELECT fruit FROM balance WHERE user = ?1",
             params![taker],
             |r| r.get(0),
@@ -263,37 +281,39 @@ impl Database {
             if let Some(idx) = sf_check.find(&s) {
                 sf_check.remove(idx);
             } else {
-                return Ok(OfferOutcome::TakerMissingFruit(f));
+                return Ok(OfferOutcome::TakerMissingFruit(f)); // tx drops → rollback
             }
         }
 
         // Validate buyer fruit space (escrowed at post time but buyer's
         // inventory may have grown since)
-        ensure_row_locked(&conn, buyer)?;
-        let bf: String = conn.query_row(
+        ensure_row_locked(&tx, buyer)?;
+        let bf: String = tx.query_row(
             "SELECT fruit FROM balance WHERE user = ?1",
             params![buyer],
             |r| r.get(0),
         )?;
         if bf.chars().count() + fruits.chars().count() > 5 {
-            return Ok(OfferOutcome::TakerFruitFull);
+            return Ok(OfferOutcome::TakerFruitFull); // tx drops → rollback
         }
 
         let new_bf = format!("{bf}{fruits}");
         // Coin was already escrowed away from buyer at post time, so we only
-        // credit the seller (taker) here.
-        conn.execute(
+        // credit the seller (taker) here — fruit move, coin credit, and buffer
+        // delete are one atomic unit.
+        tx.execute(
             "UPDATE balance SET fruit = ?1, balance = balance + ?2 WHERE user = ?3",
             params![sf_check, price, taker],
         )?;
-        conn.execute(
+        tx.execute(
             "UPDATE balance SET fruit = ?1 WHERE user = ?2",
             params![new_bf, buyer],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
             params![chat, msg],
         )?;
+        tx.commit()?;
         Ok(OfferOutcome::Filled { fruits, price })
     }
 }

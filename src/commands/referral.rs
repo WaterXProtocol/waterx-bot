@@ -16,8 +16,13 @@ pub(crate) const REFERRAL_REWARD: i64 = 10 * crate::database::COIN;
 /// `Database::set_referrer_if_new` returning `true`) so this pays out once.
 pub(crate) async fn pay_referral(ctx: &Context, referrer: i64, referee: &User) {
     let database = db(ctx);
-    database.force_change(referrer, REFERRAL_REWARD).ok();
-    database.force_change(referee.id, REFERRAL_REWARD).ok();
+    // Pay both sides atomically (both or neither). Log a failure instead of
+    // silently swallowing it — the binding is already committed, so a lost
+    // payout must at least leave a trace.
+    if let Err(e) = database.reward_referral(referrer, referee.id, REFERRAL_REWARD) {
+        eprintln!("pay_referral credit failed (referrer {referrer}, referee {}): {e}", referee.id);
+        return;
+    }
     let rlang = database.get_lang(referrer).ok().flatten().unwrap_or(Lang::En);
     let _ = send_text(
         ctx,

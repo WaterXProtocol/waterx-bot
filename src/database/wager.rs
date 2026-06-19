@@ -55,8 +55,10 @@ pub fn decimal_payout(stake: i64, odds_cents: f64) -> i64 {
 }
 
 impl Database {
-    /// Record a placed wager. The caller must have already debited `stake`
-    /// (micro-coins) from the user's balance. Returns the new wager id.
+    /// **Atomically** debit `stake` (micro-coins) from the user and record the
+    /// wager in one transaction. Returns `Ok(false)` (writing nothing) when the
+    /// user can't cover the stake. This replaces the old debit-then-insert split
+    /// where an insert failure after the debit could silently lose the stake.
     #[allow(clippy::too_many_arguments)]
     pub fn place_wager(
         &self,
@@ -69,9 +71,18 @@ impl Database {
         stake: i64,
         odds_cents: f64,
         ends_at: i64,
-    ) -> SqlResult<i64> {
-        let conn = self.conn.lock();
-        conn.execute(
+    ) -> SqlResult<bool> {
+        self.ensure_row(user)?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let debited = tx.execute(
+            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
+            params![stake, user],
+        )?;
+        if debited != 1 {
+            return Ok(false); // insufficient funds → rollback, nothing recorded
+        }
+        tx.execute(
             "INSERT INTO wagers
                 (user, market_id, slug, team_a, team_b, outcome, stake, odds_cents, placed_at, ends_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -88,7 +99,8 @@ impl Database {
                 ends_at
             ],
         )?;
-        Ok(conn.last_insert_rowid())
+        tx.commit()?;
+        Ok(true)
     }
 
     /// A user's open (unsettled) wagers, newest last, for `/status`.
@@ -141,34 +153,41 @@ impl Database {
     /// `teamA`/`teamB`/`draw`). Credits winners their payout, marks each wager
     /// won/lost, and returns the per-wager outcomes for notification.
     pub fn settle_market(&self, market_id: &str, winner: &str) -> SqlResult<Vec<Settlement>> {
-        let conn = self.conn.lock();
+        let mut conn = self.conn.lock();
         let now = current_unix_time();
-        let mut stmt = conn.prepare(
-            "SELECT id, user, outcome, stake, odds_cents
-             FROM wagers WHERE market_id = ?1 AND status = 'open'",
-        )?;
-        let rows: Vec<(i64, i64, String, i64, f64)> = stmt
-            .query_map(params![market_id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-            })?
-            .collect::<SqlResult<Vec<_>>>()?;
-        drop(stmt);
+        // One transaction over the whole market: either every winner is paid and
+        // every wager flipped, or nothing changes. Prevents a mid-loop failure
+        // from paying some winners while leaving others `open` (which a re-run
+        // would then double-pay).
+        let tx = conn.transaction()?;
+        let rows: Vec<(i64, i64, String, i64, f64)> = {
+            let mut stmt = tx.prepare(
+                "SELECT id, user, outcome, stake, odds_cents
+                 FROM wagers WHERE market_id = ?1 AND status = 'open'",
+            )?;
+            let collected = stmt
+                .query_map(params![market_id], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                })?
+                .collect::<SqlResult<Vec<_>>>()?;
+            collected
+        };
 
         let mut out = Vec::with_capacity(rows.len());
         for (id, user, outcome, stake, odds_cents) in rows {
             let won = outcome == winner;
             let payout = if won { decimal_payout(stake, odds_cents) } else { 0 };
             if payout > 0 {
-                conn.execute(
+                tx.execute(
                     "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
                     params![user],
                 )?;
-                conn.execute(
+                tx.execute(
                     "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
                     params![payout, user],
                 )?;
             }
-            conn.execute(
+            tx.execute(
                 "UPDATE wagers SET status = ?1, settled_at = ?2 WHERE id = ?3",
                 params![if won { "won" } else { "lost" }, now, id],
             )?;
@@ -180,6 +199,7 @@ impl Database {
                 won,
             });
         }
+        tx.commit()?;
         Ok(out)
     }
 }
@@ -193,8 +213,11 @@ mod tests {
     fn settle_pays_winner_by_decimal_odds() {
         let db = Database::new(":memory:", 1).unwrap();
         // 5-coin bets at 50¢ (decimal 2.0): winner should receive 10 coins.
-        db.place_wager(10, "m1", "slug", "A", "B", "teamA", 5 * COIN, 50.0, 0).unwrap();
-        db.place_wager(20, "m1", "slug", "A", "B", "teamB", 5 * COIN, 50.0, 0).unwrap();
+        // place_wager now debits the stake, so fund both bettors first.
+        db.force_change(10, 5 * COIN).unwrap();
+        db.force_change(20, 5 * COIN).unwrap();
+        assert!(db.place_wager(10, "m1", "slug", "A", "B", "teamA", 5 * COIN, 50.0, 0).unwrap());
+        assert!(db.place_wager(20, "m1", "slug", "A", "B", "teamB", 5 * COIN, 50.0, 0).unwrap());
 
         let s = db.settle_market("m1", "teamA").unwrap();
         assert_eq!(s.len(), 2);
@@ -202,6 +225,20 @@ mod tests {
         assert_eq!(db.get_user_info(20).unwrap().balance, 0); // lost
         // Idempotent: nothing open left to settle.
         assert!(db.settle_market("m1", "teamA").unwrap().is_empty());
+    }
+
+    #[test]
+    fn place_wager_debits_atomically_and_rejects_insufficient() {
+        let db = Database::new(":memory:", 1).unwrap();
+        // No funds → rejected, nothing recorded.
+        assert!(!db.place_wager(7, "m", "s", "A", "B", "teamA", 5 * COIN, 50.0, 0).unwrap());
+        assert!(db.list_open_wagers(7).unwrap().is_empty());
+        assert_eq!(db.get_user_info(7).unwrap().balance, 0);
+        // Funded → placed, stake debited in the same transaction.
+        db.force_change(7, 5 * COIN).unwrap();
+        assert!(db.place_wager(7, "m", "s", "A", "B", "teamA", 5 * COIN, 50.0, 0).unwrap());
+        assert_eq!(db.get_user_info(7).unwrap().balance, 0);
+        assert_eq!(db.list_open_wagers(7).unwrap().len(), 1);
     }
 
     #[test]
@@ -218,6 +255,8 @@ mod tests {
     fn list_open_wagers_returns_only_users_open_bets() {
         let db = Database::new(":memory:", 1).unwrap();
         // user 10: one bet at 50¢ (decimal 2.0) — potential payout = 2× stake.
+        db.force_change(10, 5 * COIN).unwrap();
+        db.force_change(20, 3 * COIN).unwrap();
         db.place_wager(10, "m1", "s", "A", "B", "teamA", 5 * COIN, 50.0, 0).unwrap();
         // user 20: a different bet, must not show up for user 10.
         db.place_wager(20, "m2", "s", "C", "D", "teamB", 3 * COIN, 25.0, 0).unwrap();

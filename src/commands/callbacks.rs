@@ -304,7 +304,10 @@ async fn handle_gamble(
     };
     for (user, win) in &outputs {
         if *win > 0 {
-            db.force_change(*user, *win * COIN).ok();
+            // Log a failed winner payout instead of silently swallowing it.
+            if let Err(e) = db.force_change(*user, win.saturating_mul(COIN)) {
+                eprintln!("gamble settle credit failed (user {user}, +{win} coins): {e}");
+            }
         }
     }
     let _ = tg::edit_text_only(
@@ -410,6 +413,15 @@ async fn handle_game_confirm(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
     answer(ctx, cb, "", false).await
 }
 
+/// Best-effort refund of `units` micro-coins to `user`, logging (not swallowing)
+/// a failure — used when a self-host stake debit can't be turned into a placed
+/// bet (game gone / option missing / stake rejected) after the debit succeeded.
+fn log_refund(db: &crate::database::Database, user: i64, units: i64) {
+    if let Err(e) = db.force_change(user, units) {
+        eprintln!("game stake refund failed (user {user}, +{units}): {e}");
+    }
+}
+
 /// `gsp:…` — the only money-moving step: debit, `game.stake`, edit the group
 /// board with new totals, confirm in the DM, and announce in the group.
 async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
@@ -417,26 +429,29 @@ async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Res
     let Some((key, idx, total)) = parse_game_draft(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    if total <= 0 {
+    // Guard the whole-coin → micro-coin conversion (caps at MAX_COINS, rejects
+    // overflow and non-positive): `total` rides in the callback data, so a
+    // crafted value must not be able to wrap i64 and mint/destroy coins.
+    let Some(units) = to_micro(total) else {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
-    }
+    };
     let db = db_arc(ctx);
-    if !db.balance_change(cb.from.id, -total * COIN).unwrap_or(false) {
+    if !db.balance_change(cb.from.id, -units).unwrap_or(false) {
         return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
     }
     let games = games_arc(ctx);
     let placed = {
         let mut g = games.lock().await;
         let Some(game) = g.get_mut(&key) else {
-            db.force_change(cb.from.id, total * COIN).ok();
+            log_refund(&db, cb.from.id, units);
             return answer(ctx, cb, i18n::game_invalid(lang), true).await;
         };
         let Some(option) = game.option_order.get(idx).cloned() else {
-            db.force_change(cb.from.id, total * COIN).ok();
+            log_refund(&db, cb.from.id, units);
             return answer(ctx, cb, i18n::bet_failed(lang), true).await;
         };
         if !game.stake(cb.from.id, &option, total, &full_name(&cb.from)) {
-            db.force_change(cb.from.id, total * COIN).ok();
+            log_refund(&db, cb.from.id, units);
             return answer(ctx, cb, i18n::bet_failed(lang), true).await;
         }
         if let Err(err) = db.save_bet_game(game) {

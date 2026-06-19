@@ -5,6 +5,14 @@ use crate::i18n;
 use std::time::Duration;
 use telexide::prelude::*;
 
+/// Best-effort refund of `units` micro-coins to `user`, logging (not swallowing)
+/// a failure — used when an envelope can't be posted/recorded after the debit.
+fn refund_or_log(db: &crate::database::Database, user: i64, units: i64) {
+    if let Err(e) = db.force_change(user, units) {
+        eprintln!("envelope refund failed (user {user}, +{units}): {e}");
+    }
+}
+
 #[command(description = "send coins to the replied-to user")]
 pub async fn send(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
@@ -35,18 +43,19 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
             reply(&ctx, &message, ERR_NEG_REPLY).await?;
             return Ok(());
         };
-        if !database.balance_change(sender.id, -units)? {
-            reply(&ctx, &message, i18n::not_enough_money(lang)).await?;
-            return Ok(());
-        }
 
         let direct_target = reply_target
             .as_ref()
             .filter(|u| u.id != bot_id)
             .cloned();
         if let Some(receiver) = direct_target {
-            // Reply target is a real user → direct transfer.
-            database.force_change(receiver.id, units)?;
+            // Reply target is a real user → **atomic** direct transfer: debit and
+            // credit happen in one DB transaction, so coins can never be taken
+            // from the sender without landing on the receiver.
+            if !database.transfer(sender.id, receiver.id, units)? {
+                reply(&ctx, &message, i18n::not_enough_money(lang)).await?;
+                return Ok(());
+            }
             reply(
                 &ctx,
                 &message,
@@ -61,8 +70,14 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
             return Ok(());
         }
 
-        // No reply target → bare envelope drop.
-        // Reply target is the bot → bot reacts, then drops envelope.
+        // No reply target → bare envelope drop (reply target is the bot → bot
+        // reacts, then drops envelope). Debit first, then post + record the
+        // buffer row; if either step fails the envelope is unclaimable, so we
+        // refund the sender rather than stranding their coins.
+        if !database.balance_change(sender.id, -units)? {
+            reply(&ctx, &message, i18n::not_enough_money(lang)).await?;
+            return Ok(());
+        }
         if reply_target.is_some() {
             send_text(&ctx, message.chat.get_id(), i18n::bot_no_money(lang)).await?;
         }
@@ -75,8 +90,21 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         } else {
             i18n::sent_envelope_title(lang, &full_name(&sender), &format_number(amount))
         };
-        let sent = tg::send_with_buttons(&ctx, message.chat.get_id(), &title, &rows).await?;
-        database.insert_buffer(sent.chat.get_id(), sent.message_id)?;
+        let sent = match tg::send_with_buttons(&ctx, message.chat.get_id(), &title, &rows).await {
+            Ok(sent) => sent,
+            Err(e) => {
+                // The envelope never went out → refund the debited coins.
+                refund_or_log(&database, sender.id, units);
+                return Err(e);
+            }
+        };
+        if let Err(e) = database.insert_buffer(sent.chat.get_id(), sent.message_id) {
+            // Button is live but the claim checks for this buffer row, so the
+            // coins would be stuck — refund the sender.
+            eprintln!("envelope insert_buffer failed, refunding sender {}: {e}", sender.id);
+            refund_or_log(&database, sender.id, units);
+            return Ok(());
+        }
         return Ok(());
     }
 
