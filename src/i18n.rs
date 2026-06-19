@@ -1217,22 +1217,6 @@ pub fn match_finished(l: Lang) -> &'static str {
         "🏁 Esta partida terminou — as apostas serão liquidadas em breve.", "🏁 यह मैच समाप्त हो गया — दांव जल्द ही निपटाए जाएंगे।", "🏁 انتهت هذه المباراة — ستتم تسوية الرهانات قريبًا.")
 }
 
-pub fn bet_stale(l: Lang) -> &'static str {
-    tr!(l;
-        "Odds moved — tap Refresh 🔄", "賠率已更新，請按重新整理 🔄", "赔率已更新，请点刷新 🔄", "オッズが動いたよ。更新を押してね 🔄", "배당이 변했어 — 새로고침을 눌러줘 🔄",
-        "Коэффициенты изменились — нажми Обновить 🔄", "Les cotes ont bougé — appuie sur Rafraîchir 🔄", "Las cuotas cambiaron — toca Actualizar 🔄", "Quoten haben sich geändert — Aktualisieren tippen 🔄", "Tỷ lệ đã thay đổi — nhấn Làm mới 🔄",
-        "Odds berubah — ketuk Segarkan 🔄", "Nagbago ang odds — pindutin ang Refresh 🔄", "อัตราต่อรองเปลี่ยนแล้ว — แตะรีเฟรช 🔄", "Odds zijn gewijzigd — tik op Vernieuwen 🔄", "Oranlar değişti — Yenile'ye dokun 🔄",
-        "As odds mudaram — toque em Atualizar 🔄", "ऑड्स बदल गए — रिफ़्रेश दबाएँ 🔄", "تغيّرت الاحتمالات — اضغط تحديث 🔄")
-}
-
-pub fn btn_refresh(l: Lang) -> &'static str {
-    tr!(l;
-        "🔄 Refresh odds", "🔄 重新整理賠率", "🔄 刷新赔率", "🔄 オッズを更新", "🔄 배당 새로고침",
-        "🔄 Обновить коэффициенты", "🔄 Rafraîchir les cotes", "🔄 Actualizar cuotas", "🔄 Quoten aktualisieren", "🔄 Làm mới tỷ lệ",
-        "🔄 Segarkan odds", "🔄 I-refresh ang odds", "🔄 รีเฟรชอัตราต่อรอง", "🔄 Odds vernieuwen", "🔄 Oranları yenile",
-        "🔄 Atualizar odds", "🔄 ऑड्स रिफ़्रेश करें", "🔄 تحديث الاحتمالات")
-}
-
 pub fn bet_check_dm(l: Lang) -> &'static str {
     tr!(l;
         "Check your DM to place your bet 📩", "請查看私訊來下注 📩", "请查看私信来下注 📩", "DMを確認して賭けてね 📩", "DM에서 베팅을 진행해 📩",

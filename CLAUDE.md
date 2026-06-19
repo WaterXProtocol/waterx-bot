@@ -158,48 +158,40 @@ and `fetch_one(market_id)` re-fetches a single match's fresh odds at bet time.
 coin balance:
 
 1. Tapping a match number (`bet:`) re-fetches that match's **current** odds and
-   opens a quote (`quote_text` + one `opt:<qid>:<outcome>` button per priced
-   outcome). The brief is **replaced in place** with the picked game
-   (`team_a vs team_b` + per-side odds buttons) in **both** groups and private
-   chats, so the chat converges on **one focal message** instead of spawning a
-   separate card — the multi-match list is consumed (other matches are no longer
-   pickable from it; re-open `/markets`/`menu:matches` to pick another). **In a
-   group** the brief-now-card's `message_id` is anchored on the quote as
-   `origin_msg` (via `QuoteStore::set_origin_msg`, keyed off `cb.message_id()`),
-   so the placed bet is announced as a **reply to that card**, and a side tap then
-   **DMs** the private builder so the shared card isn't clobbered (see
-   `handle_opt`). **In a private chat** the whole build flow just keeps editing in
-   place; `origin_msg` stays 0. The tapped chat is saved as `origin_chat`; a
-   private bet's `origin_chat` is the DM itself (not a group), so no announcement
-   fires. The quote is stored in-memory
-   (`bot::QuotesKey` → `QuoteStore`) under a short id. Odds are locked for
-   `QUOTE_TTL_SECS` (60s); stale handling differs by surface:
-   - **Private DM build flow** auto-renews silently — the deep steps
-     (`sz:`/`szc:`/`szp:`, and private `opt:`) read the quote through
-     `fresh_quote`, which re-fetches via `markets::fetch_one` and updates the
-     stored quote in place when past TTL (it's the user's own message).
-   - **Shared group card** can't auto-renew without clobbering everyone, so a
-     **stale** side tap swaps the card's option buttons for a single
-     `[🔄 Refresh odds]` button (`i18n::btn_refresh`, callback
-     `betref:<market_id>`, toast `bet_stale`); tapping it (`handle_betref`)
-     re-fetches the **live** odds, mints a fresh quote anchored to the card, and
-     edits the card back to its new odds + side buttons (Refresh dropped). The
-     market id rides in the callback so refresh survives quote eviction. If the
-     refresh **can't find** the match (`Ok(None)`) or it has ended, the match is
-     over/settling → the card is replaced with a `match_finished` notice (🏁, no
-     buttons) via `finish_card`, **not** a "couldn't load" toast. A genuine feed
-     **error** (`Err`) is treated as transient: card kept, owner DM'd, user can
-     tap Refresh again.
-   Error/closed states are otherwise split at the **entry** tap (`handle_bet`,
-   from the brief list): round already ended → `bet_closed` (⏱️); fetched fine
-   but not listed → `bet_unavailable` (couldn't load); feed fetch/parse
-   **failure** → `bet_unavailable` **and** an owner DM (`util::notify_owner`)
-   plus an `eprintln`. `fetch_one` returns `Result<Option<MatchInfo>, _>` so
-   callers tell "not listed" (`Ok(None)`) from "feed error" (`Err`).
-2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder** (shared
-   `builder_text_rows`): whole-coin preset buttons that **accumulate**
-   (`sz:<qid>:<outcome>:<total>` — each preset re-renders at `total + preset`;
-   `Clear` → `…:0`), plus a `[✅ Confirm] [🗑 Clear]` row. The running total rides
+   **replaces the brief in place** with the match card (`team_a vs team_b` +
+   per-side odds buttons) in **both** groups and private chats, so the chat
+   converges on **one focal message** (the multi-match list is consumed — re-open
+   `/markets`/`menu:matches` to pick another). The card is **stateless**: each
+   side button is `opt:<lang>:<market_id>:<outcome>` (`option_rows`), carrying the
+   **market id** — so a tap re-prices on demand and never depends on a stored
+   quote surviving (eviction / restart) — **and the locale the card was created
+   in**, so a shared group card always re-renders in that one language (it can't
+   flip per tapper). Nothing is written to `QuoteStore` at this step. Entry
+   error/closed states (`handle_bet`): round already ended (`now ≥ ends_at`) →
+   `bet_closed` (⏱️); fetched fine but not listed → `bet_unavailable`; feed
+   fetch/parse **failure** → `bet_unavailable` **and** an owner DM
+   (`util::notify_owner`) + `eprintln`. `fetch_one` returns
+   `Result<Option<MatchInfo>, _>` so callers tell "not listed" (`Ok(None)`) from
+   "feed error" (`Err`).
+2. Picking a side (`opt:<lang>:<market_id>:<outcome>`, `handle_opt`) **always
+   re-prices** via `markets::fetch_one` (cache-served, ≤5min) — self-healing, so
+   it works even after the prior quote was evicted or the bot restarted. In a
+   **group** the shared card is refreshed to the current odds **in its creator's
+   locale** (`card_lang` from the button — no language flip; and a **no-op when
+   odds are unchanged**, since the content is byte-identical → Telegram "not
+   modified" → no flicker, concurrent taps idempotent) and the stake builder is
+   **DM'd** in the *tapper's* locale so the shared card isn't clobbered; in a
+   **private** chat the card itself becomes the builder in place. A gone/ended
+   match (`Ok(None)` or past `ends_at`) → `finish_card` (🏁 match finished, no
+   buttons); a transient feed `Err` → card kept + owner DM + retry toast. The
+   quote (carrying the group card's `origin_msg` so the placed bet is announced as
+   a reply to it; `origin_msg` 0 in a private DM, so no announcement) is minted
+   **here**, not at step 1. *(The old manual `[🔄 Refresh]` button —
+   `betref:`/`handle_betref`/`bet_stale`/`btn_refresh` — is gone; the card
+   refreshes itself on every tap.)* The builder (shared `builder_text_rows`) is
+   whole-coin preset buttons that **accumulate** (`sz:<qid>:<outcome>:<total>` —
+   each preset re-renders at `total + preset`; `Clear` → `…:0`), plus a
+   `[✅ Confirm] [🗑 Clear]` row. The running total rides
    in the callback data, so there is **no server-side per-user stake state**.
    When the side was tapped on a **group** card (shared message) the builder is
    **DM'd** (toast `bet_check_dm`, or `bet_dm_first` if the user has no DM) so it

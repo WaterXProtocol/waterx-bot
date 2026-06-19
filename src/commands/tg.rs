@@ -126,9 +126,14 @@ pub async fn edit_with_buttons(
         .await?;
     // Telegram returns HTTP 200 with `{"ok":false}` for logical rejections
     // (e.g. message too long, BUTTON_DATA_INVALID) — surface those instead of
-    // silently leaving the message unchanged.
+    // silently leaving the message unchanged. The one exception is "message is not
+    // modified": that's the expected no-op when re-rendering a card with unchanged
+    // content (odds still in the cache window), so don't log it as an error.
     if let Err(e) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
-        eprintln!("[tg] editMessageText failed (chat {chat_id}, msg {message_id}): {e}");
+        let msg = e.to_string();
+        if !msg.contains("not modified") {
+            eprintln!("[tg] editMessageText failed (chat {chat_id}, msg {message_id}): {msg}");
+        }
     }
     Ok(())
 }
@@ -149,9 +154,13 @@ pub async fn edit_text_only(
         .post(APIEndpoint::EditMessageText, Some(payload))
         .await?;
     // Surface logical rejections (HTTP 200 + `{"ok":false}`, e.g. message too
-    // long) instead of discarding them silently — matches `edit_with_buttons`.
+    // long) instead of discarding them silently — matches `edit_with_buttons`,
+    // including ignoring the expected "message is not modified" no-op.
     if let Err(e) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
-        eprintln!("[tg] editMessageText (text) failed (chat {chat_id}, msg {message_id}): {e}");
+        let msg = e.to_string();
+        if !msg.contains("not modified") {
+            eprintln!("[tg] editMessageText (text) failed (chat {chat_id}, msg {message_id}): {msg}");
+        }
     }
     Ok(())
 }

@@ -32,7 +32,6 @@ pub const OPT: &str = "opt:"; // pick a side → open the stake builder
 pub const SIZE: &str = "sz:"; // re-render the builder at an accumulated total
 pub const SIZE_CONFIRM: &str = "szc:"; // builder → confirmation screen
 pub const SIZE_PLACE: &str = "szp:"; // confirmation → debit + place the wager
-pub const REFRESH: &str = "betref:"; // group card went stale → re-fetch odds (by market_id)
 
 /// A snapshot of one match's odds, locked for [`QUOTE_TTL_SECS`].
 #[derive(Clone)]
@@ -95,11 +94,6 @@ impl QuoteStore {
     }
     fn get(&self, id: u64) -> Option<Quote> {
         self.map.get(&id).cloned()
-    }
-    fn set_origin_msg(&mut self, id: u64, msg: i64) {
-        if let Some(q) = self.map.get_mut(&id) {
-            q.origin_msg = msg;
-        }
     }
     fn replace(&mut self, id: u64, q: Quote) {
         self.map.insert(id, q);
@@ -190,13 +184,19 @@ async fn answer(
     Ok(())
 }
 
-/// `[outcome]` rows (one per priced outcome) labelled `name 1.54`.
-fn option_rows(lang: Lang, q: &Quote, qid: u64) -> Vec<tg::Row> {
+/// `[outcome]` rows (one per priced outcome) labelled `name 1.54`. The callback
+/// is `opt:<lang>:<market_id>:<outcome>` — it carries the **market id** (not a
+/// quote id) so the card is stateless (a tap re-prices on demand, surviving quote
+/// eviction / restart), plus the **locale the card was created in** so every
+/// re-render stays in that one language (a shared group card must not flip
+/// language per tapper). Both `lang` (store code) and the market id (a UUID) are
+/// colon-free, so it parses back cleanly.
+fn option_rows(lang: Lang, q: &Quote) -> Vec<tg::Row> {
     let mut rows = Vec::new();
     for outcome in ["teamA", "draw", "teamB"] {
         if let Some(c) = q.odds(outcome).filter(|c| *c > 0.0) {
             let label = format!("{} {:.2}", q.side_name(lang, outcome), decimal_odds(c));
-            rows.push(vec![(label, format!("{OPT}{qid}:{outcome}"))]);
+            rows.push(vec![(label, format!("{OPT}{}:{}:{outcome}", lang.store_code(), q.market_id))]);
         }
     }
     rows
@@ -214,10 +214,11 @@ fn quote_text(lang: Lang, q: &Quote) -> String {
     s
 }
 
-/// `bet:<market_id>` — open a fresh quote for that match. In both group and
-/// private chats the brief is replaced in place with the match card, so the chat
-/// converges on one focal message; in a group a side tap then DMs the builder so
-/// the shared card isn't clobbered (see `handle_opt`).
+/// `bet:<market_id>` — render that match's card. In both group and private chats
+/// the brief is replaced in place with the card, so the chat converges on one
+/// focal message. The card is **stateless** — its side buttons carry the market
+/// id, so a side tap re-prices on demand (`handle_opt`); nothing is stored in
+/// `QuoteStore` here.
 pub async fn handle_bet(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -242,13 +243,11 @@ pub async fn handle_bet(
         return answer(ctx, cb, i18n::bet_closed(lang), true).await;
     }
 
-    // Remember where the match was tapped (the group brief) so the *placed* bet
-    // can be announced back there; the build flow itself happens in the DM.
-    let origin_chat = cb
-        .message
-        .as_ref()
-        .map(|m| m.chat.get_id())
-        .unwrap_or(cb.from.id);
+    // Build the card from the freshly-fetched odds. It's stateless: the side
+    // buttons carry the market id (`option_rows`), so the brief becoming this card
+    // needs no stored quote — a side tap re-prices in `handle_opt`, and the placed
+    // bet is anchored/announced from the quote minted there. Replace the brief in
+    // place (group and private alike) so the chat converges on one message.
     let q = Quote {
         market_id: m.market_id.clone(),
         slug: m.slug.clone(),
@@ -259,102 +258,52 @@ pub async fn handle_bet(
         odds_b: m.odds_b,
         ends_at: m.ends_at,
         quoted_at: now(),
-        origin_chat,
+        origin_chat: 0,
         origin_msg: 0,
     };
-    let qid = quotes(ctx).lock().insert(q.clone());
-    let text = quote_text(lang, &q);
-    let rows = option_rows(lang, &q, qid);
-
-    // Replace the brief **in place** with the picked match's quote — in both
-    // groups and private chats the shared brief message *becomes* the single
-    // match card (A vs B + side buttons), so the chat focuses on one message
-    // instead of spawning a separate card. In a group we anchor `origin_msg` to
-    // this (now repurposed) message so the placed bet is announced as a reply to
-    // it, and a side tap DMs the private stake builder so the shared card isn't
-    // clobbered (see `handle_opt`); a private `origin_chat` is the caller's own
-    // DM, so no announcement fires and `origin_msg` stays 0.
-    if is_group_chat(origin_chat) {
-        quotes(ctx).lock().set_origin_msg(qid, cb.message_id());
-    }
     answer(ctx, cb, "", false).await?;
-    let _ = tg::edit_with_buttons(ctx, origin_chat, cb.message_id(), &text, &rows).await;
+    let _ = tg::edit_with_buttons(
+        ctx,
+        cb.message_chat(),
+        cb.message_id(),
+        &quote_text(lang, &q),
+        &option_rows(lang, &q),
+    )
+    .await;
     Ok(())
 }
 
-/// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0. On a
-/// **group** card (shared message): if the quote is fresh, the builder is DM'd
-/// so it never clobbers the card; if the odds have gone **stale**, the card's
-/// side buttons are swapped for a single `[🔄 Refresh odds]` button instead (the
-/// shared card can't auto-renew silently — `betref:` refreshes it for everyone).
-/// In a private chat it edits in place (auto-renewing stale odds via the builder).
+/// `opt:<lang>:<market_id>:<outcome>` — a side was tapped on the match card.
+/// **Always re-prices** from the live feed (cache-served, so ~free and
+/// self-healing — works even after the prior quote was evicted or the bot
+/// restarted), then opens the stake builder at 0. The **shared card stays in its
+/// creator's locale** (`card_lang`, carried in the button) for both the feed
+/// fetch and the render, so it never flips language per tapper — and when the odds
+/// are unchanged (still in the cache window) the content is byte-identical, so
+/// Telegram returns "not modified" (no flicker, concurrent taps idempotent). In a
+/// **group** the builder is **DM'd** in the *tapper's* locale so it never clobbers
+/// the card; in a **private** chat the card itself becomes the builder in place. A
+/// gone/ended match turns the card into a "finished" notice; a transient feed
+/// error keeps the card and alerts the owner.
 pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let Some((qid, outcome)) = parse_qid_outcome(rest) else {
+    let tapper_lang = cb_lang(ctx, cb);
+    let Some((card_lang, market_id, outcome)) = parse_card_opt(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    if is_group_chat(cb.message_chat()) {
-        let Some(q) = quotes(ctx).lock().get(qid) else {
-            // Quote evicted entirely — no market id to refresh from.
-            return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
-        };
-        if !q.fresh(now()) {
-            // Stale: replace the side buttons with a Refresh button on the card.
-            let rows = vec![vec![(
-                i18n::btn_refresh(lang).to_string(),
-                format!("{REFRESH}{}", q.market_id),
-            )]];
-            let _ = tg::edit_with_buttons(
-                ctx,
-                cb.message_chat(),
-                cb.message_id(),
-                &quote_text(lang, &q),
-                &rows,
-            )
-            .await;
-            return answer(ctx, cb, i18n::bet_stale(lang), true).await;
-        }
-        let Some((text, rows)) = builder_text_rows(lang, &q, qid, &outcome, 0) else {
-            return answer(ctx, cb, "", false).await;
-        };
-        match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
-            Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
-            Err(_) => answer(ctx, cb, i18n::bet_dm_first(lang), true).await,
-        }
-    } else {
-        render_builder(ctx, cb, lang, qid, &outcome, 0).await
-    }
-}
-
-/// `betref:<market_id>` — the stale group card's Refresh button: re-fetch the
-/// match's current odds, mint a fresh quote anchored to this card, and edit the
-/// card back to its team/odds text with the side buttons restored (the Refresh
-/// button is dropped). Errors split the same way as `handle_bet`.
-pub async fn handle_betref(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    market_id: &str,
-) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let m = match markets::fetch_one(lang, market_id).await {
+    // Fetch in the card's locale so its team names stay stable across tappers.
+    let m = match markets::fetch_one(card_lang, &market_id).await {
         Ok(Some(m)) => m,
-        Ok(None) => {
-            // Gone from the feed → the match is over/settling. Turn the card into
-            // a finished notice (no buttons) rather than leaving a dead button.
-            eprintln!("[betref] market {market_id} not in feed → finished");
-            return finish_card(ctx, cb, lang).await;
-        }
+        Ok(None) => return finish_card(ctx, cb, card_lang).await,
         Err(e) => {
-            // A network/parse blip is NOT proof the match settled — keep the card
-            // and alert the owner; the user can tap Refresh again.
-            eprintln!("[betref] feed fetch error for {market_id}: {e}");
-            notify_owner(ctx, &format!("match-bet refresh fetch failed ({market_id}): {e}")).await;
-            return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
+            eprintln!("[opt] feed fetch error for {market_id}: {e}");
+            notify_owner(ctx, &format!("match-bet odds fetch failed ({market_id}): {e}")).await;
+            return answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await;
         }
     };
     if m.ends_at != 0 && now() >= m.ends_at {
-        return finish_card(ctx, cb, lang).await;
+        return finish_card(ctx, cb, card_lang).await;
     }
+    let group = is_group_chat(cb.message_chat());
     let q = Quote {
         market_id: m.market_id.clone(),
         slug: m.slug.clone(),
@@ -366,13 +315,49 @@ pub async fn handle_betref(
         ends_at: m.ends_at,
         quoted_at: now(),
         origin_chat: cb.message_chat(),
-        origin_msg: cb.message_id(),
+        // Anchor the placed-bet announcement to the group card; a private origin
+        // is the caller's own DM (no announcement), so leave it 0 there.
+        origin_msg: if group { cb.message_id() } else { 0 },
     };
+    // The tapped side must still be priced; if not, refresh the card (in its own
+    // locale) to the live buttons and tell the tapper.
+    if q.odds(&outcome).filter(|c| *c > 0.0).is_none() {
+        if group {
+            let _ = tg::edit_with_buttons(
+                ctx,
+                cb.message_chat(),
+                cb.message_id(),
+                &quote_text(card_lang, &q),
+                &option_rows(card_lang, &q),
+            )
+            .await;
+        }
+        return answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await;
+    }
     let qid = quotes(ctx).lock().insert(q.clone());
-    let text = quote_text(lang, &q);
-    let rows = option_rows(lang, &q, qid);
-    let _ = tg::edit_with_buttons(ctx, cb.message_chat(), cb.message_id(), &text, &rows).await;
-    answer(ctx, cb, "", false).await
+    // Builder is per-user → render it in the tapper's locale.
+    let Some((btext, brows)) = builder_text_rows(tapper_lang, &q, qid, &outcome, 0) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    if group {
+        // (b) Refresh the shared card to current odds in its OWN locale (no-op when
+        // unchanged), then DM the tapper their builder so the card isn't clobbered.
+        let _ = tg::edit_with_buttons(
+            ctx,
+            cb.message_chat(),
+            cb.message_id(),
+            &quote_text(card_lang, &q),
+            &option_rows(card_lang, &q),
+        )
+        .await;
+        match tg::send_with_buttons(ctx, cb.from.id, &btext, &brows).await {
+            Ok(_) => answer(ctx, cb, i18n::bet_check_dm(tapper_lang), false).await,
+            Err(_) => answer(ctx, cb, i18n::bet_dm_first(tapper_lang), true).await,
+        }
+    } else {
+        let _ = tg::edit_with_buttons(ctx, cb.message_chat(), cb.message_id(), &btext, &brows).await;
+        answer(ctx, cb, "", false).await
+    }
 }
 
 /// `sz:<qid>:<outcome>:<total>` — re-render the builder at the accumulated total
@@ -574,9 +559,19 @@ async fn edit(
     Ok(())
 }
 
-fn parse_qid_outcome(rest: &str) -> Option<(u64, String)> {
-    let (qid, outcome) = rest.split_once(':')?;
-    Some((qid.parse().ok()?, outcome.to_string()))
+/// Parse `<lang>:<market_id>:<outcome>` from an `opt:` callback. `lang` is the
+/// store code the card was created in (pins the shared card's locale so it can't
+/// flip per tapper); the market id is a colon-free UUID and `outcome` is
+/// teamA/teamB/draw, so the two colons split cleanly. Unknown lang → English.
+fn parse_card_opt(rest: &str) -> Option<(Lang, String, String)> {
+    let mut it = rest.splitn(3, ':');
+    let lang = Lang::from_store_code(it.next()?).unwrap_or(Lang::En);
+    let market_id = it.next()?.to_string();
+    let outcome = it.next()?.to_string();
+    if market_id.is_empty() || outcome.is_empty() {
+        return None;
+    }
+    Some((lang, market_id, outcome))
 }
 
 /// Parse `<qid>:<outcome>:<total>` (outcome is `teamA`/`teamB`/`draw`, no colon).

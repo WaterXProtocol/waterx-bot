@@ -108,8 +108,6 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_invite_fwd(&ctx, &cb).await
     } else if data == menu::INVITE_QR {
         handle_invite_qr(&ctx, &cb).await
-    } else if let Some(rest) = data.strip_prefix(betting::REFRESH) {
-        betting::handle_betref(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(markets::BET) {
         betting::handle_bet(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(betting::OPT) {
