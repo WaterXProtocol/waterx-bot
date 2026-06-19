@@ -14,7 +14,7 @@ const BROWSE_URL: &str = "https://api.waterx.app/predict/browse";
 /// stay under the upstream rate limit. Every real-money bet is **re-priced from
 /// this cache at place time** (`betting::refetch_quote`), so a wager is booked at
 /// odds at most `FEED_CACHE_TTL` old — never an older locked snapshot.
-const FEED_CACHE_TTL: i64 = 300;
+const FEED_CACHE_TTL: i64 = 30;
 /// Cap so the brief stays well under Telegram's 4096-char message limit; the
 /// overflow is summarised with a "…and N more" tail.
 const MAX_MATCHES: usize = 8;

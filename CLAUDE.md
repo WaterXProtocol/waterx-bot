@@ -135,13 +135,13 @@ the fields the brief reads (serde ignores the rest), and `oddsCents` **must** be
 Chinese users (Hant/Hans → Chinese team names) and `locale=en` for everyone
 else; the brief's chrome is localized separately via `render(lang, …)`. (Note:
 only the `?locale=` query form works — a `/en/predict/browse` path 404s.)
-`fetch_matches` is served from a process-wide **5-minute per-locale cache**
-(`FEED_CACHE_TTL` = 300s, `feed_cache()` = `OnceLock<Mutex<FeedCache>>`, keyed by
+`fetch_matches` is served from a process-wide **30-second per-locale cache**
+(`FEED_CACHE_TTL` = 30s, `feed_cache()` = `OnceLock<Mutex<FeedCache>>`, keyed by
 the `en`/`zh` API locale) so repeated `/markets`, `menu:matches`, and `bet:` taps
 don't hammer the rate-limited API — the lock is never held across the network
 `.await`. Every real-money placement **re-prices from this cache at place time**
 (`betting::refetch_quote`, see the betting section), so a wager is always booked
-at odds **at most `FEED_CACHE_TTL` (5 min) old** — never the older snapshot the
+at odds **at most `FEED_CACHE_TTL` (30s) old** — never the older snapshot the
 quote was locked to. The displayed quote keeps its own 60s `QUOTE_TTL_SECS` purely
 for the build/confirm UI (auto-renewed past that). Concurrent cold-cache misses
 aren't coalesced, so a startup burst may fetch a couple of times before the cache
@@ -174,7 +174,7 @@ coin balance:
    `Result<Option<MatchInfo>, _>` so callers tell "not listed" (`Ok(None)`) from
    "feed error" (`Err`).
 2. Picking a side (`opt:<lang>:<market_id>:<outcome>`, `handle_opt`) **always
-   re-prices** via `markets::fetch_one` (cache-served, ≤5min) — self-healing, so
+   re-prices** via `markets::fetch_one` (cache-served, ≤30s) — self-healing, so
    it works even after the prior quote was evicted or the bot restarted. In a
    **group** the shared card is refreshed to the current odds **in its creator's
    locale** (`card_lang` from the button — no language flip; and a **no-op when
@@ -199,7 +199,7 @@ coin balance:
 3. `Confirm` (`szc:<qid>:<outcome>:<total>`) shows a **confirmation screen** (the
    "modal": `[✅ Place bet] [⬅ Back]`). Only `Place` (`szp:<qid>:<outcome>:<total>`)
    moves money — it **always re-prices** via `refetch_quote` (re-fetches the
-   match's current odds from the ≤5-min feed cache regardless of quote age, or
+   match's current odds from the ≤30s feed cache regardless of quote age, or
    `expire` if the match is gone/ended), so every wager books at the **current**
    odds, not the snapshot the user was viewing. The stake is converted to
    micro-coins via `util::to_micro` (caps at `MAX_COINS`, rejects overflow), then
