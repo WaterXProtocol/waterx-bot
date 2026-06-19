@@ -789,12 +789,13 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 6] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 7] {
     [
         ("start", menu_start(l)),
         ("assets", menu_balance(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
+        ("rule", menu_rule(l)),
         ("feedback", menu_feedback(l)),
         ("language", menu_language(l)),
     ]
@@ -822,6 +823,40 @@ pub fn feedback_sent(l: Lang) -> &'static str {
         "Спасибо! Ваш отзыв отправлен 🙏", "Merci ! Ton avis a été envoyé 🙏", "¡Gracias! Tu comentario fue enviado 🙏", "Danke! Dein Feedback wurde gesendet 🙏", "Cảm ơn! Phản hồi của bạn đã được gửi 🙏",
         "Terima kasih! Masukanmu telah dikirim 🙏", "Salamat! Naipadala na ang feedback mo 🙏", "ขอบคุณ! ส่งความคิดเห็นของคุณแล้ว 🙏", "Bedankt! Je feedback is verzonden 🙏", "Teşekkürler! Geri bildirimin gönderildi 🙏",
         "Obrigado! Seu feedback foi enviado 🙏", "धन्यवाद! आपका फ़ीडबैक भेज दिया गया 🙏", "شكرًا! تم إرسال ملاحظاتك 🙏")
+}
+
+fn menu_rule(l: Lang) -> &'static str {
+    tr!(l;
+        "How to earn coins", "如何賺金幣", "如何赚金币", "コインの稼ぎ方", "코인 버는 법",
+        "Как заработать монеты", "Comment gagner des pièces", "Cómo ganar monedas", "Münzen verdienen", "Cách kiếm xu",
+        "Cara mendapat koin", "Paano kumita ng coins", "วิธีหาเหรียญ", "Munten verdienen", "Para nasıl kazanılır",
+        "Como ganhar moedas", "कॉइन कैसे कमाएँ", "كيفية كسب العملات")
+}
+
+/// Body of `/rule`: how a user earns coins. `{checkin}` and `{referral}` are the
+/// daily-reward and per-invite reward amounts (already formatted whole coins).
+pub fn rules_text(l: Lang, checkin: &str, referral: &str) -> String {
+    tr!(l;
+        "📜 How to earn coins:\n\n🎁 Daily check-in — {checkin} coins every day (resets at 00:00 UTC)\n🔗 Invite a friend — {referral} coins each for you and them\n👥 Referral bonus — when your invitees check in daily, you earn 1 / 0.1 / 0.01 coins up to 3 levels up\n🎲 Win bets & predictions — payouts land straight in your balance",
+        "📜 如何賺金幣：\n\n🎁 每日簽到 — 每天 {checkin} 顆金幣（00:00 UTC 重置）\n🔗 邀請好友 — 你和好友各得 {referral} 顆金幣\n👥 推薦獎勵 — 你邀請的人每日簽到時，你向上最多 3 層各得 1 / 0.1 / 0.01 顆金幣\n🎲 贏得下注與預測 — 彩金直接入帳",
+        "📜 如何赚金币：\n\n🎁 每日签到 — 每天 {checkin} 颗金币（00:00 UTC 重置）\n🔗 邀请好友 — 你和好友各得 {referral} 颗金币\n👥 推荐奖励 — 你邀请的人每日签到时，你向上最多 3 层各得 1 / 0.1 / 0.01 颗金币\n🎲 赢得下注与预测 — 彩金直接入账",
+        "📜 コインの稼ぎ方：\n\n🎁 デイリーチェックイン — 毎日 {checkin} コイン（00:00 UTC にリセット）\n🔗 友達を招待 — あなたと友達に各 {referral} コイン\n👥 紹介ボーナス — 招待した人が毎日チェックインすると、最大 3 階層上まで 1 / 0.1 / 0.01 コイン\n🎲 ベットと予測に勝つ — 配当は残高に直接入るよ",
+        "📜 코인 버는 법:\n\n🎁 일일 출석 — 매일 {checkin} 코인 (00:00 UTC 초기화)\n🔗 친구 초대 — 너와 친구가 각각 {referral} 코인\n👥 추천 보너스 — 초대한 사람이 매일 출석하면 위로 최대 3단계까지 1 / 0.1 / 0.01 코인\n🎲 베팅·예측 승리 — 당첨금은 잔액에 바로 들어와",
+        "📜 Как заработать монеты:\n\n🎁 Ежедневный чек-ин — {checkin} монет каждый день (сброс в 00:00 UTC)\n🔗 Пригласи друга — по {referral} монет тебе и ему\n👥 Реферальный бонус — когда твои приглашённые отмечаются, ты получаешь 1 / 0.1 / 0.01 монеты до 3 уровней вверх\n🎲 Выигрывай ставки и прогнозы — выплаты сразу на баланс",
+        "📜 Comment gagner des pièces :\n\n🎁 Check-in quotidien — {checkin} pièces chaque jour (remise à 00:00 UTC)\n🔗 Invite un ami — {referral} pièces chacun pour toi et lui\n👥 Bonus de parrainage — quand tes invités font leur check-in, tu gagnes 1 / 0,1 / 0,01 pièces jusqu'à 3 niveaux au-dessus\n🎲 Gagne paris et prédictions — les gains arrivent direct sur ton solde",
+        "📜 Cómo ganar monedas:\n\n🎁 Check-in diario — {checkin} monedas cada día (se reinicia a las 00:00 UTC)\n🔗 Invita a un amigo — {referral} monedas para cada uno\n👥 Bono de referidos — cuando tus invitados hacen check-in, ganas 1 / 0,1 / 0,01 monedas hasta 3 niveles arriba\n🎲 Gana apuestas y predicciones — los pagos van directo a tu saldo",
+        "📜 Münzen verdienen:\n\n🎁 Täglicher Check-in — {checkin} Münzen pro Tag (Reset um 00:00 UTC)\n🔗 Lade einen Freund ein — je {referral} Münzen für dich und ihn\n👥 Empfehlungsbonus — wenn deine Eingeladenen einchecken, bekommst du 1 / 0,1 / 0,01 Münzen bis zu 3 Ebenen höher\n🎲 Gewinne Wetten & Vorhersagen — Auszahlungen landen direkt auf deinem Guthaben",
+        "📜 Cách kiếm xu:\n\n🎁 Điểm danh hằng ngày — {checkin} xu mỗi ngày (đặt lại lúc 00:00 UTC)\n🔗 Mời bạn bè — bạn và bạn của bạn mỗi người {referral} xu\n👥 Thưởng giới thiệu — khi người bạn mời điểm danh, bạn nhận 1 / 0.1 / 0.01 xu lên tới 3 cấp\n🎲 Thắng cược & dự đoán — tiền thắng vào thẳng số dư",
+        "📜 Cara mendapat koin:\n\n🎁 Check-in harian — {checkin} koin tiap hari (reset pukul 00:00 UTC)\n🔗 Undang teman — {referral} koin untuk kamu dan dia\n👥 Bonus referral — saat undanganmu check-in, kamu dapat 1 / 0.1 / 0.01 koin hingga 3 tingkat ke atas\n🎲 Menang taruhan & prediksi — hadiah langsung masuk saldo",
+        "📜 Paano kumita ng coins:\n\n🎁 Daily check-in — {checkin} coins kada araw (nire-reset tuwing 00:00 UTC)\n🔗 Mag-imbita ng kaibigan — {referral} coins kayo pareho\n👥 Referral bonus — kapag nag-check-in ang inimbita mo, kumikita ka ng 1 / 0.1 / 0.01 coins hanggang 3 antas pataas\n🎲 Manalo sa taya at prediksyon — diretso sa balance ang panalo",
+        "📜 วิธีหาเหรียญ:\n\n🎁 เช็คอินรายวัน — {checkin} เหรียญทุกวัน (รีเซ็ต 00:00 UTC)\n🔗 ชวนเพื่อน — คุณและเพื่อนได้คนละ {referral} เหรียญ\n👥 โบนัสแนะนำ — เมื่อคนที่คุณชวนเช็คอิน คุณได้ 1 / 0.1 / 0.01 เหรียญ สูงสุด 3 ชั้น\n🎲 ชนะเดิมพันและการทำนาย — เงินรางวัลเข้ายอดทันที",
+        "📜 Munten verdienen:\n\n🎁 Dagelijkse check-in — {checkin} munten per dag (reset om 00:00 UTC)\n🔗 Nodig een vriend uit — {referral} munten voor jullie allebei\n👥 Verwijzingsbonus — als je uitgenodigden inchecken, verdien je 1 / 0,1 / 0,01 munten tot 3 niveaus hoger\n🎲 Win weddenschappen & voorspellingen — uitbetalingen komen direct op je saldo",
+        "📜 Para nasıl kazanılır:\n\n🎁 Günlük giriş — her gün {checkin} para (00:00 UTC'de sıfırlanır)\n🔗 Bir arkadaşını davet et — ikinize de {referral} para\n👥 Davet bonusu — davet ettiklerin giriş yaptığında 3 seviye yukarıya kadar 1 / 0,1 / 0,01 para kazanırsın\n🎲 Bahis ve tahmin kazan — ödemeler doğrudan bakiyene geçer",
+        "📜 Como ganhar moedas:\n\n🎁 Check-in diário — {checkin} moedas por dia (reinicia às 00:00 UTC)\n🔗 Convide um amigo — {referral} moedas para cada um\n👥 Bônus de indicação — quando seus convidados fazem check-in, você ganha 1 / 0,1 / 0,01 moedas até 3 níveis acima\n🎲 Vença apostas e previsões — os prêmios caem direto no saldo",
+        "📜 कॉइन कैसे कमाएँ:\n\n🎁 दैनिक चेक-इन — हर दिन {checkin} कॉइन (00:00 UTC पर रीसेट)\n🔗 दोस्त को बुलाएँ — आप और दोस्त दोनों को {referral} कॉइन\n👥 रेफ़रल बोनस — आपके बुलाए लोग चेक-इन करें तो आपको 3 स्तर ऊपर तक 1 / 0.1 / 0.01 कॉइन\n🎲 बेट और प्रिडिक्शन जीतें — जीत सीधे बैलेंस में",
+        "📜 كيفية كسب العملات:\n\n🎁 تسجيل يومي — {checkin} عملة كل يوم (يُعاد ضبطه عند 00:00 UTC)\n🔗 ادعُ صديقًا — {referral} عملة لكل منكما\n👥 مكافأة الإحالة — عندما يسجّل من دعوتهم، تكسب 1 / 0.1 / 0.01 عملة حتى 3 مستويات للأعلى\n🎲 اربح الرهانات والتوقعات — تذهب الأرباح مباشرة إلى رصيدك")
+    .replace("{checkin}", checkin)
+    .replace("{referral}", referral)
 }
 
 fn menu_start(l: Lang) -> &'static str {
@@ -1012,6 +1047,14 @@ pub fn btn_matches(l: Lang) -> &'static str {
         "⚽ Матчи сегодня", "⚽ Matchs du jour", "⚽ Partidos de hoy", "⚽ Heutige Spiele", "⚽ Trận hôm nay",
         "⚽ Pertandingan hari ini", "⚽ Mga laro ngayon", "⚽ แมตช์วันนี้", "⚽ Wedstrijden vandaag", "⚽ Bugünkü maçlar",
         "⚽ Jogos de hoje", "⚽ आज के मैच", "⚽ مباريات اليوم")
+}
+
+pub fn btn_rule(l: Lang) -> &'static str {
+    tr!(l;
+        "📜 How to earn coins", "📜 如何賺金幣", "📜 如何赚金币", "📜 コインの稼ぎ方", "📜 코인 버는 법",
+        "📜 Как заработать монеты", "📜 Comment gagner des pièces", "📜 Cómo ganar monedas", "📜 Münzen verdienen", "📜 Cách kiếm xu",
+        "📜 Cara mendapat koin", "📜 Paano kumita ng coins", "📜 วิธีหาเหรียญ", "📜 Munten verdienen", "📜 Para nasıl kazanılır",
+        "📜 Como ganhar moedas", "📜 कॉइन कैसे कमाएँ", "📜 كيفية كسب العملات")
 }
 
 pub fn btn_invite(l: Lang) -> &'static str {

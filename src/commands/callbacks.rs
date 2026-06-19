@@ -89,6 +89,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_balance(&ctx, &cb).await
     } else if data == menu::MENU_MATCHES {
         handle_menu_matches(&ctx, &cb).await
+    } else if data == menu::MENU_RULE {
+        handle_menu_rule(&ctx, &cb).await
     } else if data == menu::MENU_INVITE {
         handle_menu_invite(&ctx, &cb).await
     } else if data == menu::INVITE_LINK {
@@ -777,6 +779,21 @@ async fn handle_menu_matches(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     let (text, mut rows) = markets::brief(lang, tz).await;
     rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
     let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &text, &rows).await;
+    Ok(())
+}
+
+/// `menu:rule` — edit the menu in place into the "how to earn coins" rules.
+async fn handle_menu_rule(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    use crate::commands::checkin::CHECKIN_REWARD;
+    use crate::commands::referral::REFERRAL_REWARD;
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    answer(ctx, cb, "", false).await?;
+    let text = i18n::rules_text(lang, &fmt_coins(CHECKIN_REWARD), &fmt_coins(REFERRAL_REWARD));
+    let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
+    let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
     Ok(())
 }
 
