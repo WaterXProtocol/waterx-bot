@@ -1,6 +1,7 @@
 use crate::commands::tg::Row;
 use crate::commands::util::*;
 use crate::i18n::{self, Lang};
+use crate::types::OddsFormat;
 use chrono::{FixedOffset, TimeZone, Utc};
 use parking_lot::Mutex;
 use serde::Deserialize;
@@ -67,7 +68,14 @@ pub async fn markets(ctx: Context, message: Message) -> CommandResult {
             .and_then(|u| db(&ctx).get_tz(u.id).ok().flatten())
             .unwrap_or(0)
     };
-    let (text, rows) = brief(lang_for_msg(&ctx, &message), tz).await;
+    // Odds render in the caller's chosen format (not privacy-sensitive, so used
+    // in groups too — the brief is rendered once by the invoker).
+    let fmt = message
+        .from
+        .as_ref()
+        .and_then(|u| db(&ctx).get_odds_fmt(u.id).ok())
+        .unwrap_or_default();
+    let (text, rows) = brief(lang_for_msg(&ctx, &message), tz, fmt).await;
     crate::commands::tg::send_with_buttons(&ctx, chat_id, &text, &rows).await?;
     Ok(())
 }
@@ -76,7 +84,7 @@ pub async fn markets(ctx: Context, message: Message) -> CommandResult {
 /// (`bet:<market_id>`). Kickoff times are shown in `tz_min` (minutes east of
 /// UTC; 0 = UTC). On any fetch/parse failure returns the localized "unavailable"
 /// line and no buttons.
-pub(crate) async fn brief(lang: Lang, tz_min: i64) -> (String, Vec<Row>) {
+pub(crate) async fn brief(lang: Lang, tz_min: i64, fmt: OddsFormat) -> (String, Vec<Row>) {
     let now = Utc::now().timestamp();
     let matches = match fetch_matches(lang).await {
         Ok(mut m) => {
@@ -105,7 +113,7 @@ pub(crate) async fn brief(lang: Lang, tz_min: i64) -> (String, Vec<Row>) {
     out.push('\n');
     let shown = &matches[..matches.len().min(MAX_MATCHES)];
     for (idx, m) in shown.iter().enumerate() {
-        out.push_str(&render_match(lang, idx + 1, m, tz_min));
+        out.push_str(&render_match(lang, idx + 1, m, tz_min, fmt));
     }
     if matches.len() > MAX_MATCHES {
         out.push_str(&i18n::markets_more(lang, &(matches.len() - MAX_MATCHES).to_string()));
@@ -215,7 +223,7 @@ fn to_match_info(it: &Item) -> Option<MatchInfo> {
     })
 }
 
-fn render_match(lang: Lang, n: usize, m: &MatchInfo, tz_min: i64) -> String {
+fn render_match(lang: Lang, n: usize, m: &MatchInfo, tz_min: i64, fmt: OddsFormat) -> String {
     let dot = if m.live { "🔴 " } else { "" };
     let mut s = format!("\n{n}) {dot}{} vs. {}\n", m.team_a, m.team_b);
     if let Some(t) = fmt_time(m.starts_at, tz_min) {
@@ -230,9 +238,9 @@ fn render_match(lang: Lang, n: usize, m: &MatchInfo, tz_min: i64) -> String {
     for (i, (label, yes)) in rows.iter().enumerate() {
         let branch = if i == rows.len() - 1 { "└" } else { "├" };
         match yes {
-            // Decimal odds = 100/cents (e.g. 65¢ → 1.54).
+            // Rendered in the user's chosen odds format (Decimal/American/…).
             Some(y) if *y > 0.0 => {
-                s.push_str(&format!("{branch} {label} — {:.2}\n", decimal_odds(*y)));
+                s.push_str(&format!("{branch} {label} — {}\n", format_odds(*y, fmt)));
             }
             _ => s.push_str(&format!("{branch} {label} — —\n")),
         }

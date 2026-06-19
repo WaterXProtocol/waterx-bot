@@ -299,6 +299,36 @@ pub fn decimal_odds(cents: f64) -> f64 {
     100.0 / cents
 }
 
+/// Render a YES price (`odds_cents`) in the user's chosen [`OddsFormat`] — the
+/// single place odds become a display string, so every surface is consistent.
+/// A 65¢ price: Decimal `1.54`, American `-185`, Percent `65%`, Price `65¢`.
+/// Callers only invoke this for priced outcomes (`cents > 0`); a non-positive or
+/// degenerate (≥100%) price falls back gracefully rather than dividing by zero.
+pub fn format_odds(odds_cents: f64, fmt: crate::types::OddsFormat) -> String {
+    use crate::types::OddsFormat;
+    if odds_cents <= 0.0 {
+        return "—".to_string();
+    }
+    match fmt {
+        OddsFormat::Decimal => format!("{:.2}", decimal_odds(odds_cents)),
+        OddsFormat::American => {
+            if odds_cents >= 100.0 {
+                // ≥100% implied (no profit) — moneyline is undefined, show decimal.
+                format!("{:.2}", decimal_odds(odds_cents))
+            } else if odds_cents <= 50.0 {
+                // Underdog (decimal ≥ 2.0) → positive moneyline.
+                format!("+{}", (100.0 * (100.0 - odds_cents) / odds_cents).round() as i64)
+            } else {
+                // Favorite → negative moneyline.
+                format!("{}", (-100.0 * odds_cents / (100.0 - odds_cents)).round() as i64)
+            }
+        }
+        // Percent = implied probability ≈ the cents price; Price = the cents price.
+        OddsFormat::Percent => format!("{}%", odds_cents.round() as i64),
+        OddsFormat::Price => format!("{}¢", odds_cents.round() as i64),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +392,23 @@ mod tests {
         assert!((decimal_odds(65.0) - 1.538_461).abs() < 1e-6); // 65¢ → ~1.54
         assert!((decimal_odds(50.0) - 2.0).abs() < 1e-9);
         assert!((decimal_odds(100.0) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn format_odds_renders_each_format() {
+        use crate::types::OddsFormat::{American, Decimal, Percent, Price};
+        // Decimal = 100/cents.
+        assert_eq!(format_odds(65.0, Decimal), "1.54");
+        assert_eq!(format_odds(50.0, Decimal), "2.00");
+        // American: even at 50¢; positive for underdogs (<50¢), negative for favorites.
+        assert_eq!(format_odds(50.0, American), "+100");
+        assert_eq!(format_odds(40.0, American), "+150");
+        assert_eq!(format_odds(80.0, American), "-400");
+        assert_eq!(format_odds(65.0, American), "-186");
+        // Percent = implied probability; Price = the cents price.
+        assert_eq!(format_odds(65.0, Percent), "65%");
+        assert_eq!(format_odds(65.0, Price), "65¢");
+        // Degenerate prices don't divide by zero.
+        assert_eq!(format_odds(0.0, Decimal), "—");
     }
 }

@@ -88,6 +88,12 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_buy(&ctx, &cb).await
     } else if let Some(rest) = data.strip_prefix(menu::SET_TZ) {
         handle_set_tz(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(menu::SET_FMT) {
+        handle_set_fmt(&ctx, &cb, rest).await
+    } else if data == menu::CFG_LANG {
+        handle_cfg_lang(&ctx, &cb).await
+    } else if data == menu::CFG_TZ {
+        handle_cfg_tz(&ctx, &cb).await
     } else if let Some(rest) = data.strip_prefix(menu::SET_LANG) {
         handle_set_lang(&ctx, &cb, rest).await
     } else if data == menu::MENU_CHECKIN {
@@ -578,6 +584,60 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
     answer(ctx, cb, "", false).await
 }
 
+/// `setfmt:<code>` — persist the chosen odds display format and re-render the
+/// `/settings` hub in place so the ✅ moves to the new pick.
+async fn handle_set_fmt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let fmt = crate::types::OddsFormat::from_store_code(rest);
+    let db = db_arc(ctx);
+    let lang = cb_lang(ctx, cb);
+    if db.set_odds_fmt(cb.from.id, fmt).is_err() {
+        return answer(ctx, cb, i18n::db_error(lang), true).await;
+    }
+    if let Some(message) = cb.message.clone() {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            message.chat.get_id(),
+            message.message_id,
+            i18n::settings_title(lang),
+            &menu::settings_rows(lang, fmt),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `cfg:lang` — open the language picker from the `/settings` hub (the picker's
+/// `setlang:` buttons then run the existing lang→timezone→menu flow).
+async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    if let Some(message) = cb.message.clone() {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            message.chat.get_id(),
+            message.message_id,
+            i18n::CHOOSE_LANGUAGE,
+            &menu::lang_picker_rows(),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `cfg:tz` — open the timezone picker from the `/settings` hub.
+async fn handle_cfg_tz(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    if let Some(message) = cb.message.clone() {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            message.chat.get_id(),
+            message.message_id,
+            i18n::choose_timezone(lang),
+            &menu::tz_picker_rows(),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
 /// Group-add referral bind: the first time a **brand-new** user taps *any* button
 /// inside a group, bind them to whoever added the bot there and pay both sides.
 /// No-op outside groups, when there's no recorded adder, or for existing users
@@ -787,7 +847,8 @@ async fn handle_menu_matches(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     } else {
         db_arc(ctx).get_tz(cb.from.id).ok().flatten().unwrap_or(0)
     };
-    let (text, mut rows) = markets::brief(lang, tz).await;
+    let fmt = db_arc(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let (text, mut rows) = markets::brief(lang, tz, fmt).await;
     rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
     let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &text, &rows).await;
     Ok(())

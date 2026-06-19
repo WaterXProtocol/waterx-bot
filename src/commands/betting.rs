@@ -15,6 +15,7 @@ use crate::commands::tg;
 use crate::commands::util::*;
 use crate::database::{decimal_payout, COIN};
 use crate::i18n::{self, Lang};
+use crate::types::OddsFormat;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -184,29 +185,32 @@ async fn answer(
     Ok(())
 }
 
-/// `[outcome]` rows (one per priced outcome) labelled `name 1.54`. The callback
-/// is `opt:<lang>:<market_id>:<outcome>` — it carries the **market id** (not a
-/// quote id) so the card is stateless (a tap re-prices on demand, surviving quote
-/// eviction / restart), plus the **locale the card was created in** so every
-/// re-render stays in that one language (a shared group card must not flip
-/// language per tapper). Both `lang` (store code) and the market id (a UUID) are
-/// colon-free, so it parses back cleanly.
-fn option_rows(lang: Lang, q: &Quote) -> Vec<tg::Row> {
+/// `[outcome]` rows (one per priced outcome) labelled `name <odds>`. The callback
+/// is `opt:<lang>:<fmt>:<market_id>:<outcome>` — it carries the **market id** (not
+/// a quote id) so the card is stateless (a tap re-prices on demand, surviving
+/// quote eviction / restart), plus the **locale and odds format the card was
+/// created in** so every re-render stays in that one language + format (a shared
+/// group card must not flip per tapper). `lang`/`fmt` store codes and the market
+/// id (a UUID) are all colon-free, so it parses back cleanly.
+fn option_rows(lang: Lang, q: &Quote, fmt: OddsFormat) -> Vec<tg::Row> {
     let mut rows = Vec::new();
     for outcome in ["teamA", "draw", "teamB"] {
         if let Some(c) = q.odds(outcome).filter(|c| *c > 0.0) {
-            let label = format!("{} {:.2}", q.side_name(lang, outcome), decimal_odds(c));
-            rows.push(vec![(label, format!("{OPT}{}:{}:{outcome}", lang.store_code(), q.market_id))]);
+            let label = format!("{} {}", q.side_name(lang, outcome), format_odds(c, fmt));
+            rows.push(vec![(
+                label,
+                format!("{OPT}{}:{}:{}:{outcome}", lang.store_code(), fmt.store_code(), q.market_id),
+            )]);
         }
     }
     rows
 }
 
-fn quote_text(lang: Lang, q: &Quote) -> String {
+fn quote_text(lang: Lang, q: &Quote, fmt: OddsFormat) -> String {
     let mut s = format!("{} vs. {}\n", q.team_a, q.team_b);
     for outcome in ["teamA", "draw", "teamB"] {
         if let Some(c) = q.odds(outcome).filter(|c| *c > 0.0) {
-            s.push_str(&format!("· {} — {:.2}\n", q.side_name(lang, outcome), decimal_odds(c)));
+            s.push_str(&format!("· {} — {}\n", q.side_name(lang, outcome), format_odds(c, fmt)));
         }
     }
     s.push('\n');
@@ -261,13 +265,16 @@ pub async fn handle_bet(
         origin_chat: 0,
         origin_msg: 0,
     };
+    // Pin the card to the creator's odds format (carried in the buttons), so a
+    // shared group card renders consistently for everyone, like its locale.
+    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     answer(ctx, cb, "", false).await?;
     let _ = tg::edit_with_buttons(
         ctx,
         cb.message_chat(),
         cb.message_id(),
-        &quote_text(lang, &q),
-        &option_rows(lang, &q),
+        &quote_text(lang, &q, fmt),
+        &option_rows(lang, &q, fmt),
     )
     .await;
     Ok(())
@@ -287,7 +294,8 @@ pub async fn handle_bet(
 /// error keeps the card and alerts the owner.
 pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let tapper_lang = cb_lang(ctx, cb);
-    let Some((card_lang, market_id, outcome)) = parse_card_opt(rest) else {
+    let tapper_fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let Some((card_lang, card_fmt, market_id, outcome)) = parse_card_opt(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     // Fetch in the card's locale so its team names stay stable across tappers.
@@ -327,16 +335,16 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
                 ctx,
                 cb.message_chat(),
                 cb.message_id(),
-                &quote_text(card_lang, &q),
-                &option_rows(card_lang, &q),
+                &quote_text(card_lang, &q, card_fmt),
+                &option_rows(card_lang, &q, card_fmt),
             )
             .await;
         }
         return answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await;
     }
     let qid = quotes(ctx).lock().insert(q.clone());
-    // Builder is per-user → render it in the tapper's locale.
-    let Some((btext, brows)) = builder_text_rows(tapper_lang, &q, qid, &outcome, 0) else {
+    // Builder is per-user → render it in the tapper's locale + odds format.
+    let Some((btext, brows)) = builder_text_rows(tapper_lang, &q, qid, &outcome, 0, tapper_fmt) else {
         return answer(ctx, cb, "", false).await;
     };
     if group {
@@ -346,8 +354,8 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
             ctx,
             cb.message_chat(),
             cb.message_id(),
-            &quote_text(card_lang, &q),
-            &option_rows(card_lang, &q),
+            &quote_text(card_lang, &q, card_fmt),
+            &option_rows(card_lang, &q, card_fmt),
         )
         .await;
         match tg::send_with_buttons(ctx, cb.from.id, &btext, &brows).await {
@@ -454,7 +462,8 @@ pub async fn handle_size_place(
 
     let payout = decimal_payout(stake_units, odds);
     let side = q.side_name(lang, &outcome);
-    let odds_str = format!("{:.2}", decimal_odds(odds));
+    // Confirmation + group announce show the odds in the bettor's chosen format.
+    let odds_str = format_odds(odds, database.get_odds_fmt(cb.from.id).unwrap_or_default());
     // Confirm privately in the DM (where the builder lives).
     let text = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
     let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &text).await;
@@ -482,6 +491,7 @@ fn builder_text_rows(
     qid: u64,
     outcome: &str,
     total: i64,
+    fmt: OddsFormat,
 ) -> Option<(String, Vec<tg::Row>)> {
     let odds = q.odds(outcome).filter(|c| *c > 0.0)?;
     let side = q.side_name(lang, outcome);
@@ -492,7 +502,7 @@ fn builder_text_rows(
     let text = i18n::bet_build(
         lang,
         &side,
-        &format!("{:.2}", decimal_odds(odds)),
+        &format_odds(odds, fmt),
         &fmt_coins(stake_units),
         &win,
     );
@@ -522,7 +532,8 @@ async fn render_builder(
     let Some(q) = fresh_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
     };
-    let Some((text, rows)) = builder_text_rows(lang, &q, qid, outcome, total) else {
+    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let Some((text, rows)) = builder_text_rows(lang, &q, qid, outcome, total, fmt) else {
         return answer(ctx, cb, "", false).await;
     };
     edit(ctx, cb, &text, &rows).await?;
@@ -559,19 +570,21 @@ async fn edit(
     Ok(())
 }
 
-/// Parse `<lang>:<market_id>:<outcome>` from an `opt:` callback. `lang` is the
-/// store code the card was created in (pins the shared card's locale so it can't
-/// flip per tapper); the market id is a colon-free UUID and `outcome` is
-/// teamA/teamB/draw, so the two colons split cleanly. Unknown lang → English.
-fn parse_card_opt(rest: &str) -> Option<(Lang, String, String)> {
-    let mut it = rest.splitn(3, ':');
+/// Parse `<lang>:<fmt>:<market_id>:<outcome>` from an `opt:` callback. `lang`/`fmt`
+/// are the store codes the card was created in (pin the shared card's locale +
+/// odds format so it can't flip per tapper); the market id is a colon-free UUID
+/// and `outcome` is teamA/teamB/draw, so the three colons split cleanly. Unknown
+/// lang → English, unknown fmt → Decimal.
+fn parse_card_opt(rest: &str) -> Option<(Lang, OddsFormat, String, String)> {
+    let mut it = rest.splitn(4, ':');
     let lang = Lang::from_store_code(it.next()?).unwrap_or(Lang::En);
+    let fmt = OddsFormat::from_store_code(it.next()?);
     let market_id = it.next()?.to_string();
     let outcome = it.next()?.to_string();
     if market_id.is_empty() || outcome.is_empty() {
         return None;
     }
-    Some((lang, market_id, outcome))
+    Some((lang, fmt, market_id, outcome))
 }
 
 /// Parse `<qid>:<outcome>:<total>` (outcome is `teamA`/`teamB`/`draw`, no colon).

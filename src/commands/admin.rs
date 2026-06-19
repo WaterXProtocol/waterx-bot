@@ -338,11 +338,11 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
-/// `/stats` — owner-only snapshot of bot-wide metrics: user/chat counts, the
+/// `/dashboard` — owner-only snapshot of bot-wide metrics: user/chat counts, the
 /// circulating coin supply, real-money match-bet exposure, and open self-host
 /// games. Plain English (an operator diagnostic, not a user-facing surface).
-#[command(description = "owner: bot-wide stats")]
-pub async fn stats(ctx: Context, message: Message) -> CommandResult {
+#[command(description = "owner: bot-wide dashboard")]
+pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
     let Some(uid) = from_id(&message) else {
         return Ok(());
     };
@@ -353,8 +353,8 @@ pub async fn stats(ctx: Context, message: Message) -> CommandResult {
     let s = match database.stats() {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("/stats query error: {e}");
-            reply(&ctx, &message, format!("⚠️ Stats error: {e}")).await?;
+            eprintln!("/dashboard query error: {e}");
+            reply(&ctx, &message, format!("⚠️ Dashboard error: {e}")).await?;
             return Ok(());
         }
     };

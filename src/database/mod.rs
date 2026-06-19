@@ -72,7 +72,8 @@ impl Database {
                 last_checkin INTEGER NOT NULL DEFAULT 0,
                 lang         TEXT    NOT NULL DEFAULT '',
                 referrer     INTEGER NOT NULL DEFAULT 0,
-                tz_offset    INTEGER
+                tz_offset    INTEGER,
+                odds_fmt     TEXT    NOT NULL DEFAULT ''
             )",
             [],
         )?;
@@ -173,6 +174,11 @@ impl Database {
         );
         // Add the user's UTC offset in minutes (NULL = not yet chosen).
         let _ = conn.execute("ALTER TABLE balance ADD COLUMN tz_offset INTEGER", []);
+        // Add the user's odds display format (empty = Decimal default).
+        let _ = conn.execute(
+            "ALTER TABLE balance ADD COLUMN odds_fmt TEXT NOT NULL DEFAULT ''",
+            [],
+        );
 
         // Prune buffer rows older than 24h. Pre-TTL rows have created_at=0 and
         // get cleared too, which is what we want — a restart drops all dangling

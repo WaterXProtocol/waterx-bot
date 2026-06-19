@@ -134,6 +134,29 @@ impl Database {
         Ok(())
     }
 
+    /// The user's chosen odds display format (defaults to `Decimal` when unset
+    /// or unknown — see [`crate::types::OddsFormat::from_store_code`]).
+    pub fn get_odds_fmt(&self, user_id: i64) -> SqlResult<crate::types::OddsFormat> {
+        self.ensure_row(user_id)?;
+        let conn = self.conn.lock();
+        let code: String = conn.query_row(
+            "SELECT odds_fmt FROM balance WHERE user = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
+        Ok(crate::types::OddsFormat::from_store_code(&code))
+    }
+
+    pub fn set_odds_fmt(&self, user_id: i64, fmt: crate::types::OddsFormat) -> SqlResult<()> {
+        self.ensure_row(user_id)?;
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE balance SET odds_fmt = ?1 WHERE user = ?2",
+            params![fmt.store_code(), user_id],
+        )?;
+        Ok(())
+    }
+
     /// Whether the user can claim today's check-in (read-only; grants nothing).
     /// Mirrors [`Database::try_checkin`]'s UTC-day window.
     pub fn checkin_available(&self, user_id: i64) -> SqlResult<bool> {

@@ -56,3 +56,47 @@ impl BetState {
         }
     }
 }
+
+/// User-selectable display format for odds (a 65¢ YES price shown in each):
+/// `Decimal` → 1.54, `American` → -185, `Percent` → 65%, `Price` → 65¢. Persisted
+/// per user in `balance.odds_fmt` (a stable store code); `Decimal` is the default
+/// and the fallback for any unknown/legacy value. The conversion lives in
+/// `util::format_odds`; the localized picker labels in `i18n::odds_fmt_label`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OddsFormat {
+    #[default]
+    Decimal,
+    American,
+    Percent,
+    Price,
+}
+
+impl OddsFormat {
+    /// Stable code persisted in the DB and carried in card callback data.
+    pub fn store_code(self) -> &'static str {
+        match self {
+            OddsFormat::Decimal => "dec",
+            OddsFormat::American => "us",
+            OddsFormat::Percent => "pct",
+            OddsFormat::Price => "cents",
+        }
+    }
+
+    /// Parse a stored code; anything unknown/empty falls back to `Decimal`.
+    pub fn from_store_code(code: &str) -> OddsFormat {
+        match code {
+            "us" => OddsFormat::American,
+            "pct" => OddsFormat::Percent,
+            "cents" => OddsFormat::Price,
+            _ => OddsFormat::Decimal,
+        }
+    }
+
+    /// All formats, in picker display order.
+    pub const ALL: [OddsFormat; 4] = [
+        OddsFormat::Decimal,
+        OddsFormat::American,
+        OddsFormat::Percent,
+        OddsFormat::Price,
+    ];
+}

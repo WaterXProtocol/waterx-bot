@@ -84,8 +84,8 @@ pub async fn run() -> anyhow::Result<()> {
         .set_framework(create_framework!(
             bot_username.as_str(),
             start, assets, balance, bets, send, predict, rule, feedback, sell, buy, markets,
-            checkin, language, timezone, mint, pause, unpause, broadcast, reset, settle, redeploy,
-            stats
+            checkin, settings, timezone, mint, pause, unpause, broadcast, reset, settle, redeploy,
+            dashboard
         ))
         .add_handler_func(callbacks::on_callback)
         .add_handler_func(callbacks::on_my_chat_member);

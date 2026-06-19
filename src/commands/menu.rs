@@ -4,12 +4,43 @@
 //! these so the keyboards stay in one place.
 
 use crate::commands::tg::Row;
-use crate::commands::util::tz_button_label;
+use crate::commands::util::{format_odds, tz_button_label};
 use crate::i18n::{self, Lang};
+use crate::types::OddsFormat;
 
 /// Callback-data prefixes routed in `callbacks::on_callback`.
 pub const SET_LANG: &str = "setlang:";
 pub const SET_TZ: &str = "settz:";
+/// `/settings` hub: pick an odds format, or open the language / timezone picker.
+pub const SET_FMT: &str = "setfmt:"; // setfmt:<store_code> — persist + re-render hub
+pub const CFG_LANG: &str = "cfg:lang"; // open the language picker from settings
+pub const CFG_TZ: &str = "cfg:tz"; // open the timezone picker from settings
+
+/// `/settings` hub keyboard: one button per odds format — labelled with a **live
+/// example** for a 65¢ price (so the formats need no localized names), `✅` on the
+/// current one — then `[🌐 Language]` / `[🕐 Timezone]` which open the existing
+/// pickers. Built by both `/settings` and the `setfmt:` re-render.
+pub fn settings_rows(lang: Lang, current: OddsFormat) -> Vec<Row> {
+    const REF_CENTS: f64 = 65.0;
+    let mut rows: Vec<Row> = OddsFormat::ALL
+        .chunks(2)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .map(|&f| {
+                    let mark = if f == current { "✅ " } else { "" };
+                    (
+                        format!("{mark}{}", format_odds(REF_CENTS, f)),
+                        format!("{SET_FMT}{}", f.store_code()),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    rows.push(vec![(i18n::btn_language(lang).to_string(), CFG_LANG.to_string())]);
+    rows.push(vec![(i18n::btn_timezone(lang).to_string(), CFG_TZ.to_string())]);
+    rows
+}
 
 /// Curated UTC offsets (minutes east) offered in the timezone picker — common
 /// zones incl. the half-hour ones, four per row.

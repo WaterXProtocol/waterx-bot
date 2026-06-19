@@ -807,7 +807,7 @@ pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 8] {
         ("predict", menu_predict(l)),
         ("rule", menu_rule(l)),
         ("feedback", menu_feedback(l)),
-        ("language", menu_language(l)),
+        ("settings", menu_settings(l)),
     ]
 }
 
@@ -877,13 +877,6 @@ fn menu_start(l: Lang) -> &'static str {
         "Página inicial", "होम", "الصفحة الرئيسية")
 }
 
-fn menu_language(l: Lang) -> &'static str {
-    tr!(l;
-        "Set language", "設定語言", "设置语言", "言語を設定", "언어 설정",
-        "Выбрать язык", "Définir la langue", "Configurar idioma", "Sprache wählen", "Đặt ngôn ngữ",
-        "Atur bahasa", "Itakda ang wika", "ตั้งค่าภาษา", "Taal instellen", "Dili ayarla",
-        "Definir idioma", "भाषा सेट करें", "تعيين اللغة")
-}
 
 fn menu_balance(l: Lang) -> &'static str {
     tr!(l;
@@ -899,6 +892,42 @@ fn menu_bets(l: Lang) -> &'static str {
         "Открытые ставки", "Paris en cours", "Apuestas abiertas", "Offene Wetten", "Cược đang mở",
         "Taruhan terbuka", "Bukas na taya", "เดิมพันที่เปิดอยู่", "Open weddenschappen", "Açık bahisler",
         "Apostas abertas", "खुले दांव", "الرهانات المفتوحة")
+}
+
+fn menu_settings(l: Lang) -> &'static str {
+    tr!(l;
+        "Language, timezone & odds", "語言、時區與賠率", "语言、时区与赔率", "言語・タイムゾーン・オッズ", "언어·시간대·배당",
+        "Язык, часовой пояс и кэфы", "Langue, fuseau & cotes", "Idioma, zona y cuotas", "Sprache, Zeitzone & Quoten", "Ngôn ngữ, múi giờ & tỷ lệ",
+        "Bahasa, zona waktu & odds", "Wika, time zone at odds", "ภาษา โซนเวลา และราคาต่อรอง", "Taal, tijdzone & odds", "Dil, saat dilimi & oran",
+        "Idioma, fuso & odds", "भाषा, टाइमज़ोन और ऑड्स", "اللغة والمنطقة الزمنية والأodds")
+}
+
+/// `/settings` hub header (the odds-format buttons below show live examples, so
+/// the formats need no separate localized names).
+pub fn settings_title(l: Lang) -> &'static str {
+    tr!(l;
+        "⚙️ Settings\n\n🎲 Tap an odds format:", "⚙️ 設定\n\n🎲 點選賠率格式：", "⚙️ 设置\n\n🎲 点选赔率格式：", "⚙️ 設定\n\n🎲 オッズ表記を選んでね：", "⚙️ 설정\n\n🎲 배당 형식을 선택해：",
+        "⚙️ Настройки\n\n🎲 Выберите формат кэфов:", "⚙️ Paramètres\n\n🎲 Choisis un format de cotes :", "⚙️ Ajustes\n\n🎲 Elige un formato de cuotas:", "⚙️ Einstellungen\n\n🎲 Wähle ein Quotenformat:", "⚙️ Cài đặt\n\n🎲 Chọn định dạng tỷ lệ:",
+        "⚙️ Pengaturan\n\n🎲 Pilih format odds:", "⚙️ Mga Setting\n\n🎲 Pumili ng format ng odds:", "⚙️ การตั้งค่า\n\n🎲 เลือกรูปแบบราคาต่อรอง:", "⚙️ Instellingen\n\n🎲 Kies een oddsformaat:", "⚙️ Ayarlar\n\n🎲 Oran biçimi seç:",
+        "⚙️ Configurações\n\n🎲 Escolha um formato de odds:", "⚙️ सेटिंग्स\n\n🎲 ऑड्स फ़ॉर्मैट चुनें:", "⚙️ الإعدادات\n\n🎲 اختر صيغة الأodds:")
+}
+
+/// `[🌐 Language]` button in the `/settings` hub (opens the language picker).
+pub fn btn_language(l: Lang) -> &'static str {
+    tr!(l;
+        "🌐 Language", "🌐 語言", "🌐 语言", "🌐 言語", "🌐 언어",
+        "🌐 Язык", "🌐 Langue", "🌐 Idioma", "🌐 Sprache", "🌐 Ngôn ngữ",
+        "🌐 Bahasa", "🌐 Wika", "🌐 ภาษา", "🌐 Taal", "🌐 Dil",
+        "🌐 Idioma", "🌐 भाषा", "🌐 اللغة")
+}
+
+/// `[🕐 Timezone]` button in the `/settings` hub (opens the timezone picker).
+pub fn btn_timezone(l: Lang) -> &'static str {
+    tr!(l;
+        "🕐 Timezone", "🕐 時區", "🕐 时区", "🕐 タイムゾーン", "🕐 시간대",
+        "🕐 Часовой пояс", "🕐 Fuseau horaire", "🕐 Zona horaria", "🕐 Zeitzone", "🕐 Múi giờ",
+        "🕐 Zona waktu", "🕐 Time zone", "🕐 โซนเวลา", "🕐 Tijdzone", "🕐 Saat dilimi",
+        "🕐 Fuso horário", "🕐 टाइमज़ोन", "🕐 المنطقة الزمنية")
 }
 
 fn menu_send(l: Lang) -> &'static str {
