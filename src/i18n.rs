@@ -902,14 +902,14 @@ fn menu_settings(l: Lang) -> &'static str {
         "Idioma, fuso & odds", "भाषा, टाइमज़ोन और ऑड्स", "اللغة والمنطقة الزمنية والأodds")
 }
 
-/// `/settings` hub header (the odds-format buttons below show live examples, so
-/// the formats need no separate localized names).
+/// `/settings` hub header. The three buttons (Language / Timezone / Odds format)
+/// each open a picker that ✅-marks the current choice.
 pub fn settings_title(l: Lang) -> &'static str {
     tr!(l;
-        "⚙️ Settings\n\n🎲 Tap an odds format:", "⚙️ 設定\n\n🎲 點選賠率格式：", "⚙️ 设置\n\n🎲 点选赔率格式：", "⚙️ 設定\n\n🎲 オッズ表記を選んでね：", "⚙️ 설정\n\n🎲 배당 형식을 선택해：",
-        "⚙️ Настройки\n\n🎲 Выберите формат кэфов:", "⚙️ Paramètres\n\n🎲 Choisis un format de cotes :", "⚙️ Ajustes\n\n🎲 Elige un formato de cuotas:", "⚙️ Einstellungen\n\n🎲 Wähle ein Quotenformat:", "⚙️ Cài đặt\n\n🎲 Chọn định dạng tỷ lệ:",
-        "⚙️ Pengaturan\n\n🎲 Pilih format odds:", "⚙️ Mga Setting\n\n🎲 Pumili ng format ng odds:", "⚙️ การตั้งค่า\n\n🎲 เลือกรูปแบบราคาต่อรอง:", "⚙️ Instellingen\n\n🎲 Kies een oddsformaat:", "⚙️ Ayarlar\n\n🎲 Oran biçimi seç:",
-        "⚙️ Configurações\n\n🎲 Escolha um formato de odds:", "⚙️ सेटिंग्स\n\n🎲 ऑड्स फ़ॉर्मैट चुनें:", "⚙️ الإعدادات\n\n🎲 اختر صيغة الأodds:")
+        "⚙️ Settings", "⚙️ 設定", "⚙️ 设置", "⚙️ 設定", "⚙️ 설정",
+        "⚙️ Настройки", "⚙️ Paramètres", "⚙️ Ajustes", "⚙️ Einstellungen", "⚙️ Cài đặt",
+        "⚙️ Pengaturan", "⚙️ Mga Setting", "⚙️ การตั้งค่า", "⚙️ Instellingen", "⚙️ Ayarlar",
+        "⚙️ Configurações", "⚙️ सेटिंग्स", "⚙️ الإعدادات")
 }
 
 /// `[🌐 Language]` button in the `/settings` hub (opens the language picker).
@@ -928,6 +928,15 @@ pub fn btn_timezone(l: Lang) -> &'static str {
         "🕐 Часовой пояс", "🕐 Fuseau horaire", "🕐 Zona horaria", "🕐 Zeitzone", "🕐 Múi giờ",
         "🕐 Zona waktu", "🕐 Time zone", "🕐 โซนเวลา", "🕐 Tijdzone", "🕐 Saat dilimi",
         "🕐 Fuso horário", "🕐 टाइमज़ोन", "🕐 المنطقة الزمنية")
+}
+
+/// `[🎲 Odds format]` button in the `/settings` hub (opens the odds-format picker).
+pub fn btn_odds(l: Lang) -> &'static str {
+    tr!(l;
+        "🎲 Odds format", "🎲 賠率格式", "🎲 赔率格式", "🎲 オッズ表記", "🎲 배당 형식",
+        "🎲 Формат кэфов", "🎲 Format des cotes", "🎲 Formato de cuotas", "🎲 Quotenformat", "🎲 Định dạng tỷ lệ",
+        "🎲 Format odds", "🎲 Format ng odds", "🎲 รูปแบบราคาต่อรอง", "🎲 Oddsformaat", "🎲 Oran biçimi",
+        "🎲 Formato de odds", "🎲 ऑड्स फ़ॉर्मैट", "🎲 صيغة الأodds")
 }
 
 fn menu_send(l: Lang) -> &'static str {
@@ -987,12 +996,70 @@ pub fn usage_buy(l: Lang) -> &'static str {
         "/buy <fruta> <preço>", "/buy <फल> <मूल्य>", "/buy <فاكهة> <سعر>")
 }
 
-pub fn usage_predict(l: Lang) -> &'static str {
+// --- /predict DM builder wizard ---
+
+pub fn predict_ask_question(l: Lang) -> &'static str {
     tr!(l;
-        "/predict <question>? <option1> <option2> …", "/predict <問題>？ <選項1> <選項2> …", "/predict <问题>？ <选项1> <选项2> …", "/predict <質問>？ <選択肢1> <選択肢2> …", "/predict <질문>? <선택지1> <선택지2> …",
-        "/predict <вопрос>? <вариант1> <вариант2> …", "/predict <question> ? <option1> <option2> …", "/predict <pregunta>? <opción1> <opción2> …", "/predict <Frage>? <Option1> <Option2> …", "/predict <câu hỏi>? <lựa chọn1> <lựa chọn2> …",
-        "/predict <pertanyaan>? <opsi1> <opsi2> …", "/predict <tanong>? <opsyon1> <opsyon2> …", "/predict <คำถาม>? <ตัวเลือก1> <ตัวเลือก2> …", "/predict <vraag>? <optie1> <optie2> …", "/predict <soru>? <seçenek1> <seçenek2> …",
-        "/predict <pergunta>? <opção1> <opção2> …", "/predict <प्रश्न>? <विकल्प1> <विकल्प2> …", "/predict <السؤال>؟ <خيار1> <خيار2> …")
+        "🎲 What's your prediction question?", "🎲 你的預測問題是什麼？", "🎲 你的预测问题是什么？", "🎲 予測する質問は？", "🎲 예측 질문은 무엇이야?",
+        "🎲 Какой у вас вопрос для прогноза?", "🎲 Quelle est ta question de prédiction ?", "🎲 ¿Cuál es tu pregunta de predicción?", "🎲 Wie lautet deine Vorhersagefrage?", "🎲 Câu hỏi dự đoán của bạn là gì?",
+        "🎲 Apa pertanyaan prediksimu?", "🎲 Ano ang tanong ng prediksyon mo?", "🎲 คำถามทำนายของคุณคืออะไร?", "🎲 Wat is je voorspellingsvraag?", "🎲 Tahmin sorun nedir?",
+        "🎲 Qual é a sua pergunta de previsão?", "🎲 आपका प्रिडिक्शन सवाल क्या है?", "🎲 ما هو سؤال توقعك؟")
+}
+
+pub fn predict_ask_options(l: Lang) -> &'static str {
+    tr!(l;
+        "Now send the options — one per line, or space-separated (at least 2).", "現在傳送選項 — 每行一個，或以空格分隔（至少 2 個）。", "现在发送选项 — 每行一个，或用空格分隔（至少 2 个）。", "選択肢を送ってね — 1行に1つ、またはスペース区切り（2つ以上）。", "이제 선택지를 보내줘 — 한 줄에 하나, 또는 공백으로 구분 (최소 2개).",
+        "Теперь пришлите варианты — по одному на строку или через пробел (минимум 2).", "Envoie maintenant les options — une par ligne, ou séparées par des espaces (au moins 2).", "Ahora envía las opciones — una por línea, o separadas por espacios (al menos 2).", "Sende jetzt die Optionen — eine pro Zeile oder durch Leerzeichen getrennt (mindestens 2).", "Bây giờ gửi các lựa chọn — mỗi dòng một cái, hoặc cách nhau bằng dấu cách (ít nhất 2).",
+        "Sekarang kirim opsinya — satu per baris, atau dipisah spasi (minimal 2).", "Ipadala na ang mga opsyon — isa kada linya, o pinaghihiwalay ng space (hindi bababa sa 2).", "ตอนนี้ส่งตัวเลือก — บรรทัดละหนึ่ง หรือคั่นด้วยช่องว่าง (อย่างน้อย 2)", "Stuur nu de opties — één per regel, of gescheiden door spaties (minstens 2).", "Şimdi seçenekleri gönder — her satıra bir tane veya boşlukla ayrılmış (en az 2).",
+        "Agora envie as opções — uma por linha, ou separadas por espaços (pelo menos 2).", "अब विकल्प भेजें — हर लाइन में एक, या स्पेस से अलग (कम से कम 2)।", "أرسل الآن الخيارات — واحد في كل سطر، أو مفصولة بمسافات (على الأقل 2).")
+}
+
+pub fn predict_ask_endtime(l: Lang) -> &'static str {
+    tr!(l;
+        "When does betting close?", "下注何時截止？", "下注何时截止？", "賭けはいつ締め切る？", "베팅은 언제 마감할까?",
+        "Когда закрыть приём ставок?", "Quand les paris ferment-ils ?", "¿Cuándo cierran las apuestas?", "Wann schließen die Wetten?", "Khi nào đóng cược?",
+        "Kapan taruhan ditutup?", "Kailan magsasara ang taya?", "ปิดรับเดิมพันเมื่อไหร่?", "Wanneer sluit het wedden?", "Bahisler ne zaman kapansın?",
+        "Quando as apostas fecham?", "बेटिंग कब बंद होगी?", "متى يُغلق الرهان؟")
+}
+
+pub fn predict_need_options(l: Lang) -> &'static str {
+    tr!(l;
+        "Send at least 2 options 🙏", "請至少傳送 2 個選項 🙏", "请至少发送 2 个选项 🙏", "選択肢は2つ以上送ってね 🙏", "선택지를 2개 이상 보내줘 🙏",
+        "Пришлите минимум 2 варианта 🙏", "Envoie au moins 2 options 🙏", "Envía al menos 2 opciones 🙏", "Sende mindestens 2 Optionen 🙏", "Gửi ít nhất 2 lựa chọn 🙏",
+        "Kirim minimal 2 opsi 🙏", "Magpadala ng hindi bababa sa 2 opsyon 🙏", "ส่งตัวเลือกอย่างน้อย 2 อัน 🙏", "Stuur minstens 2 opties 🙏", "En az 2 seçenek gönder 🙏",
+        "Envie pelo menos 2 opções 🙏", "कम से कम 2 विकल्प भेजें 🙏", "أرسل خيارين على الأقل 🙏")
+}
+
+pub fn predict_created(l: Lang) -> &'static str {
+    tr!(l;
+        "✅ Prediction posted!", "✅ 預測已發佈！", "✅ 预测已发布！", "✅ 予測を投稿したよ！", "✅ 예측을 올렸어！",
+        "✅ Прогноз опубликован!", "✅ Prédiction publiée !", "✅ ¡Predicción publicada!", "✅ Vorhersage veröffentlicht!", "✅ Đã đăng dự đoán!",
+        "✅ Prediksi diposting!", "✅ Nai-post na ang prediksyon!", "✅ โพสต์การทำนายแล้ว!", "✅ Voorspelling geplaatst!", "✅ Tahmin paylaşıldı!",
+        "✅ Previsão publicada!", "✅ प्रिडिक्शन पोस्ट हो गया!", "✅ تم نشر التوقع!")
+}
+
+pub fn predict_check_dm(l: Lang) -> &'static str {
+    tr!(l;
+        "Check your DM to build the prediction 📩", "請查看私訊來建立預測 📩", "请查看私信来创建预测 📩", "DMを確認して予測を作ってね 📩", "DM에서 예측을 만들어 📩",
+        "Проверьте личные сообщения, чтобы создать прогноз 📩", "Va en privé pour créer la prédiction 📩", "Revisa tu DM para crear la predicción 📩", "Schau in deine DMs, um die Vorhersage zu erstellen 📩", "Kiểm tra tin nhắn riêng để tạo dự đoán 📩",
+        "Cek DM untuk membuat prediksi 📩", "Tingnan ang DM mo para gawin ang prediksyon 📩", "เช็ค DM เพื่อสร้างการทำนาย 📩", "Check je DM om de voorspelling te maken 📩", "Tahmini oluşturmak için DM'ine bak 📩",
+        "Veja sua DM para criar a previsão 📩", "प्रिडिक्शन बनाने के लिए अपना DM देखें 📩", "تحقق من رسائلك الخاصة لإنشاء التوقع 📩")
+}
+
+pub fn predict_post_failed(l: Lang) -> &'static str {
+    tr!(l;
+        "⚠️ Couldn't post the card — am I still in that chat?", "⚠️ 無法發佈卡片 — 我還在那個對話裡嗎？", "⚠️ 无法发布卡片 — 我还在那个对话里吗？", "⚠️ カードを投稿できなかったよ — まだそのチャットにいる？", "⚠️ 카드를 못 올렸어 — 내가 아직 그 채팅에 있어?",
+        "⚠️ Не удалось опубликовать карточку — я ещё в том чате?", "⚠️ Impossible de publier la carte — suis-je encore dans ce chat ?", "⚠️ No pude publicar la tarjeta — ¿sigo en ese chat?", "⚠️ Konnte die Karte nicht posten — bin ich noch in dem Chat?", "⚠️ Không đăng được thẻ — tôi còn trong cuộc trò chuyện đó chứ?",
+        "⚠️ Gagal memposting kartu — apakah saya masih di chat itu?", "⚠️ Hindi ma-post ang card — nasa chat na iyon pa ba ako?", "⚠️ โพสต์การ์ดไม่ได้ — ฉันยังอยู่ในแชทนั้นไหม?", "⚠️ Kon de kaart niet plaatsen — zit ik nog in die chat?", "⚠️ Kart paylaşılamadı — hâlâ o sohbette miyim?",
+        "⚠️ Não consegui postar o cartão — ainda estou nesse chat?", "⚠️ कार्ड पोस्ट नहीं कर सका — क्या मैं अब भी उस चैट में हूँ?", "⚠️ تعذّر نشر البطاقة — هل ما زلت في تلك المحادثة؟")
+}
+
+pub fn btn_no_deadline(l: Lang) -> &'static str {
+    tr!(l;
+        "♾️ No deadline", "♾️ 無期限", "♾️ 无期限", "♾️ 期限なし", "♾️ 기한 없음",
+        "♾️ Без срока", "♾️ Sans limite", "♾️ Sin límite", "♾️ Keine Frist", "♾️ Không giới hạn",
+        "♾️ Tanpa batas", "♾️ Walang deadline", "♾️ ไม่มีกำหนด", "♾️ Geen deadline", "♾️ Süresiz",
+        "♾️ Sem prazo", "♾️ कोई समय-सीमा नहीं", "♾️ بلا موعد")
 }
 
 // ----------------------------------------------------------------------------

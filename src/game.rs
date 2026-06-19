@@ -40,6 +40,11 @@ pub struct BetGame {
     /// persisted before this field loaded (they fall back to the id tail).
     #[serde(default)]
     pub names: HashMap<i64, String>,
+    /// Unix time after which new bets are rejected (0 = no deadline). Set by the
+    /// `/predict` builder. Enforced lazily at bet time (no scheduler); the host
+    /// still closes/settles manually. `#[serde(default)]` for pre-deadline games.
+    #[serde(default)]
+    pub ends_at: i64,
 }
 
 impl BetGame {
@@ -63,7 +68,14 @@ impl BetGame {
             outputs: HashMap::new(),
             changes: HashMap::new(),
             names: HashMap::new(),
+            ends_at: 0,
         }
+    }
+
+    /// Whether betting is past the deadline (lazily enforced — the state may still
+    /// be `betting` since there's no scheduler to auto-close).
+    pub fn ended(&self, now: i64) -> bool {
+        self.ends_at != 0 && now >= self.ends_at
     }
 
     pub fn set_id(&mut self, chat_id: i64, msg_id: i64) {
@@ -105,6 +117,13 @@ impl BetGame {
             self.state_emoji(),
             self.state.label(self.lang)
         );
+        // Deadline (shared board → UTC), if the builder set one.
+        if self.ends_at != 0 {
+            use chrono::{TimeZone, Utc};
+            if let Some(d) = Utc.timestamp_opt(self.ends_at, 0).single() {
+                s.push_str(&format!("⏰ {} UTC\n", d.format("%b %-d · %H:%M")));
+            }
+        }
         for (i, opt) in self.option_order.iter().enumerate() {
             if let Some(d) = self.options.get(opt) {
                 let mult = if d.bet > 0 {

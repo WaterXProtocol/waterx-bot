@@ -41,6 +41,14 @@ impl TypeMapKey for QuotesKey {
     type Value = Arc<parking_lot::Mutex<crate::commands::betting::QuoteStore>>;
 }
 
+/// In-flight `/predict` builder drafts, keyed by the host's user id. Populated by
+/// the `/predict` command and consumed by the DM message listener
+/// (`predict::on_message`) + the end-time callback.
+pub struct PredictDraftsKey;
+impl TypeMapKey for PredictDraftsKey {
+    type Value = Arc<Mutex<HashMap<i64, crate::commands::predict::PredictDraft>>>;
+}
+
 pub async fn run() -> anyhow::Result<()> {
     let cfg = BotConfig::from_env()?;
     let bot_id: i64 = cfg
@@ -88,7 +96,8 @@ pub async fn run() -> anyhow::Result<()> {
             dashboard
         ))
         .add_handler_func(callbacks::on_callback)
-        .add_handler_func(callbacks::on_my_chat_member);
+        .add_handler_func(callbacks::on_my_chat_member)
+        .add_handler_func(crate::commands::predict::on_message);
     let client = builder.build();
     {
         let mut data = client.data.write();
@@ -100,6 +109,7 @@ pub async fn run() -> anyhow::Result<()> {
         data.insert::<QuotesKey>(Arc::new(parking_lot::Mutex::new(
             crate::commands::betting::QuoteStore::default(),
         )));
+        data.insert::<PredictDraftsKey>(Arc::new(Mutex::new(HashMap::new())));
     }
 
     // Eagerly set the user-facing command menu (the "/" autocomplete), once

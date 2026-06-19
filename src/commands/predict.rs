@@ -1,10 +1,69 @@
+//! `/predict` — a stateful DM **builder wizard** for creating a prediction.
+//!
+//! `/predict` (run anywhere) DMs the host a step-by-step flow: question → options
+//! → end-time presets, then posts the finished prediction card back to the chat
+//! `/predict` was invoked in. Free-text steps (question, options) are captured by
+//! the [`on_message`] listener, which routes a host's next plain DM into their
+//! in-flight [`PredictDraft`] (`bot::PredictDraftsKey`). The end time is a button
+//! step (`gend:<minutes>`), which finalizes and posts the card.
+
+use crate::bot::PredictDraftsKey;
 use crate::commands::tg;
 use crate::commands::util::*;
 use crate::game::BetGame;
-use crate::i18n;
+use crate::i18n::{self, Lang};
+use std::collections::HashMap;
+use std::sync::Arc;
+use telexide::api::types::AnswerCallbackQuery;
+use telexide::model::{CallbackQuery, UpdateContent};
 use telexide::prelude::*;
+use tokio::sync::Mutex;
 
-#[command(description = "open a prediction game or show open ones")]
+/// Callback prefix for the builder's end-time presets: `gend:<minutes>` (0 = no
+/// deadline). Routed in `callbacks::on_callback`.
+pub const PREDICT_END: &str = "gend:";
+
+/// End-time presets shown after options: (minutes-from-now, label). 0 (no
+/// deadline) is a separate button.
+const END_PRESETS: &[(i64, &str)] = &[(60, "1h"), (360, "6h"), (720, "12h"), (1440, "24h"), (4320, "3d")];
+
+/// An in-flight `/predict` builder draft (one per host). The current step is
+/// implied by which fields are filled: no `description` → awaiting the question;
+/// `description` set, no `options` → awaiting options; both set → awaiting the
+/// end-time button.
+pub struct PredictDraft {
+    /// Chat the finished card is posted to (where `/predict` was invoked).
+    pub origin_chat: i64,
+    pub lang: Lang,
+    pub description: Option<String>,
+    pub options: Option<Vec<String>>,
+}
+
+fn drafts(ctx: &Context) -> Arc<Mutex<HashMap<i64, PredictDraft>>> {
+    ctx.data
+        .read()
+        .get::<PredictDraftsKey>()
+        .expect("PredictDraftsKey missing")
+        .clone()
+}
+
+fn now() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
+/// Acknowledge a callback query (optional alert toast). Local copy so the builder
+/// doesn't depend on `callbacks`'s private helper.
+async fn ack(ctx: &Context, cb: &CallbackQuery, toast: &str) -> Result<(), telexide::Error> {
+    let mut a = AnswerCallbackQuery::new(cb.id.clone());
+    if !toast.is_empty() {
+        a.text = Some(toast.to_string());
+        a.show_alert = Some(true);
+    }
+    ctx.api.answer_callback_query(a).await?;
+    Ok(())
+}
+
+#[command(description = "create a prediction")]
 pub async fn predict(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
@@ -14,72 +73,161 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     let lang = lang_for(&ctx, &host);
-    // Raw argument text (everything after the command word), so the question can
-    // contain spaces.
-    let after = text_of(&message)
-        .split_once(char::is_whitespace)
-        .map_or("", |(_, rest)| rest.trim());
+    let origin_chat = message.chat.get_id();
 
-    // No args → list the caller's open games, or the usage hint if they have none.
-    if after.is_empty() {
-        let chunks: Vec<String> = {
-            let games_arc = games(&ctx);
-            let snapshot = games_arc.lock().await;
-            snapshot
-                .values()
-                .map(|g| g.check(host.id))
-                .filter(|e| !e.is_empty())
-                .collect()
-        };
-        let body = if chunks.is_empty() {
-            i18n::usage_predict(lang).to_string()
-        } else {
-            chunks.join("\n")
-        };
-        reply(&ctx, &message, body).await?;
-        return Ok(());
+    // DM the first prompt; only register the draft once we know the DM lands (a
+    // user who never started the bot can't run the wizard). Starting `/predict`
+    // again just replaces any half-finished draft.
+    match send_text(&ctx, host.id, i18n::predict_ask_question(lang)).await {
+        Ok(_) => {
+            drafts(&ctx).lock().await.insert(
+                host.id,
+                PredictDraft { origin_chat, lang, description: None, options: None },
+            );
+            // In a group the prompt went to the host's DM — point them there.
+            if is_group_chat(origin_chat) {
+                reply(&ctx, &message, i18n::predict_check_dm(lang)).await?;
+            }
+        }
+        Err(_) => {
+            reply(&ctx, &message, i18n::bet_dm_first(lang)).await?;
+        }
     }
+    Ok(())
+}
 
-    // Parse "<question>? <opt1> <opt2> …": the question runs up to the first `?`
-    // or full-width `？` (the mark is kept in the title), then space-separated
-    // options.
-    let Some(pos) = after.find(['?', '？']) else {
-        reply(&ctx, &message, i18n::usage_predict(lang)).await?;
-        return Ok(());
+/// DM message listener: routes a host's plain-text reply into their in-flight
+/// builder draft (question → options). Only fires for non-command text in a
+/// private chat where the user has an active draft; otherwise a no-op.
+#[prepare_listener]
+pub async fn on_message(ctx: Context, update: Update) {
+    let UpdateContent::Message(message) = update.content else {
+        return;
     };
-    let mark_len = after[pos..].chars().next().map_or(1, char::len_utf8);
-    let description = after[..pos + mark_len].trim().to_string();
-    let option_strs: Vec<&str> = after[pos + mark_len..].split_whitespace().collect();
-    if description.is_empty() || option_strs.len() < 2 {
-        reply(&ctx, &message, i18n::usage_predict(lang)).await?;
-        return Ok(());
+    // The builder lives in the host's DM: private chats, plain non-command text.
+    if is_group_chat(message.chat.get_id()) {
+        return;
+    }
+    let Some(user) = message.from.as_ref() else {
+        return;
+    };
+    let text = text_of(&message).trim().to_string();
+    if text.is_empty() || text.starts_with('/') {
+        return;
     }
 
-    let mut game = BetGame::new(host.id, lang, &description, &option_strs);
+    let drafts = drafts(&ctx);
+    let mut guard = drafts.lock().await;
+    let Some(draft) = guard.get_mut(&user.id) else {
+        return; // not in a wizard — just an ordinary DM
+    };
+    // A paused bot shouldn't advance a non-owner's wizard (fail closed).
+    if !is_owner(&ctx, user.id) && db(&ctx).is_paused().unwrap_or(true) {
+        return;
+    }
+    let lang = draft.lang;
 
-    let rows = game.get_buttons();
-    let sent =
-        tg::send_with_buttons(&ctx, message.chat.get_id(), &game.get_text(), &rows).await?;
+    if draft.description.is_none() {
+        draft.description = Some(text);
+        drop(guard);
+        let _ = send_text(&ctx, user.id, i18n::predict_ask_options(lang)).await;
+        return;
+    }
+    if draft.options.is_none() {
+        let opts = parse_options(&text);
+        if opts.len() < 2 {
+            drop(guard);
+            let _ = send_text(&ctx, user.id, i18n::predict_need_options(lang)).await;
+            return;
+        }
+        draft.options = Some(opts);
+        drop(guard);
+        let _ = tg::send_with_buttons(
+            &ctx,
+            user.id,
+            i18n::predict_ask_endtime(lang),
+            &end_time_rows(lang),
+        )
+        .await;
+    }
+    // Both filled → awaiting the end-time button; further text is ignored.
+}
+
+/// Options: one per line when multi-line, else whitespace-separated. Trimmed,
+/// empties dropped — so "Yes No" and "Manchester United\nLiverpool" both work.
+fn parse_options(text: &str) -> Vec<String> {
+    let by_line: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    if by_line.len() >= 2 {
+        return by_line;
+    }
+    text.split_whitespace().map(String::from).collect()
+}
+
+/// End-time preset keyboard: duration presets (3 per row) + a "no deadline" row.
+fn end_time_rows(lang: Lang) -> Vec<tg::Row> {
+    let mut rows: Vec<tg::Row> = END_PRESETS
+        .chunks(3)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .map(|(m, label)| ((*label).to_string(), format!("{PREDICT_END}{m}")))
+                .collect()
+        })
+        .collect();
+    rows.push(vec![(i18n::btn_no_deadline(lang).to_string(), format!("{PREDICT_END}0"))]);
+    rows
+}
+
+/// `gend:<minutes>` — the builder's end-time pick: finalize the draft into a
+/// `BetGame`, post the card to the origin chat, register it, and confirm in the DM.
+pub async fn handle_predict_endtime(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    rest: &str,
+) -> Result<(), telexide::Error> {
+    let Ok(minutes) = rest.parse::<i64>() else {
+        return ack(ctx, cb, "").await;
+    };
+    // Consume the draft (so a double-tap can't post twice).
+    let draft = drafts(ctx).lock().await.remove(&cb.from.id);
+    let Some(draft) = draft else {
+        return ack(ctx, cb, "").await; // expired / already finalized
+    };
+    let (Some(description), Some(options)) = (draft.description, draft.options) else {
+        return ack(ctx, cb, "").await; // incomplete (shouldn't happen)
+    };
+    let lang = draft.lang;
+    let ends_at = if minutes <= 0 { 0 } else { now() + minutes * 60 };
+
+    let opt_refs: Vec<&str> = options.iter().map(String::as_str).collect();
+    let mut game = BetGame::new(cb.from.id, lang, &description, &opt_refs);
+    game.ends_at = ends_at;
+
+    // Post the card to the origin chat; only on success do we register the game.
+    let sent = match tg::send_with_buttons(ctx, draft.origin_chat, &game.get_text(), &game.get_buttons()).await {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("predict card post failed (chat {}): {e:?}", draft.origin_chat);
+            return ack(ctx, cb, i18n::predict_post_failed(lang)).await;
+        }
+    };
     game.set_id(sent.chat.get_id(), sent.message_id);
     let key = format!("{}:{}", sent.chat.get_id(), sent.message_id);
-    // Re-edit so the description shows the freshly-assigned id tail. Best-effort:
-    // a failed cosmetic edit must NOT abort the command before the game is
-    // registered below (that would orphan the posted board with live-but-unknown
-    // buttons). `edit_with_buttons` already logs logical rejects.
-    let new_rows = game.get_buttons();
-    let _ = tg::edit_with_buttons(
-        &ctx,
-        sent.chat.get_id(),
-        sent.message_id,
-        &game.get_text(),
-        &new_rows,
-    )
-    .await;
-
-    if let Err(err) = db(&ctx).save_bet_game(&game) {
+    // Re-render so the id tail shows (best-effort, like the old `/predict`).
+    let _ = tg::edit_with_buttons(ctx, sent.chat.get_id(), sent.message_id, &game.get_text(), &game.get_buttons()).await;
+    if let Err(err) = db(ctx).save_bet_game(&game) {
         eprintln!("save_bet_game error (continuing in-memory only): {err}");
     }
-    let games_arc = games(&ctx);
-    games_arc.lock().await.insert(key, game);
-    Ok(())
+    games(ctx).lock().await.insert(key, game);
+
+    // Confirm in the builder DM (edit the end-time message in place).
+    if let Some(m) = &cb.message {
+        let _ = tg::edit_text_only(ctx, m.chat.get_id(), m.message_id, i18n::predict_created(lang)).await;
+    }
+    ack(ctx, cb, "").await
 }

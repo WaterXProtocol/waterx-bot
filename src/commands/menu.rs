@@ -11,16 +11,30 @@ use crate::types::OddsFormat;
 /// Callback-data prefixes routed in `callbacks::on_callback`.
 pub const SET_LANG: &str = "setlang:";
 pub const SET_TZ: &str = "settz:";
-/// `/settings` hub: pick an odds format, or open the language / timezone picker.
-pub const SET_FMT: &str = "setfmt:"; // setfmt:<store_code> — persist + re-render hub
-pub const CFG_LANG: &str = "cfg:lang"; // open the language picker from settings
-pub const CFG_TZ: &str = "cfg:tz"; // open the timezone picker from settings
+/// `/settings` hub: three uniform click-in buttons, each opening its own picker.
+pub const SET_FMT: &str = "setfmt:"; // setfmt:<store_code> — persist + back to hub
+pub const CFG_LANG: &str = "cfg:lang"; // open the language picker
+pub const CFG_TZ: &str = "cfg:tz"; // open the timezone picker
+pub const CFG_ODDS: &str = "cfg:odds"; // open the odds-format picker
+pub const CFG_HOME: &str = "cfg:home"; // back to the settings hub
 
-/// `/settings` hub keyboard: one button per odds format — labelled with a **live
-/// example** for a 65¢ price (so the formats need no localized names), `✅` on the
-/// current one — then `[🌐 Language]` / `[🕐 Timezone]` which open the existing
-/// pickers. Built by both `/settings` and the `setfmt:` re-render.
-pub fn settings_rows(lang: Lang, current: OddsFormat) -> Vec<Row> {
+/// `/settings` hub keyboard: three uniform buttons — `[🌐 Language]`,
+/// `[🕐 Timezone]`, `[🎲 Odds format]` — each opening its own picker (where the
+/// current choice is `✅`-marked). Built by `/settings` and the `cfg:home` /
+/// `setfmt:` re-renders.
+pub fn settings_rows(lang: Lang) -> Vec<Row> {
+    vec![
+        vec![(i18n::btn_language(lang).to_string(), CFG_LANG.to_string())],
+        vec![(i18n::btn_timezone(lang).to_string(), CFG_TZ.to_string())],
+        vec![(i18n::btn_odds(lang).to_string(), CFG_ODDS.to_string())],
+    ]
+}
+
+/// Odds-format picker (reached via `cfg:odds`): one button per format, labelled
+/// with a **live example** for a 65¢ price (so the formats need no localized
+/// names), `✅` on the current one; `setfmt:<code>` saves + returns to the hub.
+/// Plus a `[⬅ Back]` to the hub.
+pub fn odds_picker_rows(lang: Lang, current: OddsFormat) -> Vec<Row> {
     const REF_CENTS: f64 = 65.0;
     let mut rows: Vec<Row> = OddsFormat::ALL
         .chunks(2)
@@ -37,8 +51,7 @@ pub fn settings_rows(lang: Lang, current: OddsFormat) -> Vec<Row> {
                 .collect()
         })
         .collect();
-    rows.push(vec![(i18n::btn_language(lang).to_string(), CFG_LANG.to_string())]);
-    rows.push(vec![(i18n::btn_timezone(lang).to_string(), CFG_TZ.to_string())]);
+    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), CFG_HOME.to_string())]);
     rows
 }
 
@@ -49,14 +62,18 @@ const TZ_OFFSETS: &[i64] = &[
 ];
 
 /// Timezone picker: one button per curated offset (`settz:<minutes>`), four per
-/// row, labelled `UTC±h[:mm]`.
-pub fn tz_picker_rows() -> Vec<Row> {
+/// row, labelled `UTC±h[:mm]`. `current` (the user's saved offset, if any) is
+/// `✅`-marked.
+pub fn tz_picker_rows(current: Option<i64>) -> Vec<Row> {
     TZ_OFFSETS
         .chunks(4)
         .map(|chunk| {
             chunk
                 .iter()
-                .map(|&m| (tz_button_label(m), format!("{SET_TZ}{m}")))
+                .map(|&m| {
+                    let mark = if current == Some(m) { "✅ " } else { "" };
+                    (format!("{mark}{}", tz_button_label(m)), format!("{SET_TZ}{m}"))
+                })
                 .collect()
         })
         .collect()
@@ -78,15 +95,17 @@ pub fn referral_link(bot_username: &str, user_id: i64) -> String {
 }
 
 /// Language-picker keyboard: every supported locale, two per row, labelled with
-/// its flag + endonym. Payload is `setlang:<store_code>`.
-pub fn lang_picker_rows() -> Vec<Row> {
+/// its flag + endonym. Payload is `setlang:<store_code>`. `current` (the user's
+/// saved locale, if any) is `✅`-marked.
+pub fn lang_picker_rows(current: Option<Lang>) -> Vec<Row> {
     Lang::ALL
         .chunks(2)
         .map(|pair| {
             pair.iter()
                 .map(|l| {
+                    let mark = if current == Some(*l) { "✅ " } else { "" };
                     (
-                        l.native_label().to_string(),
+                        format!("{mark}{}", l.native_label()),
                         format!("{}{}", SET_LANG, l.store_code()),
                     )
                 })

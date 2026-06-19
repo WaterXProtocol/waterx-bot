@@ -13,11 +13,12 @@ pub async fn timezone(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     let lang = lang_for(&ctx, user);
+    let current = db(&ctx).get_tz(user.id).ok().flatten();
     tg::send_with_buttons(
         &ctx,
         message.chat.get_id(),
         i18n::choose_timezone(lang),
-        &menu::tz_picker_rows(),
+        &menu::tz_picker_rows(current),
     )
     .await?;
     Ok(())
