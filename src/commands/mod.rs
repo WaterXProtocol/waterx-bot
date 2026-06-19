@@ -27,7 +27,14 @@ pub use balance::*;
 pub use bets::*;
 pub use buy::*;
 pub use checkin::*;
+// `predict` and `feedback` each expose an `on_message` DM listener, so the two
+// globs collide on that name in this namespace. It's harmless: nothing uses the
+// bare `commands::on_message` — both listeners are reached via their module path
+// (`crate::commands::{predict,feedback}::on_message`); the globs are only here to
+// surface the `_COMMAND` statics for `create_framework!`.
+#[allow(ambiguous_glob_reexports)]
 pub use feedback::*;
+#[allow(ambiguous_glob_reexports)]
 pub use predict::*;
 pub use settings::*;
 pub use rule::*;

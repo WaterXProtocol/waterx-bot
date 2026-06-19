@@ -4,10 +4,10 @@
 //! → end-time presets, then posts the finished prediction card back to the chat
 //! `/predict` was invoked in. Free-text steps (question, options) are captured by
 //! the [`on_message`] listener, which routes a host's next plain DM into their
-//! in-flight [`PredictDraft`] (`bot::PredictDraftsKey`). The end time is a button
+//! in-flight [`PredictDraft`] (`bot::ConvosKey`, the `Convo::Predict` variant). The end time is a button
 //! step (`gend:<minutes>`), which finalizes and posts the card.
 
-use crate::bot::PredictDraftsKey;
+use crate::bot::{Convo, ConvosKey};
 use crate::commands::tg;
 use crate::commands::util::*;
 use crate::game::BetGame;
@@ -39,11 +39,11 @@ pub struct PredictDraft {
     pub options: Option<Vec<String>>,
 }
 
-fn drafts(ctx: &Context) -> Arc<Mutex<HashMap<i64, PredictDraft>>> {
+fn drafts(ctx: &Context) -> Arc<Mutex<HashMap<i64, Convo>>> {
     ctx.data
         .read()
-        .get::<PredictDraftsKey>()
-        .expect("PredictDraftsKey missing")
+        .get::<ConvosKey>()
+        .expect("ConvosKey missing")
         .clone()
 }
 
@@ -80,9 +80,11 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
     // again just replaces any half-finished draft.
     match send_text(&ctx, host.id, i18n::predict_ask_question(lang)).await {
         Ok(_) => {
+            // Inserting overwrites any in-flight `/feedback` flow for this user —
+            // the last-started DM flow wins.
             drafts(&ctx).lock().await.insert(
                 host.id,
-                PredictDraft { origin_chat, lang, description: None, options: None },
+                Convo::Predict(PredictDraft { origin_chat, lang, description: None, options: None }),
             );
             // In a group the prompt went to the host's DM — point them there.
             if is_group_chat(origin_chat) {
@@ -118,8 +120,8 @@ pub async fn on_message(ctx: Context, update: Update) {
 
     let drafts = drafts(&ctx);
     let mut guard = drafts.lock().await;
-    let Some(draft) = guard.get_mut(&user.id) else {
-        return; // not in a wizard — just an ordinary DM
+    let Some(Convo::Predict(draft)) = guard.get_mut(&user.id) else {
+        return; // not in the predict wizard — an ordinary DM or another flow
     };
     // A paused bot shouldn't advance a non-owner's wizard (fail closed).
     if !is_owner(&ctx, user.id) && db(&ctx).is_paused().unwrap_or(true) {
@@ -194,9 +196,8 @@ pub async fn handle_predict_endtime(
         return ack(ctx, cb, "").await;
     };
     // Consume the draft (so a double-tap can't post twice).
-    let draft = drafts(ctx).lock().await.remove(&cb.from.id);
-    let Some(draft) = draft else {
-        return ack(ctx, cb, "").await; // expired / already finalized
+    let Some(Convo::Predict(draft)) = drafts(ctx).lock().await.remove(&cb.from.id) else {
+        return ack(ctx, cb, "").await; // expired / already finalized / wrong flow
     };
     let (Some(description), Some(options)) = (draft.description, draft.options) else {
         return ack(ctx, cb, "").await; // incomplete (shouldn't happen)

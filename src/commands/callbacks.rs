@@ -618,9 +618,8 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
     answer(ctx, cb, "", false).await
 }
 
-/// `setfmt:<code>` — persist the chosen odds format and re-render the odds picker
-/// in place so the ✅ moves to the new pick (the host stays in the picker; `[⬅ Back]`
-/// returns to the hub).
+/// `setfmt:<code>` — settings-variant odds pick: persist the chosen format and
+/// return to the `/settings` hub in place (uniform with `slang:`/`stz:`).
 async fn handle_set_fmt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let fmt = crate::types::OddsFormat::from_store_code(rest);
     let db = db_arc(ctx);
@@ -633,8 +632,8 @@ async fn handle_set_fmt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
             ctx,
             message.chat.get_id(),
             message.message_id,
-            i18n::btn_odds(lang),
-            &menu::odds_picker_rows(lang, fmt),
+            i18n::settings_title(lang),
+            &menu::settings_rows(lang),
         )
         .await;
     }

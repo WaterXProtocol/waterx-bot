@@ -41,12 +41,25 @@ impl TypeMapKey for QuotesKey {
     type Value = Arc<parking_lot::Mutex<crate::commands::betting::QuoteStore>>;
 }
 
-/// In-flight `/predict` builder drafts, keyed by the host's user id. Populated by
-/// the `/predict` command and consumed by the DM message listener
-/// (`predict::on_message`) + the end-time callback.
-pub struct PredictDraftsKey;
-impl TypeMapKey for PredictDraftsKey {
-    type Value = Arc<Mutex<HashMap<i64, crate::commands::predict::PredictDraft>>>;
+/// In-flight DM conversation state, keyed by user id. At most one per user — a
+/// newly-started flow overwrites any previous one, so `/predict` and `/feedback`
+/// can never both be live for the same user (their DM listeners each match only
+/// their own variant). Populated by the `/predict` and `/feedback` commands and
+/// consumed by the `predict::on_message` / `feedback::on_message` listeners (+ the
+/// `/predict` end-time callback). Those two listeners are **spawned concurrently**
+/// per DM update (telexide `fire_handlers` runs each handler in its own task), so
+/// safety rests on each matching only its own variant while holding the shared
+/// `Mutex` — the map holds at most one variant per user, so the non-matching
+/// listener is a clean no-op.
+pub enum Convo {
+    /// A `/predict` builder draft (question → options → end-time).
+    Predict(crate::commands::predict::PredictDraft),
+    /// Awaiting a `/feedback` message; `lang` is the composer's locale.
+    Feedback { lang: crate::i18n::Lang },
+}
+pub struct ConvosKey;
+impl TypeMapKey for ConvosKey {
+    type Value = Arc<Mutex<HashMap<i64, Convo>>>;
 }
 
 pub async fn run() -> anyhow::Result<()> {
@@ -97,7 +110,8 @@ pub async fn run() -> anyhow::Result<()> {
         ))
         .add_handler_func(callbacks::on_callback)
         .add_handler_func(callbacks::on_my_chat_member)
-        .add_handler_func(crate::commands::predict::on_message);
+        .add_handler_func(crate::commands::predict::on_message)
+        .add_handler_func(crate::commands::feedback::on_message);
     let client = builder.build();
     {
         let mut data = client.data.write();
@@ -109,7 +123,7 @@ pub async fn run() -> anyhow::Result<()> {
         data.insert::<QuotesKey>(Arc::new(parking_lot::Mutex::new(
             crate::commands::betting::QuoteStore::default(),
         )));
-        data.insert::<PredictDraftsKey>(Arc::new(Mutex::new(HashMap::new())));
+        data.insert::<ConvosKey>(Arc::new(Mutex::new(HashMap::new())));
     }
 
     // Eagerly set the user-facing command menu (the "/" autocomplete), once

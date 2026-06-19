@@ -1,41 +1,123 @@
+//! `/feedback` — two ways to reach the bot team:
+//!
+//! - `/feedback <text>` (inline) sends immediately, from any chat.
+//! - `/feedback` with no text opens a **DM compose flow** (like `/predict`): the
+//!   bot DMs a prompt and the user's next plain-text DM is forwarded to the owner
+//!   by the [`on_message`] listener. The in-flight state is a `Convo::Feedback`
+//!   entry in the shared `bot::ConvosKey` map (so starting `/feedback` cancels any
+//!   half-built `/predict`, and vice versa — at most one DM flow per user).
+
+use crate::bot::{Convo, ConvosKey};
 use crate::commands::util::*;
 use crate::i18n;
+use std::collections::HashMap;
+use std::sync::Arc;
+use telexide::model::{UpdateContent, User};
 use telexide::prelude::*;
+use tokio::sync::Mutex;
+
+fn drafts(ctx: &Context) -> Arc<Mutex<HashMap<i64, Convo>>> {
+    ctx.data
+        .read()
+        .get::<ConvosKey>()
+        .expect("ConvosKey missing")
+        .clone()
+}
+
+/// DM the owner a feedback body tagged with the sender (best-effort — a bounce is
+/// logged, never surfaced to the user).
+async fn send_to_owner(ctx: &Context, user: &User, body: &str) {
+    let owner = owner_id(ctx);
+    if owner == 0 {
+        return;
+    }
+    let who = match &user.username {
+        Some(u) if !u.is_empty() => format!("{} (@{u}, id {})", full_name(user), user.id),
+        _ => format!("{} (id {})", full_name(user), user.id),
+    };
+    if let Err(e) = send_text(ctx, owner, format!("📣 Feedback from {who}:\n\n{body}")).await {
+        eprintln!("feedback owner DM failed (owner {owner}): {e:?}");
+    }
+}
 
 #[command(description = "send feedback to the bot team")]
 pub async fn feedback(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
     }
-    let Some(user) = message.from.as_ref() else {
+    let Some(user) = message.from.clone() else {
         reply(&ctx, &message, ERR_REPLY).await?;
         return Ok(());
     };
-    let lang = lang_for(&ctx, user);
+    let lang = lang_for(&ctx, &user);
 
-    // Everything after the command word is the feedback body (may contain spaces).
+    // Inline fast-path: anything after the command word is the feedback body, sent
+    // straight away (handy in DMs; in a group the "thanks" reply leaks nothing).
     let body = text_of(&message)
         .split_once(char::is_whitespace)
-        .map_or("", |(_, rest)| rest.trim());
-    if body.is_empty() {
-        reply(&ctx, &message, i18n::usage_feedback(lang)).await?;
+        .map_or("", |(_, rest)| rest.trim())
+        .to_string();
+    if !body.is_empty() {
+        send_to_owner(&ctx, &user, &body).await;
+        reply(&ctx, &message, i18n::feedback_sent(lang)).await?;
         return Ok(());
     }
 
-    // DM the owner (best-effort — don't fail the user if the owner DM bounces).
-    let owner = owner_id(&ctx);
-    if owner != 0 {
-        let who = match &user.username {
-            Some(u) if !u.is_empty() => format!("{} (@{u}, id {})", full_name(user), user.id),
-            _ => format!("{} (id {})", full_name(user), user.id),
-        };
-        // Best-effort, but log a bounce so feedback isn't lost without a trace
-        // (e.g. the owner never opened a DM with the bot).
-        if let Err(e) = send_text(&ctx, owner, format!("📣 Feedback from {who}:\n\n{body}")).await {
-            eprintln!("feedback owner DM failed (owner {owner}): {e:?}");
+    // No inline text → open the DM compose flow. DM the prompt first; only register
+    // the draft once we know the DM lands (a user who never started the bot can't
+    // use the flow). Inserting overwrites any in-flight `/predict` draft.
+    match send_text(&ctx, user.id, i18n::feedback_ask(lang)).await {
+        Ok(_) => {
+            drafts(&ctx).lock().await.insert(user.id, Convo::Feedback { lang });
+            if is_group_chat(message.chat.get_id()) {
+                // The DM prompt already landed (the real surface); a failed group
+                // ack shouldn't surface the whole command as an error.
+                let _ = reply(&ctx, &message, i18n::feedback_check_dm(lang)).await;
+            }
+        }
+        Err(_) => {
+            reply(&ctx, &message, i18n::feedback_dm_first(lang)).await?;
         }
     }
-
-    reply(&ctx, &message, i18n::feedback_sent(lang)).await?;
     Ok(())
+}
+
+/// DM message listener: forwards a user's plain-text reply to the owner when they
+/// have an active `Convo::Feedback`. No-op for groups, command text, DMs with no
+/// feedback draft (so it never hijacks ordinary DMs), and fails closed on pause.
+#[prepare_listener]
+pub async fn on_message(ctx: Context, update: Update) {
+    let UpdateContent::Message(message) = update.content else {
+        return;
+    };
+    if is_group_chat(message.chat.get_id()) {
+        return;
+    }
+    let Some(user) = message.from.clone() else {
+        return;
+    };
+    let text = text_of(&message).trim().to_string();
+    if text.is_empty() || text.starts_with('/') {
+        return;
+    }
+
+    let drafts = drafts(&ctx);
+    let lang = {
+        let mut guard = drafts.lock().await;
+        let Some(Convo::Feedback { lang }) = guard.get(&user.id) else {
+            return; // not in the feedback flow — ordinary DM or another flow
+        };
+        let lang = *lang;
+        // A paused bot shouldn't forward a non-owner's message (fail closed); leave
+        // the draft in place so they can retry once it's back.
+        if !is_owner(&ctx, user.id) && db(&ctx).is_paused().unwrap_or(true) {
+            return;
+        }
+        // Consume the draft now so a second message becomes an ordinary DM.
+        guard.remove(&user.id);
+        lang
+    };
+
+    send_to_owner(&ctx, &user, &text).await;
+    let _ = send_text(&ctx, user.id, i18n::feedback_sent(lang)).await;
 }

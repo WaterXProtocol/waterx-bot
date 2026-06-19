@@ -819,12 +819,28 @@ fn menu_feedback(l: Lang) -> &'static str {
         "Enviar feedback", "फ़ीडबैक भेजें", "إرسال ملاحظات")
 }
 
-pub fn usage_feedback(l: Lang) -> &'static str {
+pub fn feedback_ask(l: Lang) -> &'static str {
     tr!(l;
-        "Usage: /feedback <your message>", "用法：/feedback <你的訊息>", "用法：/feedback <你的消息>", "使い方：/feedback <メッセージ>", "사용법: /feedback <메시지>",
-        "Использование: /feedback <ваше сообщение>", "Usage : /feedback <ton message>", "Uso: /feedback <tu mensaje>", "Verwendung: /feedback <deine Nachricht>", "Cách dùng: /feedback <tin nhắn của bạn>",
-        "Cara pakai: /feedback <pesanmu>", "Paggamit: /feedback <iyong mensahe>", "วิธีใช้: /feedback <ข้อความของคุณ>", "Gebruik: /feedback <je bericht>", "Kullanım: /feedback <mesajın>",
-        "Uso: /feedback <sua mensagem>", "उपयोग: /feedback <आपका संदेश>", "الاستخدام: /feedback <رسالتك>")
+        "💬 What's your feedback? Type your message and I'll pass it to the team.", "💬 你想回饋什麼？直接打字，我會轉交給團隊。", "💬 你想反馈什么？直接打字，我会转交给团队。", "💬 フィードバックは何かな？そのまま入力してくれれば、チームに伝えるよ。", "💬 어떤 의견이야? 그냥 입력하면 팀에 전달할게.",
+        "💬 Какой у вас отзыв? Просто напишите, и я передам команде.", "💬 Quel est ton retour ? Écris-le et je le transmets à l'équipe.", "💬 ¿Cuál es tu comentario? Escríbelo y lo paso al equipo.", "💬 Was ist dein Feedback? Schreib es einfach und ich leite es ans Team weiter.", "💬 Bạn muốn góp ý gì? Cứ nhập vào, mình sẽ chuyển cho đội ngũ.",
+        "💬 Apa masukanmu? Ketik saja, akan kuteruskan ke tim.", "💬 Ano ang feedback mo? I-type mo lang at ipapasa ko sa team.", "💬 อยากบอกอะไรเรา? พิมพ์มาได้เลย เดี๋ยวส่งให้ทีมงาน", "💬 Wat is je feedback? Typ het gewoon en ik geef het door aan het team.", "💬 Geri bildirimin ne? Yaz yeter, ekibe iletirim.",
+        "💬 Qual é o seu feedback? Escreva e eu repasso para a equipe.", "💬 आपका फ़ीडबैक क्या है? बस टाइप करें, मैं टीम तक पहुँचा दूँगा।", "💬 ما هي ملاحظتك؟ اكتبها وسأنقلها إلى الفريق.")
+}
+
+pub fn feedback_check_dm(l: Lang) -> &'static str {
+    tr!(l;
+        "Check your DM to send feedback 📩", "請查看私訊來傳送回饋 📩", "请查看私信来发送反馈 📩", "DMを確認してフィードバックを送ってね 📩", "DM에서 의견을 보내줘 📩",
+        "Проверьте личные сообщения, чтобы отправить отзыв 📩", "Va en privé pour envoyer ton retour 📩", "Revisa tu DM para enviar tu comentario 📩", "Schau in deine DMs, um Feedback zu senden 📩", "Kiểm tra tin nhắn riêng để gửi góp ý 📩",
+        "Cek DM untuk mengirim masukan 📩", "Tingnan ang DM mo para magpadala ng feedback 📩", "เช็ค DM เพื่อส่งความคิดเห็น 📩", "Check je DM om feedback te sturen 📩", "Geri bildirim göndermek için DM'ine bak 📩",
+        "Veja sua DM para enviar feedback 📩", "फ़ीडबैक भेजने के लिए अपना DM देखें 📩", "تحقق من رسائلك الخاصة لإرسال ملاحظاتك 📩")
+}
+
+pub fn feedback_dm_first(l: Lang) -> &'static str {
+    tr!(l;
+        "Start a private chat with me first to send feedback 📩", "請先私訊我才能傳送回饋 📩", "请先私信我才能发送反馈 📩", "フィードバックを送るにはまず私にDMしてね 📩", "의견을 보내려면 먼저 나에게 DM을 보내줘 📩",
+        "Сначала напишите мне в личку, чтобы отправить отзыв 📩", "Écris-moi d'abord en privé pour envoyer ton retour 📩", "Primero abre un chat privado conmigo para enviar tu comentario 📩", "Schreib mir zuerst privat, um Feedback zu senden 📩", "Hãy nhắn riêng cho mình trước để gửi góp ý 📩",
+        "Mulai chat pribadi dulu untuk mengirim masukan 📩", "Mag-DM muna sa akin para magpadala ng feedback 📩", "เริ่มแชทส่วนตัวกับฉันก่อนเพื่อส่งความคิดเห็น 📩", "Begin eerst een privégesprek met mij om feedback te sturen 📩", "Geri bildirim göndermek için önce bana özelden yaz 📩",
+        "Abra um chat privado comigo primeiro para enviar feedback 📩", "फ़ीडबैक भेजने के लिए पहले मुझसे निजी चैट शुरू करें 📩", "ابدأ محادثة خاصة معي أولًا لإرسال ملاحظاتك 📩")
 }
 
 pub fn feedback_sent(l: Lang) -> &'static str {
