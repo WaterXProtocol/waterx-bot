@@ -543,6 +543,15 @@ pub fn predictions_title(l: Lang) -> &'static str {
         "🎲 Previsões abertas", "🎲 चालू भविष्यवाणियाँ", "🎲 التوقعات المفتوحة")
 }
 
+/// Shown by `/bets` when the caller has no open match bets or predictions.
+pub fn no_open_bets(l: Lang) -> &'static str {
+    tr!(l;
+        "You have no open bets 🫥", "你目前沒有未結算的下注 🫥", "你目前没有未结算的下注 🫥", "未決済のベットはないよ 🫥", "미정산 베팅이 없어 🫥",
+        "У вас нет открытых ставок 🫥", "Tu n'as aucun pari en cours 🫥", "No tienes apuestas abiertas 🫥", "Du hast keine offenen Wetten 🫥", "Bạn chưa có cược nào đang mở 🫥",
+        "Kamu belum punya taruhan terbuka 🫥", "Wala kang bukas na taya 🫥", "คุณยังไม่มีเดิมพันที่เปิดอยู่ 🫥", "Je hebt geen open weddenschappen 🫥", "Açık bahsin yok 🫥",
+        "Você não tem apostas abertas 🫥", "आपके कोई खुले दांव नहीं हैं 🫥", "ليس لديك رهانات مفتوحة 🫥")
+}
+
 pub fn close_button(l: Lang) -> &'static str {
     tr!(l;
         "Close", "收盤", "收盘", "締め切る", "마감",
@@ -789,10 +798,11 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 7] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 8] {
     [
         ("start", menu_start(l)),
-        ("assets", menu_balance(l)),
+        ("balance", menu_balance(l)),
+        ("bets", menu_bets(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
         ("rule", menu_rule(l)),
@@ -877,10 +887,18 @@ fn menu_language(l: Lang) -> &'static str {
 
 fn menu_balance(l: Lang) -> &'static str {
     tr!(l;
-        "Check assets", "資產狀況", "资产状况", "資産状況", "자산 현황",
-        "Состояние активов", "État des actifs", "Estado de activos", "Vermögensstatus", "Tình trạng tài sản",
-        "Status aset", "Estado ng asset", "สถานะสินทรัพย์", "Activastatus", "Varlık durumu",
-        "Status dos ativos", "संपत्ति स्थिति", "حالة الأصول")
+        "Check balance", "查看餘額", "查看余额", "残高を確認", "잔액 확인",
+        "Проверить баланс", "Voir le solde", "Ver saldo", "Guthaben prüfen", "Xem số dư",
+        "Cek saldo", "Tingnan ang balanse", "ดูยอดเงิน", "Saldo bekijken", "Bakiyeyi gör",
+        "Ver saldo", "बैलेंस देखें", "عرض الرصيد")
+}
+
+fn menu_bets(l: Lang) -> &'static str {
+    tr!(l;
+        "Open bets", "未結算下注", "未结算下注", "未決済のベット", "미정산 베팅",
+        "Открытые ставки", "Paris en cours", "Apuestas abiertas", "Offene Wetten", "Cược đang mở",
+        "Taruhan terbuka", "Bukas na taya", "เดิมพันที่เปิดอยู่", "Open weddenschappen", "Açık bahisler",
+        "Apostas abertas", "खुले दांव", "الرهانات المفتوحة")
 }
 
 fn menu_send(l: Lang) -> &'static str {

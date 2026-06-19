@@ -4,6 +4,8 @@ pub mod util;
 
 pub mod admin;
 pub mod assets;
+pub mod balance;
+pub mod bets;
 pub mod betting;
 pub mod buy;
 pub mod checkin;
@@ -21,6 +23,8 @@ pub mod timezone;
 
 pub use admin::*;
 pub use assets::*;
+pub use balance::*;
+pub use bets::*;
 pub use buy::*;
 pub use checkin::*;
 pub use feedback::*;

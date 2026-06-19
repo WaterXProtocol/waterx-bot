@@ -25,35 +25,49 @@ pub async fn assets(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
-/// Build the `/assets` body for `user`: name (+ balance when `show_balance`),
-/// then any open match bets and self-host predictions. Shared by the `/assets`
-/// command and the `menu:balance` button. `show_balance` is false in a group,
-/// where the balance is private and must not be exposed publicly.
+/// Build the combined `/assets` body for `user`: name (+ balance when
+/// `show_balance`), then any open match bets and self-host predictions. Shared by
+/// the `/assets` command and the `menu:balance` home button. `show_balance` is
+/// false in a group, where the combined view keeps the balance private.
 pub async fn assets_text(ctx: &Context, lang: Lang, user: &User, show_balance: bool) -> String {
-    let database = db(ctx);
-
-    let mut body = if show_balance {
-        // Surface a DB read error rather than masking it as a zero balance.
-        match database.get_user_info(user.id) {
-            Ok(info) => format!(
-                "{}\n{}",
-                full_name(user),
-                i18n::menu_status(lang, &fmt_coins(info.balance))
-            ),
-            Err(e) => {
-                eprintln!("assets get_user_info error (user {}): {e}", user.id);
-                return format!("{}\n{}", full_name(user), i18n::db_error(lang));
-            }
-        }
+    let head = if show_balance {
+        balance_block(ctx, lang, user).await
     } else {
         full_name(user)
     };
+    // `positions_block` already prefixes each section with "\n\n", so it appends
+    // cleanly after the header (and contributes nothing when there are none).
+    format!("{head}{}", positions_block(ctx, lang, user).await)
+}
 
-    // Open (unsettled) match bets, if any, with the section's staked total in
-    // Lines are language-neutral — the side name is already localized, the rest
-    // is teams + numbers + symbols.
+/// The caller's name + coin balance line (or a db-error notice instead of a fake
+/// zero). Shared by `/balance` and the combined `/assets` / home view.
+pub(crate) async fn balance_block(ctx: &Context, lang: Lang, user: &User) -> String {
+    match db(ctx).get_user_info(user.id) {
+        Ok(info) => format!(
+            "{}\n{}",
+            full_name(user),
+            i18n::menu_status(lang, &fmt_coins(info.balance))
+        ),
+        Err(e) => {
+            eprintln!("balance get_user_info error (user {}): {e}", user.id);
+            format!("{}\n{}", full_name(user), i18n::db_error(lang))
+        }
+    }
+}
+
+/// The caller's open positions — match bets (`positions_title`) + self-host
+/// predictions (`predictions_title`) — each section prefixed with "\n\n" and
+/// omitted when empty. Returns "" when the user has no open positions at all.
+/// Shared by `/bets` and the combined view. Lines are language-neutral (teams +
+/// numbers + symbols; the side name is already localized).
+pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> String {
+    let database = db(ctx);
+    let mut body = String::new();
+
+    // Open (unsettled) match bets.
     let positions = database.list_open_wagers(user.id).unwrap_or_else(|e| {
-        eprintln!("assets list_open_wagers error (user {}): {e}", user.id);
+        eprintln!("bets list_open_wagers error (user {}): {e}", user.id);
         Vec::new()
     });
     if !positions.is_empty() {
