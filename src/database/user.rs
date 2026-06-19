@@ -199,6 +199,18 @@ impl Database {
         Ok(true)
     }
 
+    /// Whether a `balance` row already exists for `user_id` — **without** creating
+    /// one (unlike `get_user_info`/`ensure_row`). Used by the group-referral bind
+    /// to skip all work for users who already exist (only brand-new users bind).
+    pub fn user_exists(&self, user_id: i64) -> SqlResult<bool> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM balance WHERE user = ?1)",
+            params![user_id],
+            |r| r.get(0),
+        )
+    }
+
     /// Owner-only: applies a change without the non-negative guard.
     pub fn force_change(&self, user_id: i64, change: i64) -> SqlResult<()> {
         self.ensure_row(user_id)?;

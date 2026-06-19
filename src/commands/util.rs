@@ -228,6 +228,12 @@ pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandE
         reply(ctx, msg, crate::i18n::service_paused(lang_for_msg(ctx, msg))).await?;
         return Ok(true);
     }
+    // Group referral: a brand-new member's first interaction binds them to the
+    // bot-adder. Mirrors the button-press path in `callbacks::on_callback`, so a
+    // text command counts too. Runs before the command body creates the row.
+    if let Some(user) = msg.from.as_ref() {
+        crate::commands::referral::maybe_bind_group(ctx, msg.chat.get_id(), user).await;
+    }
     Ok(false)
 }
 

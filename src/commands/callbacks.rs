@@ -65,10 +65,13 @@ pub async fn on_callback(ctx: Context, update: Update) {
             return;
         }
     }
-    // Group-add referral: the first button a brand-new user taps in a group binds
+    // Group-add referral: a brand-new user's first interaction in a group binds
     // them to whoever added the bot. Runs before dispatch so the row is created
-    // here (not by the handler that follows).
-    maybe_bind_group_referral(&ctx, &cb).await;
+    // here (not by the handler that follows). The text-command path is mirrored
+    // in `util::paused_block`.
+    if let Some(m) = &cb.message {
+        referral::maybe_bind_group(&ctx, m.chat.get_id(), &cb.from).await;
+    }
     let result = if let Some(rest) = data.strip_prefix("envelope:") {
         handle_envelope(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gamble:") {
@@ -581,23 +584,6 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
 /// inside a group, bind them to whoever added the bot there and pay both sides.
 /// No-op outside groups, when there's no recorded adder, or for existing users
 /// (`set_referrer_if_new` only inserts a fresh row — so no farming).
-async fn maybe_bind_group_referral(ctx: &Context, cb: &CallbackQuery) {
-    let Some(message) = &cb.message else {
-        return;
-    };
-    let chat_id = message.chat.get_id();
-    if !is_group_chat(chat_id) {
-        return;
-    }
-    let db = db_arc(ctx);
-    if let Ok(Some(adder)) = db.group_adder(chat_id) {
-        db.force_change(adder, 0).ok(); // ensure the adder has a row to refer from
-        if db.set_referrer_if_new(cb.from.id, adder).unwrap_or(false) {
-            referral::pay_referral(ctx, adder, &cb.from).await;
-        }
-    }
-}
-
 /// `menu:checkin` — grant the daily reward; result shown as an alert. In a
 /// private chat the menu refreshes so the now-spent button drops off; in a group
 /// the menu is shared, so the button stays for everyone else to claim.

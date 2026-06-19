@@ -1,6 +1,7 @@
 //! Referral helpers shared by the two entry points: the `/start` deep link
-//! (`t.me/<bot>?start=<referrer_id>`) and the group check-in bind (a new user
-//! tapping check-in in a group the referrer added the bot to).
+//! (`t.me/<bot>?start=<referrer_id>`) and the group bind (a brand-new user's
+//! first interaction — any command or button tap — in a group the referrer
+//! added the bot to).
 
 use crate::commands::util::*;
 use crate::i18n::{self, Lang};
@@ -30,4 +31,33 @@ pub(crate) async fn pay_referral(ctx: &Context, referrer: i64, referee: &User) {
         i18n::referral_bonus(rlang, &full_name(referee), &fmt_coins(REFERRAL_REWARD)),
     )
     .await;
+}
+
+/// In a group, bind the acting `user` to whoever added the bot (`chats.added_by`)
+/// as their referrer — but only when `user` is **brand-new** (no `balance` row
+/// yet, so `set_referrer_if_new`'s `INSERT OR IGNORE` actually inserts). Fires on
+/// **any** interaction the bot sees in a group: button taps (`callbacks::on_callback`)
+/// and text commands (`util::paused_block`). Both call sites run before the user's
+/// row is created, preserving the brand-new check. No-op in private chats, for
+/// existing users, when the adder is unknown (`added_by = 0`), or when the user is
+/// the adder (`set_referrer_if_new` rejects `referrer == referee`). Pays both
+/// sides once on a successful bind.
+pub(crate) async fn maybe_bind_group(ctx: &Context, chat_id: i64, user: &User) {
+    if !is_group_chat(chat_id) {
+        return;
+    }
+    let database = db(ctx);
+    // Fast path: only brand-new users can bind, so skip all work (and the
+    // per-command write below) for anyone who already has a row — the common
+    // case now that this runs on every group interaction. On a read error,
+    // assume they exist (don't bind) — fail safe.
+    if database.user_exists(user.id).unwrap_or(true) {
+        return;
+    }
+    if let Ok(Some(adder)) = database.group_adder(chat_id) {
+        database.force_change(adder, 0).ok(); // ensure the adder has a row to refer from
+        if database.set_referrer_if_new(user.id, adder).unwrap_or(false) {
+            pay_referral(ctx, adder, user).await;
+        }
+    }
 }

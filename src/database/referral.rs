@@ -70,4 +70,25 @@ mod tests {
         assert!(!db.set_referrer_if_new(2, 1).unwrap()); // not new → no bind
         assert!(!db.set_referrer_if_new(1, 1).unwrap()); // self → no bind
     }
+
+    #[test]
+    fn group_bind_sequence_only_binds_new_members() {
+        // Mirrors what `referral::maybe_bind_group` does at the DB level: a group
+        // whose adder is known binds a brand-new member but skips an existing one.
+        let db = Database::new(":memory:", 1).unwrap();
+        let (group, adder, newbie, existing) = (-100, 10, 20, 30);
+        db.set_group_adder(group, adder).unwrap();
+        db.force_change(existing, 0).unwrap(); // existing member already has a row
+
+        // user_exists fast-path: newbie is new, existing is not.
+        assert!(!db.user_exists(newbie).unwrap());
+        assert!(db.user_exists(existing).unwrap());
+
+        // Brand-new member binds to the adder.
+        assert_eq!(db.group_adder(group).unwrap(), Some(adder));
+        db.force_change(adder, 0).unwrap();
+        assert!(db.set_referrer_if_new(newbie, adder).unwrap());
+        // Existing member never binds (already has a row).
+        assert!(!db.set_referrer_if_new(existing, adder).unwrap());
+    }
 }
