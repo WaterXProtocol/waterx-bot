@@ -1191,10 +1191,34 @@ pub fn bet_pick(l: Lang) -> &'static str {
 
 pub fn bet_unavailable(l: Lang) -> &'static str {
     tr!(l;
-        "This match isn't open for betting 😶", "這場比賽無法下注 😶", "这场比赛无法下注 😶", "この試合は賭けられないよ 😶", "이 경기는 베팅할 수 없어 😶",
-        "На этот матч ставки закрыты 😶", "Ce match n'est pas ouvert aux paris 😶", "Este partido no está abierto a apuestas 😶", "Auf dieses Spiel kann nicht gewettet werden 😶", "Trận này chưa mở cược 😶",
-        "Pertandingan ini belum bisa ditaruhi 😶", "Hindi pa pwedeng pustahan ang laro 😶", "แมตช์นี้ยังเดิมพันไม่ได้ 😶", "Op deze wedstrijd kan niet worden gewed 😶", "Bu maça bahis yapılamıyor 😶",
-        "Esta partida não está aberta a apostas 😶", "इस मैच पर दांव नहीं लगा सकते 😶", "هذه المباراة غير متاحة للرهان 😶")
+        "Couldn't load this match — open /matches again 😶", "無法載入這場比賽，請重新開啟 /matches 😶", "无法加载这场比赛，请重新打开 /matches 😶", "この試合を読み込めなかった。/matches を開き直してね 😶", "이 경기를 못 불러왔어. /matches 를 다시 열어줘 😶",
+        "Не удалось загрузить матч — открой /matches заново 😶", "Impossible de charger ce match — rouvre /matches 😶", "No se pudo cargar este partido — abre /matches otra vez 😶", "Spiel konnte nicht geladen werden — /matches erneut öffnen 😶", "Không tải được trận này — mở lại /matches 😶",
+        "Gagal memuat pertandingan ini — buka /matches lagi 😶", "Hindi ma-load ang laban — buksan ulit ang /matches 😶", "โหลดแมตช์นี้ไม่ได้ — เปิด /matches อีกครั้ง 😶", "Kon deze wedstrijd niet laden — open /matches opnieuw 😶", "Bu maç yüklenemedi — /matches'i tekrar aç 😶",
+        "Não foi possível carregar esta partida — abra /matches de novo 😶", "यह मैच लोड नहीं हो सका — /matches फिर खोलें 😶", "تعذّر تحميل هذه المباراة — افتح /matches من جديد 😶")
+}
+
+pub fn bet_closed(l: Lang) -> &'static str {
+    tr!(l;
+        "Betting for this match has closed ⏱️", "這場比賽已停止下注 ⏱️", "这场比赛已停止下注 ⏱️", "この試合の賭けは締め切られたよ ⏱️", "이 경기 베팅은 마감됐어 ⏱️",
+        "Ставки на этот матч закрыты ⏱️", "Les paris sur ce match sont clos ⏱️", "Las apuestas para este partido están cerradas ⏱️", "Wetten für dieses Spiel sind geschlossen ⏱️", "Đã đóng cược cho trận này ⏱️",
+        "Taruhan untuk pertandingan ini sudah ditutup ⏱️", "Sarado na ang pagtaya para sa laban na ito ⏱️", "ปิดรับเดิมพันแมตช์นี้แล้ว ⏱️", "Wedden op deze wedstrijd is gesloten ⏱️", "Bu maç için bahisler kapandı ⏱️",
+        "As apostas para esta partida estão encerradas ⏱️", "इस मैच पर बेटिंग बंद हो चुकी है ⏱️", "أُغلق الرهان على هذه المباراة ⏱️")
+}
+
+pub fn bet_stale(l: Lang) -> &'static str {
+    tr!(l;
+        "Odds moved — tap Refresh 🔄", "賠率已更新，請按重新整理 🔄", "赔率已更新，请点刷新 🔄", "オッズが動いたよ。更新を押してね 🔄", "배당이 변했어 — 새로고침을 눌러줘 🔄",
+        "Коэффициенты изменились — нажми Обновить 🔄", "Les cotes ont bougé — appuie sur Rafraîchir 🔄", "Las cuotas cambiaron — toca Actualizar 🔄", "Quoten haben sich geändert — Aktualisieren tippen 🔄", "Tỷ lệ đã thay đổi — nhấn Làm mới 🔄",
+        "Odds berubah — ketuk Segarkan 🔄", "Nagbago ang odds — pindutin ang Refresh 🔄", "อัตราต่อรองเปลี่ยนแล้ว — แตะรีเฟรช 🔄", "Odds zijn gewijzigd — tik op Vernieuwen 🔄", "Oranlar değişti — Yenile'ye dokun 🔄",
+        "As odds mudaram — toque em Atualizar 🔄", "ऑड्स बदल गए — रिफ़्रेश दबाएँ 🔄", "تغيّرت الاحتمالات — اضغط تحديث 🔄")
+}
+
+pub fn btn_refresh(l: Lang) -> &'static str {
+    tr!(l;
+        "🔄 Refresh odds", "🔄 重新整理賠率", "🔄 刷新赔率", "🔄 オッズを更新", "🔄 배당 새로고침",
+        "🔄 Обновить коэффициенты", "🔄 Rafraîchir les cotes", "🔄 Actualizar cuotas", "🔄 Quoten aktualisieren", "🔄 Làm mới tỷ lệ",
+        "🔄 Segarkan odds", "🔄 I-refresh ang odds", "🔄 รีเฟรชอัตราต่อรอง", "🔄 Odds vernieuwen", "🔄 Oranları yenile",
+        "🔄 Atualizar odds", "🔄 ऑड्स रिफ़्रेश करें", "🔄 تحديث الاحتمالات")
 }
 
 pub fn bet_check_dm(l: Lang) -> &'static str {

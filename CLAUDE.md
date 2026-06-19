@@ -161,14 +161,24 @@ coin balance:
    saved as `origin_chat`; a private bet's `origin_chat` is the DM itself (not a
    group), so no announcement fires. The quote is stored in-memory
    (`bot::QuotesKey` → `QuoteStore`) under a short id. Odds are locked for
-   `QUOTE_TTL_SECS` (60s), but a stale quote is **auto-renewed**, not rejected:
-   every downstream step (`opt:`/`sz:`/`szc:`/`szp:`) reads the quote through
-   `fresh_quote`, which — if the quote is past its TTL — re-fetches the match's
-   current odds (`markets::fetch_one`), updates the stored quote in place
-   (keeping `origin_chat`/`origin_msg`), and continues at the fresh odds. So a
-   user tapping a group card that's been sitting around just bets at current
-   odds; `fresh_quote` returns `None` (→ `bet_unavailable`/`expire`) only if the
-   quote was evicted (past `5×TTL`), the match ended, or the feed is unreachable.
+   `QUOTE_TTL_SECS` (60s); stale handling differs by surface:
+   - **Private DM build flow** auto-renews silently — the deep steps
+     (`sz:`/`szc:`/`szp:`, and private `opt:`) read the quote through
+     `fresh_quote`, which re-fetches via `markets::fetch_one` and updates the
+     stored quote in place when past TTL (it's the user's own message).
+   - **Shared group card** can't auto-renew without clobbering everyone, so a
+     **stale** side tap swaps the card's option buttons for a single
+     `[🔄 Refresh odds]` button (`i18n::btn_refresh`, callback
+     `betref:<market_id>`, toast `bet_stale`); tapping it (`handle_betref`)
+     re-fetches, mints a fresh quote anchored to the card, and edits the card
+     back to its odds + side buttons (Refresh dropped). The market id rides in
+     the callback so refresh survives quote eviction.
+   Error/closed states are split: a match whose round has ended → `bet_closed`
+   (⏱️); a fetch that returns no such match (stale button) → `bet_unavailable`
+   (couldn't load); a genuine feed fetch/parse **failure** → `bet_unavailable`
+   **and** an owner DM (`util::notify_owner`) plus an `eprintln`. `fetch_one`
+   returns `Result<Option<MatchInfo>, _>` so callers tell "not listed" (`Ok(None)`)
+   from "feed error" (`Err`).
 2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder** (shared
    `builder_text_rows`): whole-coin preset buttons that **accumulate**
    (`sz:<qid>:<outcome>:<total>` — each preset re-renders at `total + preset`;

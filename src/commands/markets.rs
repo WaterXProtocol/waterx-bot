@@ -132,12 +132,16 @@ pub(crate) async fn brief(lang: Lang, tz_min: i64) -> (String, Vec<Row>) {
 
 /// Re-fetch the feed and return the current snapshot for one match (fresh odds),
 /// regardless of the display window — used when the user taps a bet button.
-pub(crate) async fn fetch_one(lang: Lang, market_id: &str) -> Option<MatchInfo> {
-    fetch_matches(lang)
-        .await
-        .ok()?
+/// `Err` = feed fetch/parse failure (a tech error worth alerting on); `Ok(None)`
+/// = fetched fine but the match is no longer listed (stale button, expected).
+pub(crate) async fn fetch_one(
+    lang: Lang,
+    market_id: &str,
+) -> Result<Option<MatchInfo>, reqwest::Error> {
+    Ok(fetch_matches(lang)
+        .await?
         .into_iter()
-        .find(|m| m.market_id == market_id)
+        .find(|m| m.market_id == market_id))
 }
 
 /// True when a match should appear in the brief: live, or kicking off within 24h.

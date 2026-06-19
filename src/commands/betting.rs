@@ -30,6 +30,7 @@ pub const OPT: &str = "opt:"; // pick a side → open the stake builder
 pub const SIZE: &str = "sz:"; // re-render the builder at an accumulated total
 pub const SIZE_CONFIRM: &str = "szc:"; // builder → confirmation screen
 pub const SIZE_PLACE: &str = "szp:"; // confirmation → debit + place the wager
+pub const REFRESH: &str = "betref:"; // group card went stale → re-fetch odds (by market_id)
 
 /// A snapshot of one match's odds, locked for [`QUOTE_TTL_SECS`].
 #[derive(Clone)]
@@ -119,17 +120,26 @@ fn now() -> i64 {
 }
 
 /// Fetch the live quote for `qid`, **auto-renewing** its odds if it has gone
-/// stale (past `QUOTE_TTL_SECS`) by re-fetching the match's current odds — so a
-/// user tapping a card that's been sitting in the group for a while just bets at
-/// fresh odds instead of hitting a dead end. Returns `None` only if the quote
-/// was evicted, the match has ended, or the feed is unreachable. The renewed
-/// quote keeps its `origin_chat`/`origin_msg` so the announcement still lands.
+/// stale (past `QUOTE_TTL_SECS`) by re-fetching the match's current odds — used
+/// by the private DM build flow (the user's own message, so a silent renew is
+/// fine; the shared group card uses the explicit Refresh button instead).
+/// Returns `None` if the quote was evicted, the match ended, or the feed is
+/// unreachable (a feed error also alerts the owner). The renewed quote keeps its
+/// `origin_chat`/`origin_msg` so the announcement still lands.
 async fn fresh_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
     let q = quotes(ctx).lock().get(qid)?;
     if q.fresh(now()) {
         return Some(q);
     }
-    let m = markets::fetch_one(lang, &q.market_id).await?;
+    let m = match markets::fetch_one(lang, &q.market_id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => return None,
+        Err(e) => {
+            eprintln!("[bet] feed fetch error (renew {}): {e}", q.market_id);
+            notify_owner(ctx, &format!("match-bet renew fetch failed ({}): {e}", q.market_id)).await;
+            return None;
+        }
+    };
     if m.ends_at != 0 && now() >= m.ends_at {
         return None;
     }
@@ -200,11 +210,22 @@ pub async fn handle_bet(
     market_id: &str,
 ) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some(m) = markets::fetch_one(lang, market_id).await else {
-        return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
+    let m = match markets::fetch_one(lang, market_id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            // Fetched fine but the match isn't listed — stale button, expected.
+            eprintln!("[bet] market {market_id} not in feed (stale button)");
+            return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
+        }
+        Err(e) => {
+            // Genuine feed fetch/parse failure — alert the owner.
+            eprintln!("[bet] feed fetch error for {market_id}: {e}");
+            notify_owner(ctx, &format!("match-bet feed fetch failed ({market_id}): {e}")).await;
+            return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
+        }
     };
     if m.ends_at != 0 && now() >= m.ends_at {
-        return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
+        return answer(ctx, cb, i18n::bet_closed(lang), true).await;
     }
 
     // Remember where the match was tapped (the group brief) so the *placed* bet
@@ -255,18 +276,38 @@ pub async fn handle_bet(
     }
 }
 
-/// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0. When the
-/// side was tapped on a **group** card (shared message), the builder is DM'd so
-/// it never clobbers the card; in a private chat it edits in place.
+/// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0. On a
+/// **group** card (shared message): if the quote is fresh, the builder is DM'd
+/// so it never clobbers the card; if the odds have gone **stale**, the card's
+/// side buttons are swapped for a single `[🔄 Refresh odds]` button instead (the
+/// shared card can't auto-renew silently — `betref:` refreshes it for everyone).
+/// In a private chat it edits in place (auto-renewing stale odds via the builder).
 pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some((qid, outcome)) = parse_qid_outcome(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if is_group_chat(cb.message_chat()) {
-        let Some(q) = fresh_quote(ctx, lang, qid).await else {
+        let Some(q) = quotes(ctx).lock().get(qid) else {
+            // Quote evicted entirely — no market id to refresh from.
             return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         };
+        if !q.fresh(now()) {
+            // Stale: replace the side buttons with a Refresh button on the card.
+            let rows = vec![vec![(
+                i18n::btn_refresh(lang).to_string(),
+                format!("{REFRESH}{}", q.market_id),
+            )]];
+            let _ = tg::edit_with_buttons(
+                ctx,
+                cb.message_chat(),
+                cb.message_id(),
+                &quote_text(lang, &q),
+                &rows,
+            )
+            .await;
+            return answer(ctx, cb, i18n::bet_stale(lang), true).await;
+        }
         let Some((text, rows)) = builder_text_rows(lang, &q, qid, &outcome, 0) else {
             return answer(ctx, cb, "", false).await;
         };
@@ -277,6 +318,51 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     } else {
         render_builder(ctx, cb, lang, qid, &outcome, 0).await
     }
+}
+
+/// `betref:<market_id>` — the stale group card's Refresh button: re-fetch the
+/// match's current odds, mint a fresh quote anchored to this card, and edit the
+/// card back to its team/odds text with the side buttons restored (the Refresh
+/// button is dropped). Errors split the same way as `handle_bet`.
+pub async fn handle_betref(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    market_id: &str,
+) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let m = match markets::fetch_one(lang, market_id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            eprintln!("[betref] market {market_id} not in feed (stale button)");
+            return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
+        }
+        Err(e) => {
+            eprintln!("[betref] feed fetch error for {market_id}: {e}");
+            notify_owner(ctx, &format!("match-bet refresh fetch failed ({market_id}): {e}")).await;
+            return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
+        }
+    };
+    if m.ends_at != 0 && now() >= m.ends_at {
+        return answer(ctx, cb, i18n::bet_closed(lang), true).await;
+    }
+    let q = Quote {
+        market_id: m.market_id.clone(),
+        slug: m.slug.clone(),
+        team_a: m.team_a.clone(),
+        team_b: m.team_b.clone(),
+        odds_a: m.odds_a,
+        odds_draw: m.odds_draw,
+        odds_b: m.odds_b,
+        ends_at: m.ends_at,
+        quoted_at: now(),
+        origin_chat: cb.message_chat(),
+        origin_msg: cb.message_id(),
+    };
+    let qid = quotes(ctx).lock().insert(q.clone());
+    let text = quote_text(lang, &q);
+    let rows = option_rows(lang, &q, qid);
+    let _ = tg::edit_with_buttons(ctx, cb.message_chat(), cb.message_id(), &text, &rows).await;
+    answer(ctx, cb, "", false).await
 }
 
 /// `sz:<qid>:<outcome>:<total>` — re-render the builder at the accumulated total

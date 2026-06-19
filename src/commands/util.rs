@@ -187,6 +187,15 @@ pub fn owner_id(ctx: &Context) -> i64 {
         .unwrap_or(0)
 }
 
+/// DM the configured `BOT_OWNER` a technical-error alert, best-effort (a bounced
+/// owner DM must never affect the user's flow). No-op if no owner is configured.
+pub async fn notify_owner(ctx: &Context, text: &str) {
+    let owner = owner_id(ctx);
+    if owner != 0 {
+        let _ = send_text(ctx, owner, format!("⚠️ {text}")).await;
+    }
+}
+
 /// True when `user_id` is the configured `BOT_OWNER`. The read guard is dropped
 /// on the same statement (it is not `Send`, so it must not cross an `.await`).
 pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
