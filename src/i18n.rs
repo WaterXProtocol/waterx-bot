@@ -518,7 +518,7 @@ pub fn state_settled(l: Lang) -> &'static str {
 
 pub fn draw_label(l: Lang) -> &'static str {
     tr!(l;
-        "Draw", "流局", "流局", "流局", "무승부",
+        "Draw", "平局", "平局", "引き分け", "무승부",
         "Ничья", "Nul", "Empate", "Unentschieden", "Hòa",
         "Seri", "Patas", "เสมอ", "Gelijkspel", "Berabere",
         "Empate", "ड्रॉ", "تعادل")
@@ -910,45 +910,6 @@ pub fn settle_line(l: Lang, name: &str, verb: &str, amt: &str) -> String {
     .replace("{name}", name)
     .replace("{verb}", verb)
     .replace("{amt}", amt)
-}
-
-// ----------------------------------------------------------------------------
-// Admin commands (owner-only)
-// ----------------------------------------------------------------------------
-
-pub fn minted(l: Lang, name: &str, amt: &str) -> String {
-    tr!(l;
-        "🪄 Minted {amt} to {name}", "🪄 已給 {name} 鑄造 {amt}", "🪄 已给 {name} 铸造 {amt}", "🪄 {name} に {amt} を発行したよ", "🪄 {name}에게 {amt} 발행했어",
-        "🪄 Начислено {amt} для {name}", "🪄 {amt} créés pour {name}", "🪄 Acuñado {amt} para {name}", "🪄 {amt} für {name} erzeugt", "🪄 Đã đúc {amt} cho {name}",
-        "🪄 Mint {amt} ke {name}", "🪄 Nag-mint ng {amt} kay {name}", "🪄 มินต์ {amt} ให้ {name} แล้ว", "🪄 {amt} naar {name} gemunt", "🪄 {name} için {amt} basıldı",
-        "🪄 Cunhado {amt} para {name}", "🪄 {name} को {amt} मिंट किया", "🪄 تم سكّ {amt} لـ {name}")
-    .replace("{amt}", amt)
-    .replace("{name}", name)
-}
-
-pub fn mint_usage(l: Lang) -> &'static str {
-    tr!(l;
-        "/mint <amount> — reply to someone, or omit the reply to mint to yourself 🪄", "/mint <數量> — 回覆對方，或不回覆則鑄給自己 🪄", "/mint <数量> — 回复对方，或不回复则铸给自己 🪄", "/mint <数量> — 相手に返信、または返信なしで自分に 🪄", "/mint <수량> — 상대에게 답장, 또는 답장 없이 자신에게 🪄",
-        "/mint <сумма> — ответьте кому-то или без ответа себе 🪄", "/mint <montant> — réponds à quelqu'un, ou sans réponse pour toi 🪄", "/mint <cantidad> — responde a alguien, o sin respuesta para ti 🪄", "/mint <Betrag> — antworte jemandem, oder ohne Antwort an dich 🪄", "/mint <số lượng> — trả lời ai đó, hoặc không trả lời để tự nhận 🪄",
-        "/mint <jumlah> — balas seseorang, atau tanpa balasan untuk diri sendiri 🪄", "/mint <halaga> — mag-reply, o walang reply para sa sarili 🪄", "/mint <จำนวน> — ตอบกลับใครสักคน หรือไม่ตอบกลับเพื่อให้ตัวเอง 🪄", "/mint <bedrag> — reageer op iemand, of zonder reply voor jezelf 🪄", "/mint <miktar> — birine yanıt ver veya yanıtsız kendine 🪄",
-        "/mint <quantia> — responda a alguém, ou sem resposta para você 🪄", "/mint <राशि> — किसी को जवाब दें, या बिना जवाब खुद को 🪄", "/mint <المبلغ> — ردّ على أحدهم أو بدون ردّ لنفسك 🪄")
-}
-
-pub fn broadcast_sent(l: Lang, n: &str) -> String {
-    tr!(l;
-        "📣 Broadcast sent to {n} chats", "📣 已廣播給 {n} 個對話", "📣 已广播给 {n} 个对话", "📣 {n} 件のチャットに配信したよ", "📣 {n}개 채팅에 전송했어",
-        "📣 Рассылка отправлена в {n} чатов", "📣 Diffusé à {n} discussions", "📣 Enviado a {n} chats", "📣 An {n} Chats gesendet", "📣 Đã gửi tới {n} cuộc trò chuyện",
-        "📣 Disiarkan ke {n} chat", "📣 Naipadala sa {n} chat", "📣 ส่งถึง {n} แชทแล้ว", "📣 Verzonden naar {n} chats", "📣 {n} sohbete gönderildi",
-        "📣 Transmitido para {n} conversas", "📣 {n} चैट में भेजा गया", "📣 أُرسل إلى {n} محادثة")
-    .replace("{n}", n)
-}
-
-pub fn broadcast_usage(l: Lang) -> &'static str {
-    tr!(l;
-        "/broadcast <message>", "/broadcast <訊息>", "/broadcast <消息>", "/broadcast <メッセージ>", "/broadcast <메시지>",
-        "/broadcast <сообщение>", "/broadcast <message>", "/broadcast <mensaje>", "/broadcast <Nachricht>", "/broadcast <tin nhắn>",
-        "/broadcast <pesan>", "/broadcast <mensahe>", "/broadcast <ข้อความ>", "/broadcast <bericht>", "/broadcast <mesaj>",
-        "/broadcast <mensagem>", "/broadcast <संदेश>", "/broadcast <رسالة>")
 }
 
 // ----------------------------------------------------------------------------
@@ -1503,8 +1464,6 @@ mod tests {
                 board_footer_closed(l, "35"),
                 markets_more(l, "3"),
                 checkin_done(l, "10"),
-                minted(l, "A", "10"),
-                broadcast_sent(l, "5"),
                 menu_status(l, "10"),
                 checkin_already(l, "1h 2m"),
                 invite_count(l, "3"),

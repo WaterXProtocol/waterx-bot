@@ -4,8 +4,9 @@
 
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::database::OpenMarket;
+use crate::database::{OpenMarket, COIN};
 use crate::i18n::{self, Lang};
+use crate::types::BetState;
 use telexide::api::types::AnswerCallbackQuery;
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
@@ -309,6 +310,79 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
+/// `/stats` — owner-only snapshot of bot-wide metrics: user/chat counts, the
+/// circulating coin supply, real-money match-bet exposure, and open self-host
+/// games. Plain English (an operator diagnostic, not a user-facing surface).
+#[command(description = "owner: bot-wide stats")]
+pub async fn stats(ctx: Context, message: Message) -> CommandResult {
+    let Some(uid) = from_id(&message) else {
+        return Ok(());
+    };
+    if !is_owner(&ctx, uid) {
+        return Ok(());
+    }
+    let database = db(&ctx);
+    let s = match database.stats() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("/stats query error: {e}");
+            reply(&ctx, &message, format!("⚠️ Stats error: {e}")).await?;
+            return Ok(());
+        }
+    };
+    // In-memory self-host `/predict` games: count the still-active ones and the
+    // coins committed to them (stakes are whole coins, debited at bet time, so
+    // they're committed-but-not-in-the-ledger). Scoped so the guard drops here.
+    let (open_games, open_game_coins) = {
+        let g = games(&ctx);
+        let guard = g.lock().await;
+        guard.values().fold((0u32, 0i64), |(n, sum), game| {
+            if matches!(game.state, BetState::betting | BetState::closed) {
+                (n + 1, sum + game.total)
+            } else {
+                (n, sum)
+            }
+        })
+    };
+    let status = if database.is_paused().unwrap_or(false) {
+        "⏸ PAUSED"
+    } else {
+        "▶️ running"
+    };
+
+    let text = format!(
+        "📊 Bot stats\n\
+         \n\
+         👥 Users: {users} (referred: {referred})\n\
+         ✅ Checked in today: {checkin}\n\
+         💬 Chats: {groups} group(s) · {private} private\n\
+         \n\
+         🪙 Coin supply: {supply}\n\
+         \n\
+         🎟️ Match bets\n\
+         · open: {open_w} · {open_stake} staked\n\
+         · all-time: {tot_w} · {tot_vol} volume\n\
+         🎲 Self-host games\n\
+         · open: {open_g} · {open_g_coins} staked\n\
+         \n\
+         ⚙️ Status: {status}",
+        users = format_number(s.users),
+        referred = format_number(s.referred_users),
+        checkin = format_number(s.checked_in_today),
+        groups = format_number(s.groups),
+        private = format_number(s.private_chats),
+        supply = fmt_coins(s.total_supply),
+        open_w = format_number(s.open_wagers),
+        open_stake = fmt_coins(s.open_stake),
+        tot_w = format_number(s.total_wagers),
+        tot_vol = fmt_coins(s.total_volume),
+        open_g = open_games,
+        open_g_coins = fmt_coins(open_game_coins.saturating_mul(COIN)),
+    );
+    reply(&ctx, &message, text).await?;
+    Ok(())
+}
+
 /// `/mint <amount>` — credit `amount` whole water-coins to the sender of the
 /// replied-to message (reply required). Positive only (no debt).
 #[command(description = "owner: mint coins to the replied-to user")]
@@ -320,15 +394,15 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     }
     let sender = message.from.clone().expect("from_id ensured a sender");
-    let lang = lang_for(&ctx, &sender);
 
     let parts = args(&message);
+    let usage = "/mint <amount> — reply to someone, or omit the reply to mint to yourself 🪄";
     let Some(amount) = parts.first().and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) else {
-        reply(&ctx, &message, i18n::mint_usage(lang)).await?;
+        reply(&ctx, &message, usage).await?;
         return Ok(());
     };
     let Some(units) = to_micro(amount) else {
-        reply(&ctx, &message, i18n::mint_usage(lang)).await?;
+        reply(&ctx, &message, usage).await?;
         return Ok(());
     };
     // Target: the replied-to user, or the owner themselves when there's no reply.
@@ -342,7 +416,7 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
     reply(
         &ctx,
         &message,
-        i18n::minted(lang, &full_name(&receiver), &format_number(amount)),
+        format!("🪄 Minted {} to {}", format_number(amount), full_name(&receiver)),
     )
     .await?;
     Ok(())
@@ -406,7 +480,6 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
     if !is_owner(&ctx, uid) {
         return Ok(());
     }
-    let lang = lang_for(&ctx, message.from.as_ref().unwrap());
 
     // Everything after the first whitespace, verbatim (preserves spacing).
     let body = text_of(&message)
@@ -414,7 +487,7 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
         .map(|(_, rest)| rest.trim())
         .filter(|s| !s.is_empty());
     let Some(body) = body else {
-        reply(&ctx, &message, i18n::broadcast_usage(lang)).await?;
+        reply(&ctx, &message, "/broadcast <message>").await?;
         return Ok(());
     };
 
@@ -426,11 +499,6 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
             delivered += 1;
         }
     }
-    reply(
-        &ctx,
-        &message,
-        i18n::broadcast_sent(lang, &delivered.to_string()),
-    )
-    .await?;
+    reply(&ctx, &message, format!("📣 Broadcast sent to {delivered} chats")).await?;
     Ok(())
 }

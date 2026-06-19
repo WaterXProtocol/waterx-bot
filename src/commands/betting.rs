@@ -3,9 +3,11 @@
 //! the brief is shared) → pick a side → **build a stake** (preset buttons add up; `Clear`
 //! resets) → **Confirm** (a confirmation screen — the only step that debits the
 //! balance and records the wager). The running total rides in the buttons'
-//! callback data, so no per-user state is stored server-side. The quote is valid
-//! for [`QUOTE_TTL_SECS`]; after that the user must re-open `/matches` because the
-//! odds move. Wagers are settled later by an admin (`/settle`).
+//! callback data, so no per-user state is stored server-side. The displayed quote
+//! is valid for [`QUOTE_TTL_SECS`] (the build/confirm flow auto-renews past that),
+//! but the **place** step always re-prices from the live feed (`refetch_quote`)
+//! so every wager is booked at current odds, not a locked snapshot. Wagers are
+//! settled later by an admin (`/settle`).
 
 use crate::bot::QuotesKey;
 use crate::commands::markets;
@@ -119,24 +121,21 @@ fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-/// Fetch the live quote for `qid`, **auto-renewing** its odds if it has gone
-/// stale (past `QUOTE_TTL_SECS`) by re-fetching the match's current odds — used
-/// by the private DM build flow (the user's own message, so a silent renew is
-/// fine; the shared group card uses the explicit Refresh button instead).
-/// Returns `None` if the quote was evicted, the match ended, or the feed is
-/// unreachable (a feed error also alerts the owner). The renewed quote keeps its
+/// **Always** re-price `qid` from the current feed (cache-served, so at most
+/// `markets::FEED_CACHE_TTL` old) and store the relocked quote, ignoring the
+/// quote's own TTL. Every real-money placement goes through this so a wager is
+/// booked at the latest odds, never a stale locked snapshot. Returns `None` if
+/// the quote was evicted, the match ended, or the feed is unreachable (a feed
+/// error also alerts the owner). The relocked quote keeps its
 /// `origin_chat`/`origin_msg` so the announcement still lands.
-async fn fresh_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
+async fn refetch_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
     let q = quotes(ctx).lock().get(qid)?;
-    if q.fresh(now()) {
-        return Some(q);
-    }
     let m = match markets::fetch_one(lang, &q.market_id).await {
         Ok(Some(m)) => m,
         Ok(None) => return None,
         Err(e) => {
-            eprintln!("[bet] feed fetch error (renew {}): {e}", q.market_id);
-            notify_owner(ctx, &format!("match-bet renew fetch failed ({}): {e}", q.market_id)).await;
+            eprintln!("[bet] feed fetch error (reprice {}): {e}", q.market_id);
+            notify_owner(ctx, &format!("match-bet reprice fetch failed ({}): {e}", q.market_id)).await;
             return None;
         }
     };
@@ -153,6 +152,19 @@ async fn fresh_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
     };
     quotes(ctx).lock().replace(qid, renewed.clone());
     Some(renewed)
+}
+
+/// Fetch the quote for `qid`, **auto-renewing** its odds only if it has gone
+/// stale (past `QUOTE_TTL_SECS`) — used by the private DM build/confirm flow (the
+/// user's own message, so a silent renew is fine; the shared group card uses the
+/// explicit Refresh button instead). The place step uses [`refetch_quote`]
+/// directly so it always re-prices. `None` on the same terminal conditions.
+async fn fresh_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
+    let q = quotes(ctx).lock().get(qid)?;
+    if q.fresh(now()) {
+        return Some(q);
+    }
+    refetch_quote(ctx, lang, qid).await
 }
 
 fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
@@ -202,8 +214,10 @@ fn quote_text(lang: Lang, q: &Quote) -> String {
     s
 }
 
-/// `bet:<market_id>` — open a fresh quote for that match. In a private chat the
-/// brief is replaced in place; in a group it's DM'd (the brief is shared).
+/// `bet:<market_id>` — open a fresh quote for that match. In both group and
+/// private chats the brief is replaced in place with the match card, so the chat
+/// converges on one focal message; in a group a side tap then DMs the builder so
+/// the shared card isn't clobbered (see `handle_opt`).
 pub async fn handle_bet(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -252,28 +266,20 @@ pub async fn handle_bet(
     let text = quote_text(lang, &q);
     let rows = option_rows(lang, &q, qid);
 
-    // In a group the picked game (A vs B + side buttons) is posted **into the
-    // group** as its own card and stays there; tapping a side then DMs the
-    // private stake builder, and the placed bet is announced as a reply to this
-    // card. In a private chat the brief is the caller's own message, so it's
-    // replaced in place with the quote (the rest of the build flow edits in
-    // place too).
+    // Replace the brief **in place** with the picked match's quote — in both
+    // groups and private chats the shared brief message *becomes* the single
+    // match card (A vs B + side buttons), so the chat focuses on one message
+    // instead of spawning a separate card. In a group we anchor `origin_msg` to
+    // this (now repurposed) message so the placed bet is announced as a reply to
+    // it, and a side tap DMs the private stake builder so the shared card isn't
+    // clobbered (see `handle_opt`); a private `origin_chat` is the caller's own
+    // DM, so no announcement fires and `origin_msg` stays 0.
     if is_group_chat(origin_chat) {
-        match tg::send_with_buttons(ctx, origin_chat, &text, &rows).await {
-            Ok(sent) => {
-                quotes(ctx).lock().set_origin_msg(qid, sent.message_id);
-                answer(ctx, cb, "", false).await
-            }
-            Err(_) => {
-                quotes(ctx).lock().remove(qid);
-                answer(ctx, cb, "", false).await
-            }
-        }
-    } else {
-        answer(ctx, cb, "", false).await?;
-        let _ = tg::edit_with_buttons(ctx, origin_chat, cb.message_id(), &text, &rows).await;
-        Ok(())
+        quotes(ctx).lock().set_origin_msg(qid, cb.message_id());
     }
+    answer(ctx, cb, "", false).await?;
+    let _ = tg::edit_with_buttons(ctx, origin_chat, cb.message_id(), &text, &rows).await;
+    Ok(())
 }
 
 /// `opt:<qid>:<outcome>` — chose a side → open the stake builder at 0. On a
@@ -424,7 +430,9 @@ pub async fn handle_size_place(
     if total <= 0 {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
     }
-    let Some(q) = fresh_quote(ctx, lang, qid).await else {
+    // Re-price every placement from the live feed so the wager is booked at the
+    // current odds, never the locked snapshot the user was looking at.
+    let Some(q) = refetch_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
     };
     let Some(odds) = q.odds(&outcome).filter(|c| *c > 0.0) else {
