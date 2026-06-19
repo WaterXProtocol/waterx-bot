@@ -1205,6 +1205,14 @@ pub fn bet_closed(l: Lang) -> &'static str {
         "As apostas para esta partida estão encerradas ⏱️", "इस मैच पर बेटिंग बंद हो चुकी है ⏱️", "أُغلق الرهان على هذه المباراة ⏱️")
 }
 
+pub fn match_finished(l: Lang) -> &'static str {
+    tr!(l;
+        "🏁 This match has finished — bets will be settled soon.", "🏁 這場比賽已結束，賭注將盡快結算。", "🏁 这场比赛已结束，赌注将尽快结算。", "🏁 この試合は終了したよ。賭けはまもなく精算されるよ。", "🏁 이 경기는 끝났어. 베팅은 곧 정산될 거야.",
+        "🏁 Матч завершён — ставки скоро рассчитают.", "🏁 Ce match est terminé — les paris seront réglés bientôt.", "🏁 Este partido ha terminado — las apuestas se liquidarán pronto.", "🏁 Dieses Spiel ist beendet — Wetten werden bald abgerechnet.", "🏁 Trận này đã kết thúc — cược sẽ sớm được quyết toán.",
+        "🏁 Pertandingan ini sudah selesai — taruhan akan segera diselesaikan.", "🏁 Tapos na ang laban na ito — aayusin ang mga pusta sa lalong madaling panahon.", "🏁 แมตช์นี้จบแล้ว — จะชำระเงินเดิมพันเร็ว ๆ นี้", "🏁 Deze wedstrijd is afgelopen — weddenschappen worden binnenkort afgewikkeld.", "🏁 Bu maç sona erdi — bahisler yakında sonuçlanacak.",
+        "🏁 Esta partida terminou — as apostas serão liquidadas em breve.", "🏁 यह मैच समाप्त हो गया — दांव जल्द ही निपटाए जाएंगे।", "🏁 انتهت هذه المباراة — ستتم تسوية الرهانات قريبًا.")
+}
+
 pub fn bet_stale(l: Lang) -> &'static str {
     tr!(l;
         "Odds moved — tap Refresh 🔄", "賠率已更新，請按重新整理 🔄", "赔率已更新，请点刷新 🔄", "オッズが動いたよ。更新を押してね 🔄", "배당이 변했어 — 새로고침을 눌러줘 🔄",

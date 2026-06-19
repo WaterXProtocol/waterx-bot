@@ -170,15 +170,20 @@ coin balance:
      **stale** side tap swaps the card's option buttons for a single
      `[🔄 Refresh odds]` button (`i18n::btn_refresh`, callback
      `betref:<market_id>`, toast `bet_stale`); tapping it (`handle_betref`)
-     re-fetches, mints a fresh quote anchored to the card, and edits the card
-     back to its odds + side buttons (Refresh dropped). The market id rides in
-     the callback so refresh survives quote eviction.
-   Error/closed states are split: a match whose round has ended → `bet_closed`
-   (⏱️); a fetch that returns no such match (stale button) → `bet_unavailable`
-   (couldn't load); a genuine feed fetch/parse **failure** → `bet_unavailable`
-   **and** an owner DM (`util::notify_owner`) plus an `eprintln`. `fetch_one`
-   returns `Result<Option<MatchInfo>, _>` so callers tell "not listed" (`Ok(None)`)
-   from "feed error" (`Err`).
+     re-fetches the **live** odds, mints a fresh quote anchored to the card, and
+     edits the card back to its new odds + side buttons (Refresh dropped). The
+     market id rides in the callback so refresh survives quote eviction. If the
+     refresh **can't find** the match (`Ok(None)`) or it has ended, the match is
+     over/settling → the card is replaced with a `match_finished` notice (🏁, no
+     buttons) via `finish_card`, **not** a "couldn't load" toast. A genuine feed
+     **error** (`Err`) is treated as transient: card kept, owner DM'd, user can
+     tap Refresh again.
+   Error/closed states are otherwise split at the **entry** tap (`handle_bet`,
+   from the brief list): round already ended → `bet_closed` (⏱️); fetched fine
+   but not listed → `bet_unavailable` (couldn't load); feed fetch/parse
+   **failure** → `bet_unavailable` **and** an owner DM (`util::notify_owner`)
+   plus an `eprintln`. `fetch_one` returns `Result<Option<MatchInfo>, _>` so
+   callers tell "not listed" (`Ok(None)`) from "feed error" (`Err`).
 2. Picking a side (`opt:<qid>:<outcome>`) opens a **stake builder** (shared
    `builder_text_rows`): whole-coin preset buttons that **accumulate**
    (`sz:<qid>:<outcome>:<total>` — each preset re-renders at `total + preset`;

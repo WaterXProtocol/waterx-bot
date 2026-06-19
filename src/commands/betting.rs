@@ -333,17 +333,21 @@ pub async fn handle_betref(
     let m = match markets::fetch_one(lang, market_id).await {
         Ok(Some(m)) => m,
         Ok(None) => {
-            eprintln!("[betref] market {market_id} not in feed (stale button)");
-            return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
+            // Gone from the feed → the match is over/settling. Turn the card into
+            // a finished notice (no buttons) rather than leaving a dead button.
+            eprintln!("[betref] market {market_id} not in feed → finished");
+            return finish_card(ctx, cb, lang).await;
         }
         Err(e) => {
+            // A network/parse blip is NOT proof the match settled — keep the card
+            // and alert the owner; the user can tap Refresh again.
             eprintln!("[betref] feed fetch error for {market_id}: {e}");
             notify_owner(ctx, &format!("match-bet refresh fetch failed ({market_id}): {e}")).await;
             return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         }
     };
     if m.ends_at != 0 && now() >= m.ends_at {
-        return answer(ctx, cb, i18n::bet_closed(lang), true).await;
+        return finish_card(ctx, cb, lang).await;
     }
     let q = Quote {
         market_id: m.market_id.clone(),
@@ -526,6 +530,21 @@ async fn render_builder(
 
 async fn expire(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<(), telexide::Error> {
     let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), i18n::bet_expired(lang)).await;
+    answer(ctx, cb, "", false).await
+}
+
+/// Replace a group card with a "match finished" notice (no buttons) — used when
+/// a refresh can't find the match anymore (it's over / settling).
+async fn finish_card(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<(), telexide::Error> {
+    let no_rows: &[tg::Row] = &[];
+    let _ = tg::edit_with_buttons(
+        ctx,
+        cb.message_chat(),
+        cb.message_id(),
+        i18n::match_finished(lang),
+        no_rows,
+    )
+    .await;
     answer(ctx, cb, "", false).await
 }
 
