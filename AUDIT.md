@@ -1,4 +1,53 @@
-# Error-surface audit
+# Audits
+
+Two passes are recorded here:
+
+1. [**Security audit**](#security-audit-2026-06-20) — dependency CVEs, unsafe
+   exposure, and an adversarial own-code review (money / untrusted-input / authz
+   / DoS). This is the one that caught the envelope coin-mint.
+2. [**Error-surface audit**](#error-surface-audit) — every place that can panic,
+   swallow an error, fail silently, or lose/mint money.
+
+---
+
+## Security audit (2026-06-20)
+
+- **Method:** `cargo audit` + `cargo geiger`, then a 4-lens adversarial workflow
+  (money / untrusted-input / authz / DoS) with each finding independently
+  verified (skeptic-tries-to-refute) before it counted.
+- **Tooling result:** `cargo audit` — **0 vulns / 0 warnings** across 240 deps.
+  `cargo geiger` — `waterx_bot` is **0/0 unsafe** (all unsafe is in vetted
+  foundations: tokio, bytes, http/hyper, ring/rustls, libsqlite3). No SQL string
+  interpolation (all bound `params!`); no production `unwrap` in the DB layer.
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| S1 | 🔴 **CRITICAL** | **Envelope coin-mint.** `claim_envelope` credited the amount parsed from the **forgeable** `envelope:<amount>` callback data, not the escrow. The buffer row stored only `(chat, msg)` — the escrowed amount lived nowhere — so a crafted callback (custom client / raw MTProto) could claim `envelope:<MAX_COINS>` against any live envelope and mint coins. | ✅ FIXED (`533ab12`) |
+| S2 | 🟠 Medium | **No HTTP request timeout** on the markets feed fetch (`markets::fetch_matches`) and QR upload (`tg::send_photo_bytes`) — `reqwest`'s default is unbounded, so a hung upstream parks handler tasks forever instead of degrading to `markets_unavailable` / `bet_unavailable`. | ✅ FIXED (`6a95ffc`) |
+| S3 | 🟡 Low | `/predict` `ends_at = now + minutes*60` with `minutes` from the forgeable `gend:<n>` callback — wraps in release on a crafted huge value (corrupts only the forger's own deadline). | ✅ Hardened to saturating arithmetic |
+| S4 | ⚪ Info | `fmt_coins` half-up display rounding — cosmetic; settlement/ledger use full micro-coin precision. | Accepted (no value loss) |
+| S5 | ⚪ Info | **Authz / kill-switch / secrets — negative result, clean.** Every owner-only effect is `is_owner`-gated before any effect (incl. the `stl:` button settle flow); pause fails closed; bot token never logged. | ✅ Confirmed |
+
+**Refuted flags** (raised, then disproven by reading the code): feed-odds
+div-by-zero/mint (`decimal_payout` guards `!finite || <= 0.0`, `odds_cents` is
+`f64`, every site filters `> 0.0`); timezone-offset overflow (`FixedOffset::east_opt`
+→ out-of-range falls back to UTC, no panic); unbounded `GamesKey` / `/predict`
+options (bounded by rate-limited multi-step DM flows; oversized keyboards are
+rejected by Telegram and handled).
+
+**S1 fix detail:** the escrow (`owner` + `amount`) is now persisted in the buffer
+row at `/send`; `claim_envelope` credits the **stored** amount (returns
+`Ok(Option<i64>)`) and never trusts caller input; a forged non-positive claim
+`refund_envelope`s the owner (no mint, no stranded coins). Legacy NULL-price rows
+are left for the 24h TTL refund-sweep. +2 tests (escrow-amount credit, refund).
+Note: the [error-surface audit](#-medium-severity) below had already made
+`claim_envelope` *atomic* (closing the double-claim race) but did **not** catch
+that the credited **amount** came from untrusted callback data — a trust-boundary
+bug the dedicated security lens found.
+
+---
+
+## Error-surface audit
 
 A whole-codebase audit of every place that can panic, swallow an error, fail
 silently, or lose/mint money, plus the remediation status of each finding.

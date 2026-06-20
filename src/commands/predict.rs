@@ -180,7 +180,9 @@ pub async fn handle_predict_endtime(
         return answer(ctx, cb, "", false).await; // incomplete (shouldn't happen)
     };
     let lang = draft.lang;
-    let ends_at = if minutes <= 0 { 0 } else { now() + minutes * 60 };
+    // `minutes` comes from the (forgeable) `gend:<n>` callback, so saturate
+    // rather than risk a wrapping `* 60` / `+ now` on a crafted huge value.
+    let ends_at = if minutes <= 0 { 0 } else { now().saturating_add(minutes.saturating_mul(60)) };
 
     let opt_refs: Vec<&str> = options.iter().map(String::as_str).collect();
     let mut game = BetGame::new(cb.from.id, lang, &description, &opt_refs);
