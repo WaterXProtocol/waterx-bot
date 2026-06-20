@@ -426,5 +426,23 @@ mod reset_tests {
         assert_eq!(db.get_user_info(10).unwrap().balance, 0);
         // Row + settings survive (only the coin balance is zeroed).
         assert_eq!(db.get_lang(10).unwrap(), Some(crate::i18n::Lang::Hans));
+        // Zeroing keeps the row, so a referral still can't re-bind.
+        assert!(db.user_exists(10).unwrap());
+    }
+
+    #[test]
+    fn reset_all_makes_users_brand_new_for_re_refer() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 0).unwrap(); // referrer exists
+        assert!(db.set_referrer_if_new(2, 1).unwrap()); // referee binds once
+        assert!(!db.set_referrer_if_new(2, 1).unwrap()); // existing row → no re-bind
+
+        db.reset_all().unwrap(); // [Everything]: wipes balance (+ chats etc.)
+        assert!(!db.user_exists(2).unwrap()); // brand-new again
+
+        // Re-refer now works once the referrer is re-created (e.g. re-adding the
+        // bot re-records the group adder; here we just recreate the row).
+        db.force_change(1, 0).unwrap();
+        assert!(db.set_referrer_if_new(2, 1).unwrap());
     }
 }

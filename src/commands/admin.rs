@@ -19,6 +19,7 @@ pub const RESET_CB: &str = "rst:";
 const RESET_MATCHES: u8 = 1;
 const RESET_PREDICTIONS: u8 = 2;
 const RESET_BALANCE: u8 = 4;
+const RESET_EVERYTHING: u8 = 8;
 const RESET_PROMPT: &str = "🧹 Reset (dev) — tap to select, then Submit:";
 
 /// Marker file written by `/redeploy` (holds the chat id to notify) and read by
@@ -462,7 +463,8 @@ fn reset_picker_rows(flags: u8) -> Vec<tg::Row> {
     vec![
         part(RESET_MATCHES, "Matches (refund open bets)"),
         part(RESET_PREDICTIONS, "Predictions (refund open bets)"),
-        part(RESET_BALANCE, "Balances"),
+        part(RESET_BALANCE, "Balances (zero coins)"),
+        part(RESET_EVERYTHING, "Everything (full wipe → re-refer)"),
         vec![("🧹 Submit".to_string(), format!("{RESET_CB}go:{flags}"))],
     ]
 }
@@ -498,37 +500,56 @@ pub async fn handle_reset_cb(
             }
             let database = db(ctx);
             let mut lines: Vec<String> = Vec::new();
-            // Refunds first (they credit balances)…
-            if flags & RESET_MATCHES != 0 {
-                match database.reset_wagers() {
-                    Ok((n, refunded)) => {
-                        lines.push(format!("🎟️ Matches cleared — refunded {} to {n} open bet(s)", fmt_coins(refunded)))
-                    }
-                    Err(e) => {
-                        eprintln!("reset_wagers error: {e}");
-                        lines.push("🎟️ Matches — ⚠️ error".to_string());
-                    }
-                }
-            }
-            if flags & RESET_PREDICTIONS != 0 {
-                match database.reset_predictions() {
-                    Ok((n, refunded)) => {
+            if flags & RESET_EVERYTHING != 0 {
+                // Full wipe — subsumes the granular parts (a nuke, so no refunds).
+                // Deletes every table incl. `balance` (users become brand-new) and
+                // `chats` (the group adder) — re-add the bot to re-record it.
+                match database.reset_all() {
+                    Ok(()) => {
                         games(ctx).lock().await.clear();
-                        lines.push(format!("🎲 Predictions cleared — {n} game(s), refunded {}", fmt_coins(refunded)))
+                        lines.push(
+                            "🗑️ Everything wiped — all tables cleared.\nKick + re-add the bot to re-record the group adder, then members re-refer on their next interaction."
+                                .to_string(),
+                        );
                     }
                     Err(e) => {
-                        eprintln!("reset_predictions error: {e}");
-                        lines.push("🎲 Predictions — ⚠️ error".to_string());
+                        eprintln!("reset_all error: {e}");
+                        lines.push("🗑️ Everything — ⚠️ error".to_string());
                     }
                 }
-            }
-            // …then the balance wipe, so it's the final state when both are picked.
-            if flags & RESET_BALANCE != 0 {
-                match database.reset_balances() {
-                    Ok(n) => lines.push(format!("🪙 Balances zeroed — {n} account(s)")),
-                    Err(e) => {
-                        eprintln!("reset_balances error: {e}");
-                        lines.push("🪙 Balances — ⚠️ error".to_string());
+            } else {
+                // Refunds first (they credit balances)…
+                if flags & RESET_MATCHES != 0 {
+                    match database.reset_wagers() {
+                        Ok((n, refunded)) => {
+                            lines.push(format!("🎟️ Matches cleared — refunded {} to {n} open bet(s)", fmt_coins(refunded)))
+                        }
+                        Err(e) => {
+                            eprintln!("reset_wagers error: {e}");
+                            lines.push("🎟️ Matches — ⚠️ error".to_string());
+                        }
+                    }
+                }
+                if flags & RESET_PREDICTIONS != 0 {
+                    match database.reset_predictions() {
+                        Ok((n, refunded)) => {
+                            games(ctx).lock().await.clear();
+                            lines.push(format!("🎲 Predictions cleared — {n} game(s), refunded {}", fmt_coins(refunded)))
+                        }
+                        Err(e) => {
+                            eprintln!("reset_predictions error: {e}");
+                            lines.push("🎲 Predictions — ⚠️ error".to_string());
+                        }
+                    }
+                }
+                // …then the balance wipe, so it's the final state when both are picked.
+                if flags & RESET_BALANCE != 0 {
+                    match database.reset_balances() {
+                        Ok(n) => lines.push(format!("🪙 Balances zeroed — {n} account(s)")),
+                        Err(e) => {
+                            eprintln!("reset_balances error: {e}");
+                            lines.push("🪙 Balances — ⚠️ error".to_string());
+                        }
                     }
                 }
             }
