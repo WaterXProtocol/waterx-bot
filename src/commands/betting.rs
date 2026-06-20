@@ -12,6 +12,7 @@
 use crate::bot::QuotesKey;
 use crate::commands::markets;
 use crate::commands::tg;
+use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::database::{decimal_payout, COIN};
 use crate::i18n::{self, Lang};
@@ -19,7 +20,6 @@ use crate::types::OddsFormat;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use telexide::api::types::AnswerCallbackQuery;
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
@@ -168,21 +168,6 @@ fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
         .ok()
         .flatten()
         .unwrap_or_else(|| Lang::from_user(&cb.from))
-}
-
-async fn answer(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    text: &str,
-    alert: bool,
-) -> Result<(), telexide::Error> {
-    let mut a = AnswerCallbackQuery::new(cb.id.clone());
-    if !text.is_empty() {
-        a.text = Some(text.to_string());
-    }
-    a.show_alert = Some(alert);
-    ctx.api.answer_callback_query(a).await?;
-    Ok(())
 }
 
 /// `[outcome]` rows (one per priced outcome) labelled `name <odds>`. The callback

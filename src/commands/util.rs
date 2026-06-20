@@ -1,4 +1,4 @@
-use crate::bot::{ConfigKey, DbKey, GamesKey};
+use crate::bot::{ConfigKey, Convo, ConvosKey, DbKey, GamesKey};
 use crate::database::Database;
 use crate::game::BetGame;
 use std::collections::HashMap;
@@ -28,6 +28,16 @@ pub fn games(ctx: &Context) -> Arc<Mutex<HashMap<String, BetGame>>> {
         .read()
         .get::<GamesKey>()
         .expect("GamesKey missing — bot::run did not init properly")
+        .clone()
+}
+
+/// The in-flight DM-conversation map (`/predict` + `/feedback` drafts), keyed by
+/// user id. Shared by both flows — see [`crate::bot::Convo`].
+pub fn convos(ctx: &Context) -> Arc<Mutex<HashMap<i64, Convo>>> {
+    ctx.data
+        .read()
+        .get::<ConvosKey>()
+        .expect("ConvosKey missing — bot::run did not init properly")
         .clone()
 }
 

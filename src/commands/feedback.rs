@@ -7,22 +7,11 @@
 //!   entry in the shared `bot::ConvosKey` map (so starting `/feedback` cancels any
 //!   half-built `/predict`, and vice versa — at most one DM flow per user).
 
-use crate::bot::{Convo, ConvosKey};
+use crate::bot::Convo;
 use crate::commands::util::*;
 use crate::i18n;
-use std::collections::HashMap;
-use std::sync::Arc;
 use telexide::model::{UpdateContent, User};
 use telexide::prelude::*;
-use tokio::sync::Mutex;
-
-fn drafts(ctx: &Context) -> Arc<Mutex<HashMap<i64, Convo>>> {
-    ctx.data
-        .read()
-        .get::<ConvosKey>()
-        .expect("ConvosKey missing")
-        .clone()
-}
 
 /// DM the owner a feedback body tagged with the sender (best-effort — a bounce is
 /// logged, never surfaced to the user).
@@ -68,7 +57,7 @@ pub async fn feedback(ctx: Context, message: Message) -> CommandResult {
     // use the flow). Inserting overwrites any in-flight `/predict` draft.
     match send_text(&ctx, user.id, i18n::feedback_ask(lang)).await {
         Ok(_) => {
-            drafts(&ctx).lock().await.insert(user.id, Convo::Feedback { lang });
+            convos(&ctx).lock().await.insert(user.id, Convo::Feedback { lang });
             if is_group_chat(message.chat.get_id()) {
                 // The DM prompt already landed (the real surface); a failed group
                 // ack shouldn't surface the whole command as an error.
@@ -101,7 +90,7 @@ pub async fn on_message(ctx: Context, update: Update) {
         return;
     }
 
-    let drafts = drafts(&ctx);
+    let drafts = convos(&ctx);
     let lang = {
         let mut guard = drafts.lock().await;
         let Some(Convo::Feedback { lang }) = guard.get(&user.id) else {

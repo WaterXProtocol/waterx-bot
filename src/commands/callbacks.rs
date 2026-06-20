@@ -1,20 +1,17 @@
-use crate::bot::{DbKey, GamesKey};
 use crate::commands::util::{
-    bot_token, fmt_coins, format_number, full_name, is_group_chat, to_micro, SORRY_FRUITS,
+    bot_token, db, fmt_coins, format_number, full_name, games, is_group_chat, to_micro, SORRY_FRUITS,
 };
 use crate::database::COIN;
 use crate::commands::{admin, assets, betting, markets, menu, predict, referral, tg};
+use crate::commands::tg::answer;
 use crate::database::OfferOutcome;
-use crate::game::BetGame;
 use crate::i18n::{self, Lang};
 use crate::types::BetState;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
-use std::sync::Arc;
-use telexide::api::types::{AnswerCallbackQuery, DeleteMessage};
+use telexide::api::types::DeleteMessage;
 use telexide::model::{CallbackQuery, ChatMember, UpdateContent};
 use telexide::prelude::*;
-use tokio::sync::Mutex;
 
 /// The bot's own membership changed in a chat. When it's *added to a group*,
 /// record the adder so new users who check in there bind to them as a referral.
@@ -36,7 +33,7 @@ pub async fn on_my_chat_member(ctx: Context, update: Update) {
         ChatMember::Left(_) | ChatMember::Kicked(_)
     );
     if now_in && was_out {
-        let _ = db_arc(&ctx).set_group_adder(chat_id, upd.from.id);
+        let _ = db(&ctx).set_group_adder(chat_id, upd.from.id);
     }
 }
 
@@ -50,13 +47,13 @@ pub async fn on_callback(ctx: Context, update: Update) {
     };
     // Learn this chat so /broadcast can reach it later.
     if let Some(m) = &cb.message {
-        let _ = db_arc(&ctx).touch_chat(m.chat.get_id());
+        let _ = db(&ctx).touch_chat(m.chat.get_id());
     }
     // Admin pause kill-switch: block every non-owner button press while paused.
     // Fail **closed** — if we can't read the flag, treat the bot as paused (a
     // kill-switch that can't confirm "off" should stop, not pass through).
     if !crate::commands::util::is_owner(&ctx, cb.from.id) {
-        let paused = db_arc(&ctx).is_paused().unwrap_or_else(|e| {
+        let paused = db(&ctx).is_paused().unwrap_or_else(|e| {
             eprintln!("on_callback is_paused error (failing closed): {e}");
             true
         });
@@ -144,35 +141,6 @@ pub async fn on_callback(ctx: Context, update: Update) {
     }
 }
 
-fn db_arc(ctx: &Context) -> Arc<crate::database::Database> {
-    ctx.data
-        .read()
-        .get::<DbKey>()
-        .expect("DbKey missing")
-        .clone()
-}
-
-fn games_arc(ctx: &Context) -> Arc<Mutex<HashMap<String, BetGame>>> {
-    ctx.data
-        .read()
-        .get::<GamesKey>()
-        .expect("GamesKey missing")
-        .clone()
-}
-
-async fn answer(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    text: impl Into<String>,
-    alert: bool,
-) -> Result<(), telexide::Error> {
-    let mut a = AnswerCallbackQuery::new(cb.id.clone());
-    a.text = Some(text.into());
-    a.show_alert = Some(alert);
-    ctx.api.answer_callback_query(a).await?;
-    Ok(())
-}
-
 async fn delete_msg(
     ctx: &Context,
     chat_id: i64,
@@ -195,7 +163,7 @@ async fn handle_envelope(
     let chat_id = message.chat.get_id();
     let msg_id = message.message_id;
     let lang = Lang::from_user(&cb.from);
-    let db = db_arc(ctx);
+    let db = db(ctx);
     if !db.has_buffer(chat_id, msg_id).unwrap_or(false) {
         return answer(ctx, cb, i18n::someone_took_it(lang), false).await;
     }
@@ -259,8 +227,8 @@ async fn handle_gamble(
     // Tapper's locale for the private toast; the shared board uses the host's
     // `game.lang`.
     let lang = cb_lang(ctx, cb);
-    let games = games_arc(ctx);
-    let db = db_arc(ctx);
+    let games = games(ctx);
+    let db = db(ctx);
 
     // close: gamble:  (host only)
     if rest.is_empty() {
@@ -387,7 +355,7 @@ async fn game_option(
     idx: usize,
     fmt: crate::types::OddsFormat,
 ) -> Result<(String, String), &'static str> {
-    let games = games_arc(ctx);
+    let games = games(ctx);
     let g = games.lock().await;
     let Some(game) = g.get(key) else {
         return Err(i18n::game_invalid(lang));
@@ -411,7 +379,7 @@ async fn handle_game_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
     let Some((key, idx, total)) = parse_game_draft(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    let fmt = db_arc(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (opt, odds) = match game_option(ctx, lang, &key, idx, fmt).await {
         Ok(p) => p,
         Err(t) => return answer(ctx, cb, t, true).await,
@@ -438,7 +406,7 @@ async fn handle_game_confirm(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
     if total <= 0 {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
     }
-    let fmt = db_arc(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (opt, odds) = match game_option(ctx, lang, &key, idx, fmt).await {
         Ok(p) => p,
         Err(t) => return answer(ctx, cb, t, true).await,
@@ -482,11 +450,11 @@ async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Res
     let Some(units) = to_micro(total) else {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
     };
-    let db = db_arc(ctx);
+    let db = db(ctx);
     if !db.balance_change(cb.from.id, -units).unwrap_or(false) {
         return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
     }
-    let games = games_arc(ctx);
+    let games = games(ctx);
     let placed = {
         let mut g = games.lock().await;
         let Some(game) = g.get_mut(&key) else {
@@ -541,7 +509,7 @@ async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Res
 /// Resolve the locale for a callback presser: their saved choice if any, else
 /// the Telegram-reported language.
 fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
-    db_arc(ctx)
+    db(ctx)
         .get_lang(cb.from.id)
         .ok()
         .flatten()
@@ -558,7 +526,7 @@ async fn handle_set_lang(
     let Some(lang) = Lang::from_store_code(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    let db = db_arc(ctx);
+    let db = db(ctx);
     if db.set_lang(cb.from.id, lang).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
@@ -597,7 +565,7 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
     let Ok(minutes) = rest.parse::<i64>() else {
         return answer(ctx, cb, "", false).await;
     };
-    let db = db_arc(ctx);
+    let db = db(ctx);
     let lang = cb_lang(ctx, cb);
     if db.set_tz(cb.from.id, minutes).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
@@ -622,7 +590,7 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
 /// return to the `/settings` hub in place (uniform with `slang:`/`stz:`).
 async fn handle_set_fmt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let fmt = crate::types::OddsFormat::from_store_code(rest);
-    let db = db_arc(ctx);
+    let db = db(ctx);
     let lang = cb_lang(ctx, cb);
     if db.set_odds_fmt(cb.from.id, fmt).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
@@ -677,7 +645,7 @@ async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
 /// current offset. The picker's `stz:` buttons persist + return to the hub.
 async fn handle_cfg_tz(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let current = db_arc(ctx).get_tz(cb.from.id).ok().flatten();
+    let current = db(ctx).get_tz(cb.from.id).ok().flatten();
     if let Some(message) = cb.message.clone() {
         let _ = tg::edit_with_buttons(
             ctx,
@@ -697,7 +665,7 @@ async fn handle_settings_lang(ctx: &Context, cb: &CallbackQuery, rest: &str) -> 
     let Some(lang) = Lang::from_store_code(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    let db = db_arc(ctx);
+    let db = db(ctx);
     if db.set_lang(cb.from.id, lang).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
@@ -720,7 +688,7 @@ async fn handle_settings_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Re
     let Ok(minutes) = rest.parse::<i64>() else {
         return answer(ctx, cb, "", false).await;
     };
-    let db = db_arc(ctx);
+    let db = db(ctx);
     let lang = cb_lang(ctx, cb);
     if db.set_tz(cb.from.id, minutes).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
@@ -742,7 +710,7 @@ async fn handle_settings_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Re
 /// the current format.
 async fn handle_cfg_odds(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let current = db_arc(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let current = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     if let Some(message) = cb.message.clone() {
         let _ = tg::edit_with_buttons(
             ctx,
@@ -765,7 +733,7 @@ async fn handle_cfg_odds(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
 /// the menu is shared, so the button stays for everyone else to claim.
 async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let db = db_arc(ctx);
+    let db = db(ctx);
 
     // (Group-add referral binding now happens for ANY button press in a group,
     // up in `on_callback` before dispatch — see `maybe_bind_group_referral`.)
@@ -784,11 +752,11 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
                 }
             }
             let amt = fmt_coins(crate::commands::checkin::CHECKIN_REWARD);
-            answer(ctx, cb, i18n::checkin_done(lang, &amt), true).await
+            answer(ctx, cb, &i18n::checkin_done(lang, &amt), true).await
         }
         Ok(false) => {
             let t = crate::commands::checkin::time_until_reset();
-            answer(ctx, cb, i18n::checkin_already(lang, &t), true).await
+            answer(ctx, cb, &i18n::checkin_already(lang, &t), true).await
         }
         Err(_) => answer(ctx, cb, i18n::db_error(lang), true).await,
     }
@@ -804,7 +772,7 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
     answer(ctx, cb, "", false).await?;
     // Show the caller's referral count above the format chooser — edited in
     // place over the current message (home menu, or a previous invite result).
-    let count = db_arc(ctx).count_referrals(cb.from.id).unwrap_or(0);
+    let count = db(ctx).count_referrals(cb.from.id).unwrap_or(0);
     let text = format!(
         "{}\n\n{}",
         i18n::invite_count(lang, &count.to_string()),
@@ -830,7 +798,7 @@ async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     answer(ctx, cb, "", false).await?;
     let chat = message.chat.get_id();
     let in_group = is_group_chat(chat);
-    let available = in_group || db_arc(ctx).checkin_available(cb.from.id).unwrap_or(true);
+    let available = in_group || db(ctx).checkin_available(cb.from.id).unwrap_or(true);
     let _ = tg::edit_with_buttons(
         ctx,
         chat,
@@ -963,9 +931,9 @@ async fn handle_menu_matches(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     let tz = if is_group_chat(chat) {
         0
     } else {
-        db_arc(ctx).get_tz(cb.from.id).ok().flatten().unwrap_or(0)
+        db(ctx).get_tz(cb.from.id).ok().flatten().unwrap_or(0)
     };
-    let fmt = db_arc(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (text, mut rows) = markets::brief(lang, tz, fmt).await;
     rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
     let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &text, &rows).await;
@@ -994,7 +962,7 @@ async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::
     let chat_id = message.chat.get_id();
     let msg_id = message.message_id;
     let lang = Lang::from_user(&cb.from);
-    let db = db_arc(ctx);
+    let db = db(ctx);
     let outcome = match db.consume_sell(chat_id, msg_id, cb.from.id) {
         Ok(o) => o,
         Err(_) => return answer(ctx, cb, i18n::db_error(lang), true).await,
@@ -1013,7 +981,7 @@ async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::
                 &i18n::bought_msg(lang, &cb.from.first_name, &fmt_coins(price), &fruits),
             )
             .await;
-            answer(ctx, cb, i18n::bought_toast(lang, &fruits), true).await
+            answer(ctx, cb, &i18n::bought_toast(lang, &fruits), true).await
         }
         OfferOutcome::TakerNotEnoughBalance => {
             answer(ctx, cb, i18n::not_enough_money(lang), true).await
@@ -1030,7 +998,7 @@ async fn handle_buy(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::E
     let chat_id = message.chat.get_id();
     let msg_id = message.message_id;
     let lang = Lang::from_user(&cb.from);
-    let db = db_arc(ctx);
+    let db = db(ctx);
     let outcome = match db.consume_buy(chat_id, msg_id, cb.from.id) {
         Ok(o) => o,
         Err(_) => return answer(ctx, cb, i18n::db_error(lang), true).await,
@@ -1049,10 +1017,10 @@ async fn handle_buy(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::E
                 &i18n::sold_msg(lang, &cb.from.first_name, &fruits, &fmt_coins(price)),
             )
             .await;
-            answer(ctx, cb, i18n::sold_toast(lang, &fmt_coins(price)), true).await
+            answer(ctx, cb, &i18n::sold_toast(lang, &fmt_coins(price)), true).await
         }
         OfferOutcome::TakerMissingFruit(ch) => {
-            answer(ctx, cb, i18n::you_dont_have(lang, &ch.to_string()), true).await
+            answer(ctx, cb, &i18n::you_dont_have(lang, &ch.to_string()), true).await
         }
         OfferOutcome::TakerFruitFull => answer(ctx, cb, i18n::buyer_fruit_full(lang), true).await,
         OfferOutcome::TakerNotEnoughBalance => {

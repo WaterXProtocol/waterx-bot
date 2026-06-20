@@ -7,17 +7,14 @@
 //! in-flight [`PredictDraft`] (`bot::ConvosKey`, the `Convo::Predict` variant). The end time is a button
 //! step (`gend:<minutes>`), which finalizes and posts the card.
 
-use crate::bot::{Convo, ConvosKey};
+use crate::bot::Convo;
 use crate::commands::tg;
+use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::game::BetGame;
 use crate::i18n::{self, Lang};
-use std::collections::HashMap;
-use std::sync::Arc;
-use telexide::api::types::AnswerCallbackQuery;
 use telexide::model::{CallbackQuery, UpdateContent};
 use telexide::prelude::*;
-use tokio::sync::Mutex;
 
 /// Callback prefix for the builder's end-time presets: `gend:<minutes>` (0 = no
 /// deadline). Routed in `callbacks::on_callback`.
@@ -39,28 +36,8 @@ pub struct PredictDraft {
     pub options: Option<Vec<String>>,
 }
 
-fn drafts(ctx: &Context) -> Arc<Mutex<HashMap<i64, Convo>>> {
-    ctx.data
-        .read()
-        .get::<ConvosKey>()
-        .expect("ConvosKey missing")
-        .clone()
-}
-
 fn now() -> i64 {
     chrono::Utc::now().timestamp()
-}
-
-/// Acknowledge a callback query (optional alert toast). Local copy so the builder
-/// doesn't depend on `callbacks`'s private helper.
-async fn ack(ctx: &Context, cb: &CallbackQuery, toast: &str) -> Result<(), telexide::Error> {
-    let mut a = AnswerCallbackQuery::new(cb.id.clone());
-    if !toast.is_empty() {
-        a.text = Some(toast.to_string());
-        a.show_alert = Some(true);
-    }
-    ctx.api.answer_callback_query(a).await?;
-    Ok(())
 }
 
 #[command(description = "create a prediction")]
@@ -82,7 +59,7 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
         Ok(_) => {
             // Inserting overwrites any in-flight `/feedback` flow for this user —
             // the last-started DM flow wins.
-            drafts(&ctx).lock().await.insert(
+            convos(&ctx).lock().await.insert(
                 host.id,
                 Convo::Predict(PredictDraft { origin_chat, lang, description: None, options: None }),
             );
@@ -118,7 +95,7 @@ pub async fn on_message(ctx: Context, update: Update) {
         return;
     }
 
-    let drafts = drafts(&ctx);
+    let drafts = convos(&ctx);
     let mut guard = drafts.lock().await;
     let Some(Convo::Predict(draft)) = guard.get_mut(&user.id) else {
         return; // not in the predict wizard — an ordinary DM or another flow
@@ -193,14 +170,14 @@ pub async fn handle_predict_endtime(
     rest: &str,
 ) -> Result<(), telexide::Error> {
     let Ok(minutes) = rest.parse::<i64>() else {
-        return ack(ctx, cb, "").await;
+        return answer(ctx, cb, "", false).await;
     };
     // Consume the draft (so a double-tap can't post twice).
-    let Some(Convo::Predict(draft)) = drafts(ctx).lock().await.remove(&cb.from.id) else {
-        return ack(ctx, cb, "").await; // expired / already finalized / wrong flow
+    let Some(Convo::Predict(draft)) = convos(ctx).lock().await.remove(&cb.from.id) else {
+        return answer(ctx, cb, "", false).await; // expired / already finalized / wrong flow
     };
     let (Some(description), Some(options)) = (draft.description, draft.options) else {
-        return ack(ctx, cb, "").await; // incomplete (shouldn't happen)
+        return answer(ctx, cb, "", false).await; // incomplete (shouldn't happen)
     };
     let lang = draft.lang;
     let ends_at = if minutes <= 0 { 0 } else { now() + minutes * 60 };
@@ -216,7 +193,7 @@ pub async fn handle_predict_endtime(
         Ok(m) => m,
         Err(e) => {
             eprintln!("predict card post failed (chat {}): {e:?}", draft.origin_chat);
-            return ack(ctx, cb, i18n::predict_post_failed(lang)).await;
+            return answer(ctx, cb, i18n::predict_post_failed(lang), true).await;
         }
     };
     game.set_id(sent.chat.get_id(), sent.message_id);
@@ -232,5 +209,5 @@ pub async fn handle_predict_endtime(
     if let Some(m) = &cb.message {
         let _ = tg::edit_text_only(ctx, m.chat.get_id(), m.message_id, i18n::predict_created(lang)).await;
     }
-    ack(ctx, cb, "").await
+    answer(ctx, cb, "", false).await
 }

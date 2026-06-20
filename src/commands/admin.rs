@@ -3,11 +3,11 @@
 //! These are intentionally **not** registered in the public `/` command menu.
 
 use crate::commands::tg;
+use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::database::{OpenMarket, COIN};
 use crate::i18n::{self, Lang};
 use crate::types::BetState;
-use telexide::api::types::AnswerCallbackQuery;
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
@@ -175,17 +175,6 @@ fn outcome_key(o: &str) -> Option<&'static str> {
     }
 }
 
-/// Acknowledge a callback query (optional alert toast).
-async fn ack(ctx: &Context, cb: &CallbackQuery, toast: &str) -> Result<(), telexide::Error> {
-    let mut a = AnswerCallbackQuery::new(cb.id.clone());
-    if !toast.is_empty() {
-        a.text = Some(toast.to_string());
-        a.show_alert = Some(true);
-    }
-    ctx.api.answer_callback_query(a).await?;
-    Ok(())
-}
-
 /// Owner-only button-driven settle flow (callback prefix [`SETTLE_CB`]). Each
 /// step edits the same message in place: pick market → pick outcome → confirm
 /// 1/2 → confirm 2/2 → settle. Re-reads the open-market list at every step so a
@@ -199,10 +188,10 @@ pub async fn handle_settle_cb(
     // Only the owner may drive settlement — others get a silent ack even if
     // they somehow see the buttons (e.g. /settle was run in a group).
     if !is_owner(ctx, cb.from.id) {
-        return ack(ctx, cb, "").await;
+        return answer(ctx, cb, "", false).await;
     }
     let Some(message) = cb.message.clone() else {
-        return ack(ctx, cb, "").await;
+        return answer(ctx, cb, "", false).await;
     };
     let chat = message.chat.get_id();
     let mid = message.message_id;
@@ -212,7 +201,7 @@ pub async fn handle_settle_cb(
         Err(e) => {
             eprintln!("handle_settle_cb list_open_markets error: {e}");
             tg::edit_text_only(ctx, chat, mid, "⚠️ DB error — couldn't load markets.").await.ok();
-            return ack(ctx, cb, "").await;
+            return answer(ctx, cb, "", false).await;
         }
     };
 
@@ -232,7 +221,7 @@ pub async fn handle_settle_cb(
         "p" => {
             let Some(m) = open.iter().find(|m| m.market_id == arg) else {
                 tg::edit_text_only(ctx, chat, mid, "That market is no longer open.").await.ok();
-                return ack(ctx, cb, "").await;
+                return answer(ctx, cb, "", false).await;
             };
             let text = format!(
                 "{} vs {}\n{} bet(s) · {} staked\n\nWho won?",
@@ -246,11 +235,11 @@ pub async fn handle_settle_cb(
         // Picked an outcome → first confirmation; or first confirm → second.
         "o" | "1" => {
             let Some((market_id, o)) = arg.rsplit_once(':') else {
-                return ack(ctx, cb, "").await;
+                return answer(ctx, cb, "", false).await;
             };
             let Some(m) = open.iter().find(|m| m.market_id == market_id) else {
                 tg::edit_text_only(ctx, chat, mid, "That market is no longer open.").await.ok();
-                return ack(ctx, cb, "").await;
+                return answer(ctx, cb, "", false).await;
             };
             let wl = winner_label(o, m);
             if action == "o" {
@@ -278,22 +267,22 @@ pub async fn handle_settle_cb(
         // Second confirmation → execute.
         "2" => {
             let Some((market_id, o)) = arg.rsplit_once(':') else {
-                return ack(ctx, cb, "").await;
+                return answer(ctx, cb, "", false).await;
             };
             let Some(winner) = outcome_key(o) else {
-                return ack(ctx, cb, "").await;
+                return answer(ctx, cb, "", false).await;
             };
             if !open.iter().any(|m| m.market_id == market_id) {
                 tg::edit_text_only(ctx, chat, mid, "That market is no longer open.").await.ok();
-                return ack(ctx, cb, "").await;
+                return answer(ctx, cb, "", false).await;
             }
             let (ok, summary) = run_settle(ctx, market_id, winner).await;
             tg::edit_text_only(ctx, chat, mid, &summary).await.ok();
-            return ack(ctx, cb, if ok { "Settled ✅" } else { "⚠️ Settle failed" }).await;
+            return answer(ctx, cb, if ok { "Settled ✅" } else { "⚠️ Settle failed" }, true).await;
         }
         _ => {}
     }
-    ack(ctx, cb, "").await
+    answer(ctx, cb, "", false).await
 }
 
 /// `/redeploy` — owner-only. Fire-and-forget triggers a **separate** systemd

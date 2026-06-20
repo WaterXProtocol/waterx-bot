@@ -13,14 +13,34 @@
 //! inline-keyboard code paths in the bot go through the helpers here.
 
 use serde_json::{json, Value};
+use telexide::api::types::AnswerCallbackQuery;
 use telexide::api::APIEndpoint;
 use telexide::framework::CommandError;
-use telexide::model::Message;
+use telexide::model::{CallbackQuery, Message};
 use telexide::prelude::Context;
 
 /// One row of `(button_label, callback_data)` pairs. Both strings are owned
 /// so callers don't have to fight lifetimes when building rows from owned data.
 pub type Row = Vec<(String, String)>;
+
+/// Acknowledge a callback query. Empty `text` = a silent ack (no toast); a
+/// non-empty `text` shows as a toast, or as a modal alert when `alert`. The one
+/// home for what used to be `callbacks::answer` / `betting::answer` /
+/// `predict::ack` / `admin::ack`.
+pub async fn answer(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    text: &str,
+    alert: bool,
+) -> Result<(), telexide::Error> {
+    let mut a = AnswerCallbackQuery::new(cb.id.clone());
+    if !text.is_empty() {
+        a.text = Some(text.to_string());
+    }
+    a.show_alert = Some(alert);
+    ctx.api.answer_callback_query(a).await?;
+    Ok(())
+}
 
 fn build_keyboard(rows: &[Row]) -> Value {
     let json_rows: Vec<Value> = rows
