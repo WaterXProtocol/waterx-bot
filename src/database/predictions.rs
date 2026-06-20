@@ -201,7 +201,6 @@ impl Database {
                 prediction.names.insert(user, bettor_name);
                 *prediction.inputs.entry(user).or_insert(0) += amount;
             }
-            recompute_odds(&mut prediction);
             out.push((id, prediction));
         }
         Ok(out)
@@ -258,21 +257,6 @@ fn delete_game_rows(conn: &Connection, id: &str) -> SqlResult<()> {
     Ok(())
 }
 
-/// Recompute each option's displayed `odd` string from the pool, matching what
-/// [`Prediction::stake`] writes — so a loaded prediction is byte-identical to one built
-/// live. (The board renders via `option_odds`; `odd` lingers as stored/tested
-/// data.)
-#[allow(clippy::cast_precision_loss)]
-fn recompute_odds(prediction: &mut Prediction) {
-    let total = prediction.total;
-    for o in prediction.options.values_mut() {
-        if o.bet > 0 {
-            let odd = (total as f64 / o.bet as f64 * 1000.0).round() / 1000.0;
-            o.odd = format!("{odd:.2}");
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,8 +291,8 @@ mod tests {
         // Bettor names round-trip for the settlement readout.
         assert_eq!(g2.names[&1], "Alice");
         assert_eq!(g2.names[&2], "Bob");
-        // Recomputed odds match a live prediction.
-        assert_eq!(g2.options["麵"].odd, "1.50");
+        // Derived odds match a live prediction (pools round-tripped).
+        assert_eq!(g2.option_odds("麵", OddsFormat::Decimal), "×1.50");
     }
 
     #[test]

@@ -2,7 +2,7 @@ use crate::commands::tg::Row;
 use crate::commands::util::*;
 use crate::core::i18n::{self, Lang};
 use crate::core::types::OddsFormat;
-use chrono::{FixedOffset, TimeZone, Utc};
+use chrono::Utc;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -100,7 +100,7 @@ pub(crate) async fn brief(lang: Lang, tz_min: i64, fmt: OddsFormat) -> (String, 
     let mut out = format!(
         "{} — {}\n",
         i18n::markets_title(lang),
-        fmt_date(now, tz_min)
+        fmt_local_date(now, tz_min)
     );
     if markets.is_empty() {
         out.push('\n');
@@ -254,19 +254,10 @@ fn odds(sides: &[Side], key: &str) -> Option<f64> {
 }
 
 /// `startsAt` (unix seconds) → `"Jun 27 · 17:00 UTC+8"`, in `tz_min` (minutes
-/// east of UTC; 0 = UTC).
+/// east of UTC; 0 = UTC). Thin wrapper over the shared `util::fmt_local_time`
+/// that threads the optional timestamp; date-only uses `util::fmt_local_date`.
 fn fmt_time(ts: Option<i64>, tz_min: i64) -> Option<String> {
-    let off = FixedOffset::east_opt((tz_min * 60) as i32)?;
-    let dt = off.timestamp_opt(ts?, 0).single()?;
-    Some(format!("{} {}", dt.format("%b %-d · %H:%M"), tz_label(tz_min)))
-}
-
-/// Date-only in `tz_min`, e.g. `"Jun 27"` — for the brief's header.
-fn fmt_date(ts: i64, tz_min: i64) -> String {
-    FixedOffset::east_opt((tz_min * 60) as i32)
-        .and_then(|o| o.timestamp_opt(ts, 0).single())
-        .map(|d| d.format("%b %-d").to_string())
-        .unwrap_or_default()
+    fmt_local_time(ts?, tz_min)
 }
 
 // ---------------------------------------------------------------------------

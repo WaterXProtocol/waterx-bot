@@ -1,5 +1,4 @@
 use super::Database;
-use rand::seq::IteratorRandom;
 use rusqlite::{params, Result as SqlResult};
 
 impl Database {
@@ -60,23 +59,5 @@ impl Database {
             params![new_fruit, user_id],
         )?;
         Ok(true)
-    }
-
-    pub fn fruit_pop(&self, user_id: i64) -> SqlResult<Option<String>> {
-        let info = self.get_user_info(user_id)?;
-        if info.fruit.is_empty() {
-            return Ok(None);
-        }
-        let mut rng = rand::thread_rng();
-        let chars: Vec<char> = info.fruit.chars().collect();
-        let &chosen = chars.iter().choose(&mut rng).unwrap();
-        let s = chosen.to_string();
-        let new_fruit = info.fruit.replacen(&s, "", 1);
-        let conn = self.conn.lock();
-        conn.execute(
-            "UPDATE balance SET fruit = ?1 WHERE user = ?2",
-            params![new_fruit, user_id],
-        )?;
-        Ok(Some(s))
     }
 }

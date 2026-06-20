@@ -15,7 +15,6 @@ fn circled(n: usize) -> String {
 pub struct OptionData {
     pub detail: HashMap<i64, i64>,
     pub bet: i64,
-    pub odd: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -152,15 +151,8 @@ impl Prediction {
         // `lang`/`odds_fmt`), with an explicit UTC±offset label so it's
         // unambiguous on the shared board regardless of who's reading it.
         if self.ends_at != 0 {
-            use chrono::{FixedOffset, TimeZone};
-            if let Some(d) = FixedOffset::east_opt((self.tz_offset * 60) as i32)
-                .and_then(|off| off.timestamp_opt(self.ends_at, 0).single())
-            {
-                s.push_str(&format!(
-                    "⏰ {} {}\n",
-                    d.format("%b %-d · %H:%M"),
-                    crate::commands::util::tz_label(self.tz_offset)
-                ));
+            if let Some(t) = crate::commands::util::fmt_local_time(self.ends_at, self.tz_offset) {
+                s.push_str(&format!("⏰ {t}\n"));
             }
         }
         for (i, opt) in self.option_order.iter().enumerate() {
@@ -243,15 +235,8 @@ impl Prediction {
         self.names.insert(user, name.to_string());
         *self.inputs.entry(user).or_insert(0) += amount;
         self.total += amount;
-        // Recompute the odd for *every* option that has bets — total moved,
-        // so all displayed odds are now stale. Mirrors the Python original.
-        let total = self.total;
-        for d in self.options.values_mut() {
-            if d.bet > 0 {
-                let odd = (total as f64 / d.bet as f64 * 1000.0).round() / 1000.0;
-                d.odd = format!("{odd:.2}");
-            }
-        }
+        // Odds aren't stored — they're derived on demand from the live pools via
+        // `option_odds`, so a stake just moves the pools.
         true
     }
 
@@ -393,14 +378,14 @@ mod tests {
         let mut g = Prediction::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10, "Alice");
         g.stake(2, "B", 5, "Bob");
-        // total = 15. A.bet = 10 → odd = 1.50. B.bet = 5 → odd = 3.00.
-        assert_eq!(g.options["A"].odd, "1.50");
-        assert_eq!(g.options["B"].odd, "3.00");
-        // Another bet on A should update B's odd too.
+        // total = 15. A.bet = 10 → ×1.50. B.bet = 5 → ×3.00.
+        assert_eq!(g.option_odds("A", OddsFormat::Decimal), "×1.50");
+        assert_eq!(g.option_odds("B", OddsFormat::Decimal), "×3.00");
+        // Another bet on A should move B's odds too.
         g.stake(3, "A", 15, "Cara");
-        // total = 30. A.bet = 25 → odd = 1.20. B.bet = 5 → odd = 6.00.
-        assert_eq!(g.options["A"].odd, "1.20");
-        assert_eq!(g.options["B"].odd, "6.00");
+        // total = 30. A.bet = 25 → ×1.20. B.bet = 5 → ×6.00.
+        assert_eq!(g.option_odds("A", OddsFormat::Decimal), "×1.20");
+        assert_eq!(g.option_odds("B", OddsFormat::Decimal), "×6.00");
     }
 
     #[test]

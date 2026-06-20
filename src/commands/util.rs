@@ -320,6 +320,26 @@ pub fn tz_label(minutes: i64) -> String {
     format!("UTC{}", tz_offset_str(minutes))
 }
 
+/// `ts` (unix seconds) in `tz_min` (minutes east of UTC) → `"Jun 27 · 17:00
+/// UTC+8"` (local time + offset label). `None` only on an out-of-range
+/// offset/timestamp. Shared by the `/markets` brief and the `/predict` deadline.
+pub fn fmt_local_time(ts: i64, tz_min: i64) -> Option<String> {
+    use chrono::{FixedOffset, TimeZone};
+    let dt = FixedOffset::east_opt((tz_min * 60) as i32)?
+        .timestamp_opt(ts, 0)
+        .single()?;
+    Some(format!("{} {}", dt.format("%b %-d · %H:%M"), tz_label(tz_min)))
+}
+
+/// Date-only in `tz_min`, e.g. `"Jun 27"` (no time, no label).
+pub fn fmt_local_date(ts: i64, tz_min: i64) -> String {
+    use chrono::{FixedOffset, TimeZone};
+    FixedOffset::east_opt((tz_min * 60) as i32)
+        .and_then(|o| o.timestamp_opt(ts, 0).single())
+        .map(|d| d.format("%b %-d").to_string())
+        .unwrap_or_default()
+}
+
 /// Short label for picker buttons (no "UTC" prefix to keep them compact):
 /// `0 → "UTC"`, `480 → "+8"`, `330 → "+5:30"`, `-300 → "-5"`.
 pub fn tz_button_label(minutes: i64) -> String {
