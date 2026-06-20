@@ -13,7 +13,7 @@
 //! inline-keyboard code paths in the bot go through the helpers here.
 
 use serde_json::{json, Value};
-use telexide::api::types::AnswerCallbackQuery;
+use telexide::api::types::{AnswerCallbackQuery, DeleteMessage};
 use telexide::api::APIEndpoint;
 use telexide::framework::CommandError;
 use telexide::model::{CallbackQuery, Message};
@@ -85,6 +85,46 @@ pub async fn send_with_buttons(
         .await?;
     let msg: telexide::Result<Message> = resp.into();
     Ok(msg?)
+}
+
+/// Send a message **with an inline keyboard** as a **reply** to `reply_to`. Used
+/// to post a per-user stake board threaded under the group game card it belongs
+/// to. Falls back to a loose message if that card is gone
+/// (`allow_sending_without_reply`). Returns the sent `Message` so the caller can
+/// track the board's id.
+pub async fn send_with_buttons_reply(
+    ctx: &Context,
+    chat_id: i64,
+    reply_to: i64,
+    text: &str,
+    rows: &[Row],
+) -> Result<Message, CommandError> {
+    let payload = json!({
+        "chat_id": chat_id,
+        "text": text,
+        "reply_markup": build_keyboard(rows),
+        "reply_parameters": { "message_id": reply_to, "allow_sending_without_reply": true },
+    });
+    let resp = ctx
+        .api
+        .post(APIEndpoint::SendMessage, Some(payload))
+        .await?;
+    let msg: telexide::Result<Message> = resp.into();
+    Ok(msg?)
+}
+
+/// Delete a message (best-effort). Used to remove a per-user stake board once the
+/// bet is placed or dismissed. A logical failure (already gone) converts to an
+/// `Err` the caller can ignore.
+pub async fn delete_message(
+    ctx: &Context,
+    chat_id: i64,
+    message_id: i64,
+) -> Result<(), CommandError> {
+    ctx.api
+        .delete_message(DeleteMessage::new(chat_id.into(), message_id))
+        .await?;
+    Ok(())
 }
 
 /// Send a plain message as a **reply** to `reply_to` in `chat_id`. Used to pin a

@@ -186,6 +186,18 @@ pub fn is_group_chat(chat_id: i64) -> bool {
     chat_id < 0
 }
 
+/// Prefix an **in-group** stake board with a `👤 name` header so members can tell
+/// whose owner-locked board is whose. In a private chat (the board's only user is
+/// the caller) the body is returned unchanged. The name is plain message text —
+/// no parse mode — so it needs no escaping.
+pub fn board_header(chat_id: i64, name: &str, body: &str) -> String {
+    if is_group_chat(chat_id) {
+        format!("👤 {name}\n{body}")
+    } else {
+        body.to_string()
+    }
+}
+
 /// True when the bot is running in development mode (`BOT_DEV` unset/true).
 pub fn is_dev(ctx: &Context) -> bool {
     ctx.data

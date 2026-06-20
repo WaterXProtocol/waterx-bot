@@ -52,6 +52,10 @@ pub struct Quote {
     /// In a group, the message id of the posted game card (A vs B + side
     /// buttons) the placed bet is announced as a reply to. 0 when private.
     origin_msg: i64,
+    /// The user this quote's stake board belongs to. In a group the board is a
+    /// shared message anyone can *see*, so every builder/confirm/place step is
+    /// locked to this owner (others get `not_your_bet`). Set at side-tap time.
+    owner: i64,
 }
 
 impl Quote {
@@ -170,6 +174,13 @@ fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
         .unwrap_or_else(|| Lang::from_user(&cb.from))
 }
 
+/// Whether `uid` owns the stake board behind `qid`. `None` when the quote is gone
+/// (the caller then falls through to its normal "expired" handling — there's no
+/// owner to leak). `Some(false)` is an explicit "not your board" → reject.
+fn quote_owner_ok(ctx: &Context, qid: u64, uid: i64) -> Option<bool> {
+    quotes(ctx).lock().get(qid).map(|q| q.owner == uid)
+}
+
 /// `[outcome]` rows (one per priced outcome) labelled `name <odds>`. The callback
 /// is `opt:<lang>:<fmt>:<market_id>:<outcome>` — it carries the **market id** (not
 /// a quote id) so the card is stateless (a tap re-prices on demand, surviving
@@ -249,6 +260,7 @@ pub async fn handle_bet(
         quoted_at: now(),
         origin_chat: 0,
         origin_msg: 0,
+        owner: 0, // never stored (this quote only renders the card)
     };
     // Pin the card to the creator's odds format (carried in the buttons), so a
     // shared group card renders consistently for everyone, like its locale.
@@ -311,6 +323,8 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         // Anchor the placed-bet announcement to the group card; a private origin
         // is the caller's own DM (no announcement), so leave it 0 there.
         origin_msg: if group { cb.message_id() } else { 0 },
+        // The stake board is locked to whoever tapped the side.
+        owner: cb.from.id,
     };
     // The tapped side must still be priced; if not, refresh the card (in its own
     // locale) to the live buttons and tell the tapper.
@@ -328,13 +342,18 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         return answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await;
     }
     let qid = quotes(ctx).lock().insert(q.clone());
-    // Builder is per-user → render it in the tapper's locale + odds format.
-    let Some((btext, brows)) = builder_text_rows(tapper_lang, &q, qid, &outcome, 0, tapper_fmt) else {
+    // Builder is per-user → render it in the tapper's locale + odds format, headed
+    // by the tapper's name in a group so members can tell whose board it is.
+    let Some((btext, brows)) =
+        builder_text_rows(tapper_lang, &q, qid, &outcome, 0, tapper_fmt, &full_name(&cb.from))
+    else {
         return answer(ctx, cb, "", false).await;
     };
     if group {
         // (b) Refresh the shared card to current odds in its OWN locale (no-op when
-        // unchanged), then DM the tapper their builder so the card isn't clobbered.
+        // unchanged), then post the tapper their OWN stake board as a reply to the
+        // card — so the shared card stays a card (others can tap it for their own
+        // boards) and each board is owner-locked + threaded under the game.
         let _ = tg::edit_with_buttons(
             ctx,
             cb.message_chat(),
@@ -343,9 +362,12 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
             &option_rows(card_lang, &q, card_fmt),
         )
         .await;
-        match tg::send_with_buttons(ctx, cb.from.id, &btext, &brows).await {
-            Ok(_) => answer(ctx, cb, i18n::bet_check_dm(tapper_lang), false).await,
-            Err(_) => answer(ctx, cb, i18n::bet_dm_first(tapper_lang), true).await,
+        match tg::send_with_buttons_reply(ctx, cb.message_chat(), cb.message_id(), &btext, &brows).await {
+            Ok(_) => answer(ctx, cb, "", false).await,
+            Err(e) => {
+                eprintln!("[opt] stake board post failed (chat {}): {e:?}", cb.message_chat());
+                answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await
+            }
         }
     } else {
         let _ = tg::edit_with_buttons(ctx, cb.message_chat(), cb.message_id(), &btext, &brows).await;
@@ -360,6 +382,9 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
     render_builder(ctx, cb, lang, qid, &outcome, total).await
 }
 
@@ -374,6 +399,9 @@ pub async fn handle_size_confirm(
     let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
     // Guard the conversion here too (caps at MAX_COINS, rejects overflow) so a
     // crafted `total` can't wrap i64 even on this display-only confirm screen.
     let Some(stake_units) = to_micro(total) else {
@@ -387,11 +415,20 @@ pub async fn handle_size_confirm(
     };
     let side = q.side_name(lang, &outcome);
     let win = fmt_coins(decimal_payout(stake_units, odds));
-    let text = i18n::bet_confirm(lang, &fmt_coins(stake_units), &side, &win);
-    let rows = vec![
+    // Keep the owner-name header on the confirm screen too (group boards).
+    let text = board_header(
+        q.origin_chat,
+        &full_name(&cb.from),
+        &i18n::bet_confirm(lang, &fmt_coins(stake_units), &side, &win),
+    );
+    let mut rows = vec![
         vec![(i18n::bet_btn_place(lang).to_string(), format!("{SIZE_PLACE}{qid}:{outcome}:{total}"))],
         vec![(i18n::bet_btn_back(lang).to_string(), format!("{SIZE}{qid}:{outcome}:{total}"))],
     ];
+    // In a group the board is its own message — let the owner dismiss it.
+    if let Some(row) = dismiss_row(lang, &q) {
+        rows.push(row);
+    }
     edit(ctx, cb, &text, &rows).await?;
     answer(ctx, cb, "", false).await
 }
@@ -407,6 +444,9 @@ pub async fn handle_size_place(
     let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
     // Guard the whole-coin → micro-coin conversion (caps at MAX_COINS, rejects
     // overflow and non-positive) so a crafted stake can't wrap i64 and mint coins.
     let Some(stake_units) = to_micro(total) else {
@@ -449,13 +489,11 @@ pub async fn handle_size_place(
     let side = q.side_name(lang, &outcome);
     // Confirmation + group announce show the odds in the bettor's chosen format.
     let odds_str = format_odds(odds, database.get_odds_fmt(cb.from.id).unwrap_or_default());
-    // Confirm privately in the DM (where the builder lives).
-    let text = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
-    let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &text).await;
-    // Announce the placed bet back in the original group, as a reply to the game
-    // card it was bet on (skip if `/markets` was used privately — the origin is
-    // then the DM itself). Falls back to a loose message if there's no card id.
     if is_group_chat(q.origin_chat) {
+        // Group: the stake board is its own message — delete it and post the
+        // result as a reply to the game card it was bet on (falling back to a
+        // loose message if that card is gone).
+        let _ = tg::delete_message(ctx, cb.message_chat(), cb.message_id()).await;
         let announce =
             i18n::bet_announce(lang, &full_name(&cb.from), &fmt_coins(stake_units), &side, &odds_str);
         if q.origin_msg != 0 {
@@ -463,13 +501,20 @@ pub async fn handle_size_place(
         } else {
             let _ = send_text(ctx, q.origin_chat, announce).await;
         }
+    } else {
+        // Private `/markets`: the board edits in place into the placed confirmation
+        // (no game card to reply to — the origin is the caller's own DM).
+        let text = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
+        let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &text).await;
     }
     answer(ctx, cb, i18n::bet_done(lang), false).await
 }
 
 /// Build the stake-builder screen for `total` coins on `outcome`: presets that
 /// add, then a `[Confirm] [Clear]` row. `None` if the outcome isn't priced.
-/// Shared by the in-place editor (`render_builder`) and the group→DM path.
+/// Shared by the in-place editor (`render_builder`) and the group board path. In
+/// a group the text is prefixed with the owner's name (`owner_name`) so members
+/// can tell whose owner-locked board it is.
 fn builder_text_rows(
     lang: Lang,
     q: &Quote,
@@ -477,6 +522,7 @@ fn builder_text_rows(
     outcome: &str,
     total: i64,
     fmt: OddsFormat,
+    owner_name: &str,
 ) -> Option<(String, Vec<tg::Row>)> {
     let odds = q.odds(outcome).filter(|c| *c > 0.0)?;
     let side = q.side_name(lang, outcome);
@@ -484,25 +530,35 @@ fn builder_text_rows(
     // saturate the display conversion instead so a crafted `total` can't overflow.
     let stake_units = total.max(0).saturating_mul(COIN);
     let win = fmt_coins(decimal_payout(stake_units, odds));
-    let text = i18n::bet_build(
-        lang,
-        &side,
-        &format_odds(odds, fmt),
-        &fmt_coins(stake_units),
-        &win,
+    let text = board_header(
+        q.origin_chat,
+        owner_name,
+        &i18n::bet_build(lang, &side, &format_odds(odds, fmt), &fmt_coins(stake_units), &win),
     );
     let add_row: tg::Row = SIZE_PRESETS
         .iter()
         .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{outcome}:{}", total.saturating_add(*p))))
         .collect();
-    let rows = vec![
+    let mut rows = vec![
         add_row,
         vec![
             (i18n::bet_btn_confirm(lang).to_string(), format!("{SIZE_CONFIRM}{qid}:{outcome}:{total}")),
             (i18n::bet_btn_clear(lang).to_string(), format!("{SIZE}{qid}:{outcome}:0")),
         ],
     ];
+    // In a group the board is its own message — let the owner dismiss it.
+    if let Some(row) = dismiss_row(lang, q) {
+        rows.push(row);
+    }
     Some((text, rows))
+}
+
+/// The Dismiss row for an in-group stake board (`bx:<owner>`, owner-locked in
+/// `callbacks`). `None` for a private `/markets` board, which is the caller's own
+/// in-place message and has no separate board to delete.
+fn dismiss_row(lang: Lang, q: &Quote) -> Option<tg::Row> {
+    is_group_chat(q.origin_chat)
+        .then(|| vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{}", q.owner))])
 }
 
 /// Render the accumulate screen in place (edits the DM builder message).
@@ -518,7 +574,10 @@ async fn render_builder(
         return expire(ctx, cb, lang).await;
     };
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let Some((text, rows)) = builder_text_rows(lang, &q, qid, outcome, total, fmt) else {
+    // Owner-locked, so the presser is the owner — head the board with their name.
+    let Some((text, rows)) =
+        builder_text_rows(lang, &q, qid, outcome, total, fmt, &full_name(&cb.from))
+    else {
         return answer(ctx, cb, "", false).await;
     };
     edit(ctx, cb, &text, &rows).await?;

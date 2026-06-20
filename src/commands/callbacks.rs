@@ -1,5 +1,5 @@
 use crate::commands::util::{
-    bot_token, db, fmt_coins, full_name, games, is_group_chat, to_micro, SORRY_FRUITS,
+    board_header, bot_token, db, fmt_coins, full_name, games, is_group_chat, to_micro, SORRY_FRUITS,
 };
 use crate::database::COIN;
 use crate::commands::{admin, assets, betting, markets, menu, predict, referral, tg};
@@ -9,7 +9,6 @@ use crate::i18n::{self, Lang};
 use crate::types::BetState;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
-use telexide::api::types::DeleteMessage;
 use telexide::model::{CallbackQuery, ChatMember, UpdateContent};
 use telexide::prelude::*;
 
@@ -79,6 +78,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_game_confirm(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gsp:") {
         handle_game_place(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix("bx:") {
+        handle_board_dismiss(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(predict::PREDICT_END) {
         predict::handle_predict_endtime(&ctx, &cb, rest).await
     } else if data.starts_with("sell:") {
@@ -139,17 +140,6 @@ pub async fn on_callback(ctx: Context, update: Update) {
     if let Err(err) = result {
         eprintln!("callback handler error: {err}");
     }
-}
-
-async fn delete_msg(
-    ctx: &Context,
-    chat_id: i64,
-    message_id: i64,
-) -> Result<(), telexide::Error> {
-    ctx.api
-        .delete_message(DeleteMessage::new(chat_id.into(), message_id))
-        .await?;
-    Ok(())
 }
 
 async fn handle_envelope(
@@ -256,8 +246,10 @@ async fn handle_gamble(
         return answer(ctx, cb, i18n::close_game_toast(lang), false).await;
     }
 
-    // pick: gamble:pick:<idx> — DM the tapper a private stake builder for that
-    // option (the bet flow happens in DM; the placed bet is announced back here).
+    // pick: gamble:pick:<idx> — post the tapper their OWN stake board as a reply
+    // to the shared game card (owner-locked, so only they can use it; the placed
+    // bet is announced back under the card). The board stays out of the shared
+    // card so every member can tap for their own board.
     if let Some(idx_s) = rest.strip_prefix("pick:") {
         let Ok(idx) = idx_s.parse::<usize>() else {
             return answer(ctx, cb, "", false).await;
@@ -277,11 +269,16 @@ async fn handle_gamble(
                 None => return answer(ctx, cb, "", false).await,
             }
         };
-        let text = i18n::game_build(lang, &label, "0");
-        let rows = game_builder_rows(lang, &key, idx, 0);
-        return match tg::send_with_buttons(ctx, cb.from.id, &text, &rows).await {
-            Ok(_) => answer(ctx, cb, i18n::bet_check_dm(lang), false).await,
-            Err(_) => answer(ctx, cb, i18n::bet_dm_first(lang), true).await,
+        // Head the board with the tapper's name in a group so members can tell
+        // whose owner-locked board it is.
+        let text = board_header(chat_id, &full_name(&cb.from), &i18n::game_build(lang, &label, "0"));
+        let rows = game_builder_rows(lang, &key, idx, cb.from.id, 0);
+        return match tg::send_with_buttons_reply(ctx, chat_id, msg_id, &text, &rows).await {
+            Ok(_) => answer(ctx, cb, "", false).await,
+            Err(e) => {
+                eprintln!("[gamble] stake board post failed (chat {chat_id}): {e:?}");
+                answer(ctx, cb, i18n::bet_failed(lang), true).await
+            }
         };
     }
 
@@ -323,30 +320,34 @@ async fn handle_gamble(
     answer(ctx, cb, i18n::settle_success(lang), false).await
 }
 
-/// DM stake-builder keyboard for a `/predict` option at `total` whole coins. The
-/// game ref + total ride in the callback data (`gsz/gsc/gsp:<chat>:<msg>:<idx>:
-/// <total>`) — no server-side per-user state.
-fn game_builder_rows(lang: Lang, key: &str, idx: usize, total: i64) -> Vec<Vec<(String, String)>> {
+/// In-group stake-builder keyboard for a `/predict` option at `total` whole coins.
+/// The game ref + owner + total all ride in the callback data
+/// (`gsz/gsc/gsp:<chat>:<msg>:<idx>:<owner>:<total>`) — no server-side per-user
+/// state. `owner` locks the board to the tapper; the Dismiss row (`bx:<owner>`)
+/// lets them delete it.
+fn game_builder_rows(lang: Lang, key: &str, idx: usize, owner: i64, total: i64) -> Vec<Vec<(String, String)>> {
     let add: Vec<(String, String)> = crate::game::STAKE_AMOUNTS
         .iter()
-        .map(|p| (format!("+{p}"), format!("gsz:{key}:{idx}:{}", total + p)))
+        .map(|p| (format!("+{p}"), format!("gsz:{key}:{idx}:{owner}:{}", total + p)))
         .collect();
     vec![
         add,
         vec![
-            (i18n::bet_btn_confirm(lang).to_string(), format!("gsc:{key}:{idx}:{total}")),
-            (i18n::bet_btn_clear(lang).to_string(), format!("gsz:{key}:{idx}:0")),
+            (i18n::bet_btn_confirm(lang).to_string(), format!("gsc:{key}:{idx}:{owner}:{total}")),
+            (i18n::bet_btn_clear(lang).to_string(), format!("gsz:{key}:{idx}:{owner}:0")),
         ],
+        vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}"))],
     ]
 }
 
-/// Parse `<chat>:<msg>:<idx>:<total>` → (game key `"chat:msg"`, option idx, total).
-fn parse_game_draft(rest: &str) -> Option<(String, usize, i64)> {
+/// Parse `<chat>:<msg>:<idx>:<owner>:<total>` → (game key `"chat:msg"`, option
+/// idx, board owner, total).
+fn parse_game_draft(rest: &str) -> Option<(String, usize, i64, i64)> {
     let parts: Vec<&str> = rest.split(':').collect();
-    let [chat, msg, idx, total] = parts.as_slice() else {
+    let [chat, msg, idx, owner, total] = parts.as_slice() else {
         return None;
     };
-    Some((format!("{chat}:{msg}"), idx.parse().ok()?, total.parse().ok()?))
+    Some((format!("{chat}:{msg}"), idx.parse().ok()?, owner.parse().ok()?, total.parse().ok()?))
 }
 
 /// The option's `(name, odds-in-`fmt`)` for `(key, idx)` if the game is still
@@ -380,33 +381,41 @@ fn opt_label(name: &str, odds: &str) -> String {
 /// `gsz:…` — re-render the DM builder at the accumulated total.
 async fn handle_game_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((key, idx, total)) = parse_game_draft(rest) else {
+    let Some((key, idx, owner, total)) = parse_game_draft(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    if owner != cb.from.id {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (opt, odds) = match game_option(ctx, lang, &key, idx, fmt).await {
         Ok(p) => p,
         Err(t) => return answer(ctx, cb, t, true).await,
     };
     if let Some(m) = &cb.message {
+        let body = i18n::game_build(lang, &opt_label(&opt, &odds), &total.max(0).to_string());
+        let text = board_header(m.chat.get_id(), &full_name(&cb.from), &body);
         let _ = tg::edit_with_buttons(
             ctx,
             m.chat.get_id(),
             m.message_id,
-            &i18n::game_build(lang, &opt_label(&opt, &odds), &total.max(0).to_string()),
-            &game_builder_rows(lang, &key, idx, total),
+            &text,
+            &game_builder_rows(lang, &key, idx, owner, total),
         )
         .await;
     }
     answer(ctx, cb, "", false).await
 }
 
-/// `gsc:…` — DM confirmation screen.
+/// `gsc:…` — in-group confirmation screen.
 async fn handle_game_confirm(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((key, idx, total)) = parse_game_draft(rest) else {
+    let Some((key, idx, owner, total)) = parse_game_draft(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    if owner != cb.from.id {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
     if total <= 0 {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
     }
@@ -416,18 +425,14 @@ async fn handle_game_confirm(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
         Err(t) => return answer(ctx, cb, t, true).await,
     };
     let rows = vec![
-        vec![(i18n::bet_btn_place(lang).to_string(), format!("gsp:{key}:{idx}:{total}"))],
-        vec![(i18n::bet_btn_back(lang).to_string(), format!("gsz:{key}:{idx}:{total}"))],
+        vec![(i18n::bet_btn_place(lang).to_string(), format!("gsp:{key}:{idx}:{owner}:{total}"))],
+        vec![(i18n::bet_btn_back(lang).to_string(), format!("gsz:{key}:{idx}:{owner}:{total}"))],
+        vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}"))],
     ];
     if let Some(m) = &cb.message {
-        let _ = tg::edit_with_buttons(
-            ctx,
-            m.chat.get_id(),
-            m.message_id,
-            &i18n::game_confirm(lang, &total.to_string(), &opt_label(&opt, &odds)),
-            &rows,
-        )
-        .await;
+        let body = i18n::game_confirm(lang, &total.to_string(), &opt_label(&opt, &odds));
+        let text = board_header(m.chat.get_id(), &full_name(&cb.from), &body);
+        let _ = tg::edit_with_buttons(ctx, m.chat.get_id(), m.message_id, &text, &rows).await;
     }
     answer(ctx, cb, "", false).await
 }
@@ -445,9 +450,12 @@ fn log_refund(db: &crate::database::Database, user: i64, units: i64) {
 /// board with new totals, confirm in the DM, and announce in the group.
 async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((key, idx, total)) = parse_game_draft(rest) else {
+    let Some((key, idx, owner, total)) = parse_game_draft(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    if owner != cb.from.id {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
     // Guard the whole-coin → micro-coin conversion (caps at MAX_COINS, rejects
     // overflow and non-positive): `total` rides in the callback data, so a
     // crafted value must not be able to wrap i64 and mint/destroy coins.
@@ -497,17 +505,29 @@ async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Res
             let _ = tg::send_text_reply(ctx, chat, msg, &announce).await;
         }
     }
-    // Confirm in the DM (where the builder lives).
+    // The stake board is its own message — delete it now that the bet is placed
+    // (the result rides in the announcement reply under the game card above).
     if let Some(m) = &cb.message {
-        let _ = tg::edit_text_only(
-            ctx,
-            m.chat.get_id(),
-            m.message_id,
-            &i18n::game_placed(lang, &total.to_string(), &option),
-        )
-        .await;
+        let _ = tg::delete_message(ctx, m.chat.get_id(), m.message_id).await;
     }
     answer(ctx, cb, i18n::bet_success(lang), false).await
+}
+
+/// `bx:<owner>` — dismiss an in-group personal stake board by deleting it.
+/// Owner-locked: only the user the board was opened for can delete it (anyone
+/// else sees a toast). Shared by match-bet and self-host `/predict` boards.
+async fn handle_board_dismiss(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Ok(owner) = rest.parse::<i64>() else {
+        return answer(ctx, cb, "", false).await;
+    };
+    if owner != cb.from.id {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
+    if let Some(m) = &cb.message {
+        let _ = tg::delete_message(ctx, m.chat.get_id(), m.message_id).await;
+    }
+    answer(ctx, cb, "", false).await
 }
 
 /// Resolve the locale for a callback presser: their saved choice if any, else
@@ -974,7 +994,7 @@ async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::
     match outcome {
         OfferOutcome::AlreadyTaken => answer(ctx, cb, i18n::someone_dealt(lang), false).await,
         OfferOutcome::SelfCancelled => {
-            delete_msg(ctx, chat_id, msg_id).await.ok();
+            tg::delete_message(ctx, chat_id, msg_id).await.ok();
             answer(ctx, cb, i18n::withdrew_sell(lang), false).await
         }
         OfferOutcome::Filled { fruits, price } => {
@@ -1010,7 +1030,7 @@ async fn handle_buy(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::E
     match outcome {
         OfferOutcome::AlreadyTaken => answer(ctx, cb, i18n::someone_dealt(lang), false).await,
         OfferOutcome::SelfCancelled => {
-            delete_msg(ctx, chat_id, msg_id).await.ok();
+            tg::delete_message(ctx, chat_id, msg_id).await.ok();
             answer(ctx, cb, i18n::withdrew_buy(lang), false).await
         }
         OfferOutcome::Filled { fruits, price } => {

@@ -1347,14 +1347,6 @@ pub fn match_finished(l: Lang) -> &'static str {
         "🏁 Esta partida terminou — as apostas serão liquidadas em breve.", "🏁 यह मैच समाप्त हो गया — दांव जल्द ही निपटाए जाएंगे।", "🏁 انتهت هذه المباراة — ستتم تسوية الرهانات قريبًا.")
 }
 
-pub fn bet_check_dm(l: Lang) -> &'static str {
-    tr!(l;
-        "Check your DM to place your bet 📩", "請查看私訊來下注 📩", "请查看私信来下注 📩", "DMを確認して賭けてね 📩", "DM에서 베팅을 진행해 📩",
-        "Проверьте личные сообщения, чтобы сделать ставку 📩", "Va en privé pour parier 📩", "Revisa tu DM para apostar 📩", "Schau in deine DMs, um zu wetten 📩", "Kiểm tra tin nhắn riêng để đặt cược 📩",
-        "Cek DM untuk pasang taruhan 📩", "Tingnan ang DM para tumaya 📩", "ดู DM เพื่อวางเดิมพัน 📩", "Check je DM om te wedden 📩", "Bahis için DM'ine bak 📩",
-        "Veja sua DM para apostar 📩", "दांव लगाने के लिए अपना DM देखें 📩", "تحقق من رسائلك الخاصة للمراهنة 📩")
-}
-
 pub fn bet_dm_first(l: Lang) -> &'static str {
     tr!(l;
         "Start a private chat with me first to place bets 📩", "請先私訊我才能下注 📩", "请先私信我才能下注 📩", "賭けるにはまず私にDMしてね 📩", "베팅하려면 먼저 나에게 DM을 보내줘 📩",
@@ -1445,6 +1437,24 @@ pub fn bet_btn_back(l: Lang) -> &'static str {
         "⬅ Voltar", "⬅ वापस", "⬅ رجوع")
 }
 
+/// Dismiss button on an in-group personal bet board — deletes the board.
+pub fn bet_btn_dismiss(l: Lang) -> &'static str {
+    tr!(l;
+        "✖ Dismiss", "✖ 取消", "✖ 取消", "✖ 取り消し", "✖ 닫기",
+        "✖ Закрыть", "✖ Annuler", "✖ Descartar", "✖ Verwerfen", "✖ Bỏ",
+        "✖ Tutup", "✖ Isara", "✖ ปิด", "✖ Sluiten", "✖ Kapat",
+        "✖ Descartar", "✖ हटाएं", "✖ إغلاق")
+}
+
+/// Toast when someone taps a personal bet board that isn't theirs (owner-locked).
+pub fn not_your_bet(l: Lang) -> &'static str {
+    tr!(l;
+        "This isn't your bet 🙅", "這不是你的下注 🙅", "这不是你的下注 🙅", "これはあなたの賭けじゃないよ 🙅", "이건 네 베팅이 아니야 🙅",
+        "Это не твоя ставка 🙅", "Ce n'est pas ton pari 🙅", "Esta no es tu apuesta 🙅", "Das ist nicht deine Wette 🙅", "Đây không phải cược của bạn 🙅",
+        "Ini bukan taruhanmu 🙅", "Hindi ito ang taya mo 🙅", "นี่ไม่ใช่เดิมพันของคุณ 🙅", "Dit is niet jouw weddenschap 🙅", "Bu senin bahsin değil 🙅",
+        "Esta não é a sua aposta 🙅", "यह आपका दांव नहीं है 🙅", "هذا ليس رهانك 🙅")
+}
+
 pub fn bet_placed(l: Lang, stake: &str, side: &str, odds: &str, payout: &str) -> String {
     tr!(l;
         "✅ Bet placed: {stake} on {side} @ {odds}\nPotential payout: {payout}", "✅ 已下注：{stake} 於 {side} @ {odds}\n潛在派彩：{payout}", "✅ 已下注：{stake} 于 {side} @ {odds}\n潜在派彩：{payout}", "✅ 賭け完了：{side} @ {odds} に {stake}\n払い戻し見込み：{payout}", "✅ 베팅 완료: {side} @ {odds} 에 {stake}\n예상 수령: {payout}",
@@ -1487,16 +1497,6 @@ pub fn game_confirm(l: Lang, stake: &str, option: &str) -> String {
         "Поставить {stake} 🪙 на {option}?", "Miser {stake} 🪙 sur {option} ?", "¿Apostar {stake} 🪙 a {option}?", "{stake} 🪙 auf {option} setzen?", "Đặt {stake} 🪙 cho {option}?",
         "Pasang {stake} 🪙 pada {option}?", "Itaya ang {stake} 🪙 sa {option}?", "วางเดิมพัน {stake} 🪙 ที่ {option}?", "{stake} 🪙 op {option} inzetten?", "{option} için {stake} 🪙 yatırılsın mı?",
         "Apostar {stake} 🪙 em {option}?", "{option} पर {stake} 🪙 लगाएं?", "وضع {stake} 🪙 على {option}؟")
-    .replace("{stake}", stake)
-    .replace("{option}", option)
-}
-
-pub fn game_placed(l: Lang, stake: &str, option: &str) -> String {
-    tr!(l;
-        "✅ Bet placed: {stake} 🪙 on {option}", "✅ 已下注：{stake} 🪙 押 {option}", "✅ 已下注：{stake} 🪙 押 {option}", "✅ 賭け完了：{option} に {stake} 🪙", "✅ 베팅 완료: {option} 에 {stake} 🪙",
-        "✅ Ставка принята: {stake} 🪙 на {option}", "✅ Pari placé : {stake} 🪙 sur {option}", "✅ Apuesta hecha: {stake} 🪙 a {option}", "✅ Wette platziert: {stake} 🪙 auf {option}", "✅ Đã đặt cược: {stake} 🪙 cho {option}",
-        "✅ Taruhan dipasang: {stake} 🪙 pada {option}", "✅ Tumaya: {stake} 🪙 sa {option}", "✅ วางเดิมพันแล้ว: {stake} 🪙 ที่ {option}", "✅ Inzet geplaatst: {stake} 🪙 op {option}", "✅ Bahis kondu: {option} için {stake} 🪙",
-        "✅ Aposta feita: {stake} 🪙 em {option}", "✅ दांव लगा: {option} पर {stake} 🪙", "✅ تم وضع الرهان: {stake} 🪙 على {option}")
     .replace("{stake}", stake)
     .replace("{option}", option)
 }
