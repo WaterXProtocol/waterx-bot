@@ -238,6 +238,12 @@ async fn handle_gamble(
             if prediction.host != cb.from.id {
                 return answer(ctx, cb, i18n::not_host(lang), true).await;
             }
+            // A deadline means betting runs until then — the host can't close early.
+            if !prediction.can_close(chrono::Utc::now().timestamp()) {
+                let when = crate::commands::util::fmt_local_time(prediction.ends_at, prediction.tz_offset)
+                    .unwrap_or_default();
+                return answer(ctx, cb, &i18n::close_before_deadline(lang, &when), true).await;
+            }
             if !prediction.close() {
                 return answer(ctx, cb, i18n::already_closed(lang), true).await;
             }

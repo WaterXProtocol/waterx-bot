@@ -378,6 +378,17 @@ pub fn close_prediction_toast(l: Lang) -> &'static str {
         "Apostas encerradas", "बेटिंग बंद", "أُغلق الرهان")
 }
 
+/// Host tapped `[close]` before the deadline they set — blocked; `{time}` is the
+/// deadline in the host's timezone.
+pub fn close_before_deadline(l: Lang, time: &str) -> String {
+    tr!(l;
+        "⏳ Can't close early — betting runs until {time}.", "⏳ 無法提前關閉 — 下注將持續到 {time}。", "⏳ 无法提前关闭 — 下注将持续到 {time}。", "⏳ 早めに締め切れないよ — {time} まで受付中。", "⏳ 미리 마감할 수 없어 — {time}까지 진행돼.",
+        "⏳ Нельзя закрыть раньше — приём ставок до {time}.", "⏳ Fermeture anticipée impossible — paris jusqu'à {time}.", "⏳ No puedes cerrar antes — apuestas hasta {time}.", "⏳ Vorzeitiges Schließen nicht möglich — Wetten bis {time}.", "⏳ Không thể đóng sớm — nhận cược đến {time}.",
+        "⏳ Tidak bisa tutup lebih awal — taruhan sampai {time}.", "⏳ Hindi pwedeng isara nang maaga — taya hanggang {time}.", "⏳ ปิดก่อนกำหนดไม่ได้ — เดิมพันถึง {time}", "⏳ Kan niet vroeg sluiten — wedden tot {time}.", "⏳ Erken kapatılamaz — bahisler {time}'a kadar.",
+        "⏳ Não dá para fechar antes — apostas até {time}.", "⏳ समय से पहले बंद नहीं कर सकते — {time} तक दांव।", "⏳ لا يمكن الإغلاق مبكرًا — الرهان حتى {time}.")
+    .replace("{time}", time)
+}
+
 pub fn bad_stake(l: Lang) -> &'static str {
     tr!(l;
         "Invalid stake amount", "下注額錯誤", "下注额错误", "賭け金が不正です", "베팅 금액이 잘못됐어",

@@ -91,6 +91,13 @@ impl Prediction {
         self.ends_at != 0 && now >= self.ends_at
     }
 
+    /// Whether the host may close betting now. With a deadline set, betting runs
+    /// until then — the host can't close **early**; once it passes (or if none
+    /// was set) they may close.
+    pub fn can_close(&self, now: i64) -> bool {
+        self.ends_at == 0 || self.ended(now)
+    }
+
     /// An option's current pari-mutuel payout, rendered in `fmt`. The natural form
     /// is the **decimal multiplier** `pool ÷ option-stake` (shown as `×2.50` — "your
     /// stake ×"); other formats convert via `cents = 100 / multiplier`. `×—` when
@@ -480,6 +487,19 @@ mod tests {
         d.close();
         let _ = d.settle("$draw$");
         assert_eq!(d.top_winners_block(10), "");
+    }
+
+    #[test]
+    fn can_close_respects_deadline() {
+        let mut g = Prediction::new(0, Lang::En, "q", &["A", "B"]);
+        // No deadline → always closable.
+        g.ends_at = 0;
+        assert!(g.can_close(1_000));
+        // Deadline at t=2000: blocked before, allowed at/after.
+        g.ends_at = 2_000;
+        assert!(!g.can_close(1_999));
+        assert!(g.can_close(2_000));
+        assert!(g.can_close(2_001));
     }
 
     #[test]
