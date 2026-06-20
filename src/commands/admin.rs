@@ -7,7 +7,7 @@ use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::database::OpenMarket;
 use crate::i18n::{self, Lang};
-use telexide::model::CallbackQuery;
+use telexide::model::{CallbackQuery, User};
 use telexide::prelude::*;
 
 /// Callback-data prefix for the button-driven settle flow (owner-only).
@@ -36,15 +36,24 @@ fn normalize_winner(s: &str) -> Option<&'static str> {
     }
 }
 
+/// Owner gate for message-triggered admin commands. Returns the sender as a
+/// `User` iff they're the configured `BOT_OWNER`; otherwise `None`, meaning the
+/// caller should silently `return Ok(())` — non-owners (and the rare from-less
+/// message, e.g. a channel post) never learn these commands exist. Centralises
+/// the `from_id` + `is_owner` preamble each admin command repeated, and hands
+/// back the full `User` so callers needing it (lang, mint target) avoid a
+/// second `message.from` unwrap.
+fn owner_guard(ctx: &Context, message: &Message) -> Option<User> {
+    let user = message.from.clone()?;
+    is_owner(ctx, user.id).then_some(user)
+}
+
 /// `/settle` — owner-only. With no args, lists markets that still have open
 /// wagers (copy a market id). `/settle <market_id|slug> <a|b|draw>` pays out
 /// winners and DMs every bettor their result.
 #[command(description = "owner: settle a match")]
 pub async fn settle(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
-        return Ok(());
-    };
-    if !is_owner(&ctx, uid) {
+    if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
     let database = db(&ctx);
@@ -342,10 +351,7 @@ pub async fn handle_settle_cb(
 /// `sudo systemctl start --no-block waterx-deploy.service`). See `DEPLOY.md`.
 #[command(description = "owner: pull + rebuild + restart")]
 pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
-        return Ok(());
-    };
-    if !is_owner(&ctx, uid) {
+    if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
     let cmd = std::env::var("REDEPLOY_CMD")
@@ -382,10 +388,7 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
 /// games. Plain English (an operator diagnostic, not a user-facing surface).
 #[command(description = "owner: bot-wide dashboard")]
 pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
-        return Ok(());
-    };
-    if !is_owner(&ctx, uid) {
+    if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
     let database = db(&ctx);
@@ -443,13 +446,9 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
 /// replied-to message (reply required). Positive only (no debt).
 #[command(description = "owner: mint coins to the replied-to user")]
 pub async fn mint(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
+    let Some(sender) = owner_guard(&ctx, &message) else {
         return Ok(());
     };
-    if !is_owner(&ctx, uid) {
-        return Ok(());
-    }
-    let sender = message.from.clone().expect("from_id ensured a sender");
 
     let parts = args(&message);
     let usage = "/mint <amount> — reply to someone, or omit the reply to mint to yourself 🪄";
@@ -484,10 +483,7 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
 /// [`handle_reset_cb`] when Submit is pressed.
 #[command(description = "owner+dev: selective reset")]
 pub async fn reset(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
-        return Ok(());
-    };
-    if !is_owner(&ctx, uid) || !is_dev(&ctx) {
+    if owner_guard(&ctx, &message).is_none() || !is_dev(&ctx) {
         return Ok(());
     }
     let _ = tg::send_with_buttons(&ctx, message.chat.get_id(), RESET_PROMPT, &reset_picker_rows(0)).await;
@@ -661,10 +657,7 @@ fn list_backup_files() -> Vec<String> {
 /// balances (upsert each user's coin balance from the file).
 #[command(description = "owner: list/restore balance backups")]
 pub async fn load(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
-        return Ok(());
-    };
-    if !is_owner(&ctx, uid) {
+    if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
     let parts = args(&message);
@@ -713,12 +706,9 @@ pub async fn load(ctx: Context, message: Message) -> CommandResult {
 /// blocked by `paused_block` until `/unpause`).
 #[command(description = "owner: pause all actions")]
 pub async fn pause(ctx: Context, message: Message) -> CommandResult {
-    let Some(user) = message.from.clone() else {
+    let Some(user) = owner_guard(&ctx, &message) else {
         return Ok(());
     };
-    if !is_owner(&ctx, user.id) {
-        return Ok(());
-    }
     let lang = lang_for(&ctx, &user);
     db(&ctx).set_paused(true)?;
     reply(&ctx, &message, i18n::service_paused(lang)).await?;
@@ -728,12 +718,9 @@ pub async fn pause(ctx: Context, message: Message) -> CommandResult {
 /// `/unpause` — resume normal operation.
 #[command(description = "owner: resume all actions")]
 pub async fn unpause(ctx: Context, message: Message) -> CommandResult {
-    let Some(user) = message.from.clone() else {
+    let Some(user) = owner_guard(&ctx, &message) else {
         return Ok(());
     };
-    if !is_owner(&ctx, user.id) {
-        return Ok(());
-    }
     let lang = lang_for(&ctx, &user);
     db(&ctx).set_paused(false)?;
     reply(&ctx, &message, i18n::im_back(lang)).await?;
@@ -745,10 +732,7 @@ pub async fn unpause(ctx: Context, message: Message) -> CommandResult {
 /// and excluded from the delivered count.
 #[command(description = "owner: broadcast a message to all users")]
 pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
-        return Ok(());
-    };
-    if !is_owner(&ctx, uid) {
+    if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
 
