@@ -633,6 +633,51 @@ pub async fn reset(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
+/// `/delete` — owner **and** dev-mode only (`is_dev`, so it can never fire on a
+/// production bot). Deletes a user's profile (their `balance` row + any wagers,
+/// via `Database::delete_user`) so they count as brand-new again — handy to
+/// re-test referral binding, which gates on a `balance` row's existence. Target =
+/// the replied-to user (gives a name in the confirmation) or a numeric id
+/// argument (`/delete <id>`).
+#[command(description = "owner+dev: delete a user to re-test referral")]
+pub async fn delete(ctx: Context, message: Message) -> CommandResult {
+    if owner_guard(&ctx, &message).is_none() || !is_dev(&ctx) {
+        return Ok(());
+    }
+    // Replied-to user wins (carries a name); else a numeric id arg. Unlike
+    // `/profile`, there's no "self" default — deleting requires an explicit target.
+    let replied = message.reply_to_message.as_ref().and_then(|r| r.from.clone());
+    let arg_id = args(&message).first().and_then(|s| s.parse::<i64>().ok());
+    let Some(target) = replied.as_ref().map(|u| u.id).or(arg_id) else {
+        reply(
+            &ctx,
+            &message,
+            "/delete <id> — or reply to someone. Removes their profile so referral can re-bind.",
+        )
+        .await?;
+        return Ok(());
+    };
+    match db(&ctx).delete_user(target) {
+        Ok(true) => {
+            let who = replied.as_ref().map_or_else(|| target.to_string(), full_name);
+            reply(
+                &ctx,
+                &message,
+                format!("🗑️ Deleted {who} (id {target}) — brand-new now, referral can re-bind."),
+            )
+            .await?;
+        }
+        Ok(false) => {
+            reply(&ctx, &message, format!("No profile on record for id {target}.")).await?;
+        }
+        Err(e) => {
+            eprintln!("delete_user error ({target}): {e}");
+            reply(&ctx, &message, format!("⚠️ Delete failed: {e}")).await?;
+        }
+    }
+    Ok(())
+}
+
 /// `✅`/`⬜`-toggle picker for the selective reset. Each part button carries the
 /// **resulting** bitmask (`flags ^ bit`) so a tap re-renders with that part
 /// flipped — stateless, the selection rides entirely in the callback data.

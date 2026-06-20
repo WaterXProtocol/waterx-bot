@@ -346,6 +346,22 @@ impl Database {
         Ok((predictions_cleared, refunded))
     }
 
+    /// Dev-only `/delete` — remove a single user's footprint so they count as
+    /// **brand-new** for referral binding (which gates on a `balance` row's
+    /// existence). Deletes their `balance` row and any of their `wagers` in one
+    /// transaction. Returns `true` when a balance row existed (so the caller can
+    /// report "not found" otherwise). Does **not** touch the in-memory `/predict`
+    /// map or the normalized game tables — it's a referral-test helper, not a
+    /// mid-prediction cleanup.
+    pub fn delete_user(&self, user_id: i64) -> SqlResult<bool> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let deleted = tx.execute("DELETE FROM balance WHERE user = ?1", params![user_id])?;
+        tx.execute("DELETE FROM wagers WHERE user = ?1", params![user_id])?;
+        tx.commit()?;
+        Ok(deleted == 1)
+    }
+
     /// Snapshot every **non-zero** coin balance as `(user, micro_coins)` — the
     /// backup an `[Everything]` reset writes to disk and `/load` restores.
     pub fn export_balances(&self) -> SqlResult<Vec<(i64, i64)>> {
@@ -473,6 +489,35 @@ mod reset_tests {
         assert_eq!(n, 2);
         assert_eq!(db.get_user_info(10).unwrap().balance, 50 * COIN);
         assert_eq!(db.get_user_info(20).unwrap().balance, 7 * COIN);
+    }
+
+    #[test]
+    fn delete_user_makes_one_user_brand_new_for_re_refer() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 0).unwrap(); // referrer exists
+        assert!(db.set_referrer_if_new(2, 1).unwrap()); // referee binds once
+        assert!(!db.set_referrer_if_new(2, 1).unwrap()); // existing row → no re-bind
+
+        // Delete only the referee — the referrer is untouched.
+        assert!(db.delete_user(2).unwrap());
+        assert!(!db.user_exists(2).unwrap()); // brand-new again
+        assert!(db.user_exists(1).unwrap()); // referrer still there
+        assert!(!db.delete_user(2).unwrap()); // already gone → false
+
+        // Re-refer now works immediately (referrer still exists).
+        assert!(db.set_referrer_if_new(2, 1).unwrap());
+    }
+
+    #[test]
+    fn delete_user_removes_their_wagers() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(10, 100 * COIN).unwrap();
+        assert!(db.place_wager(10, "m1", "s", "A", "B", "teamA", 30 * COIN, 200.0, 0).unwrap());
+        assert_eq!(db.list_open_wagers(10).unwrap().len(), 1);
+
+        assert!(db.delete_user(10).unwrap());
+        assert!(!db.user_exists(10).unwrap());
+        assert!(db.list_open_wagers(10).unwrap().is_empty()); // wagers gone too
     }
 
     #[test]
