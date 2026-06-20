@@ -41,6 +41,7 @@ impl Database {
                 total       INTEGER NOT NULL DEFAULT 0,
                 ends_at     INTEGER NOT NULL DEFAULT 0,
                 odds_fmt    TEXT    NOT NULL DEFAULT '',
+                tz_offset   INTEGER NOT NULL DEFAULT 0,
                 created_at  INTEGER NOT NULL DEFAULT 0
             )",
             [],
@@ -132,17 +133,17 @@ impl Database {
     /// games are stored.
     pub fn load_all_predictions(&self) -> SqlResult<Vec<(String, Prediction)>> {
         let conn = self.conn.lock();
-        // (id, host, lang, description, state, total, ends_at, odds_fmt)
-        type GameRow = (String, i64, String, String, String, i64, i64, String);
+        // (id, host, lang, description, state, total, ends_at, odds_fmt, tz_offset)
+        type GameRow = (String, i64, String, String, String, i64, i64, String, i64);
         let games: Vec<GameRow> = {
             let mut stmt = conn.prepare(
-                "SELECT id, host, lang, description, state, total, ends_at, odds_fmt FROM games",
+                "SELECT id, host, lang, description, state, total, ends_at, odds_fmt, tz_offset FROM games",
             )?;
             let v = stmt
                 .query_map([], |r| {
                     Ok((
                         r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?,
-                        r.get(7)?,
+                        r.get(7)?, r.get(8)?,
                     ))
                 })?
                 .collect::<SqlResult<Vec<_>>>()?;
@@ -156,7 +157,7 @@ impl Database {
         )?;
 
         let mut out = Vec::with_capacity(games.len());
-        for (id, host, lang, description, state, total, ends_at, odds_fmt) in games {
+        for (id, host, lang, description, state, total, ends_at, odds_fmt, tz_offset) in games {
             let mut prediction = Prediction {
                 id: id.clone(),
                 host,
@@ -172,6 +173,7 @@ impl Database {
                 names: HashMap::new(),
                 ends_at,
                 odds_fmt: OddsFormat::from_store_code(&odds_fmt),
+                tz_offset,
             };
             // Options, in `option_order`.
             let opts = opt_stmt.query_map(params![id], |r| {
@@ -212,8 +214,8 @@ impl Database {
 fn write_game_rows(conn: &Connection, prediction: &Prediction) -> SqlResult<()> {
     conn.execute(
         "INSERT OR REPLACE INTO games
-            (id, host, lang, description, state, total, ends_at, odds_fmt, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (id, host, lang, description, state, total, ends_at, odds_fmt, tz_offset, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             prediction.id,
             prediction.host,
@@ -223,6 +225,7 @@ fn write_game_rows(conn: &Connection, prediction: &Prediction) -> SqlResult<()> 
             prediction.total,
             prediction.ends_at,
             prediction.odds_fmt.store_code(),
+            prediction.tz_offset,
             current_unix_time(),
         ],
     )?;

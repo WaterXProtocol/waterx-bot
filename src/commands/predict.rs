@@ -195,8 +195,10 @@ pub async fn handle_predict_endtime(
     let opt_refs: Vec<&str> = options.iter().map(String::as_str).collect();
     let mut prediction = Prediction::new(cb.from.id, lang, &description, &opt_refs);
     prediction.ends_at = ends_at;
-    // Pin the board to the host's odds format (shared message — like its locale).
+    // Pin the board to the host's odds format and timezone (shared message —
+    // like its locale): the deadline renders in the host's local time.
     prediction.odds_fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    prediction.tz_offset = db(ctx).get_tz(cb.from.id).ok().flatten().unwrap_or(0);
 
     // Post the card to the origin chat; only on success do we register the prediction.
     let sent = match tg::send_with_buttons(ctx, draft.origin_chat, &prediction.get_text(), &prediction.get_buttons()).await {

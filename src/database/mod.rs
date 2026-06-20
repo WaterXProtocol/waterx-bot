@@ -189,6 +189,12 @@ impl Database {
             "ALTER TABLE balance ADD COLUMN odds_fmt TEXT NOT NULL DEFAULT ''",
             [],
         );
+        // Host timezone pinned per prediction, for rendering the deadline in the
+        // builder's local time. Ignored once present / on fresh DBs.
+        let _ = conn.execute(
+            "ALTER TABLE games ADD COLUMN tz_offset INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
 
         // One-time: migrate legacy JSON-blob `/predict` games into the normalized
         // tables created above, then drop the old `bet_games` table. No-op once

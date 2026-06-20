@@ -51,6 +51,12 @@ pub struct Prediction {
     /// loads pre-feature games as `Decimal`.
     #[serde(default)]
     pub odds_fmt: OddsFormat,
+    /// Builder's timezone (minutes east of UTC) pinned at creation, so the shared
+    /// board renders the **deadline** in the host's local time — same pinning
+    /// rationale as `lang`/`odds_fmt` (a shared message can't localize per viewer).
+    /// `#[serde(default)]` loads pre-feature games as 0 = UTC.
+    #[serde(default)]
+    pub tz_offset: i64,
 }
 
 impl Prediction {
@@ -76,6 +82,7 @@ impl Prediction {
             names: HashMap::new(),
             ends_at: 0,
             odds_fmt: OddsFormat::Decimal,
+            tz_offset: 0,
         }
     }
 
@@ -141,11 +148,19 @@ impl Prediction {
             self.state_emoji(),
             self.state.label(self.lang)
         );
-        // Deadline (shared board → UTC), if the builder set one.
+        // Deadline rendered in the **host's** timezone (pinned at creation, like
+        // `lang`/`odds_fmt`), with an explicit UTC±offset label so it's
+        // unambiguous on the shared board regardless of who's reading it.
         if self.ends_at != 0 {
-            use chrono::{TimeZone, Utc};
-            if let Some(d) = Utc.timestamp_opt(self.ends_at, 0).single() {
-                s.push_str(&format!("⏰ {} UTC\n", d.format("%b %-d · %H:%M")));
+            use chrono::{FixedOffset, TimeZone};
+            if let Some(d) = FixedOffset::east_opt((self.tz_offset * 60) as i32)
+                .and_then(|off| off.timestamp_opt(self.ends_at, 0).single())
+            {
+                s.push_str(&format!(
+                    "⏰ {} {}\n",
+                    d.format("%b %-d · %H:%M"),
+                    crate::commands::util::tz_label(self.tz_offset)
+                ));
             }
         }
         for (i, opt) in self.option_order.iter().enumerate() {
@@ -386,6 +401,28 @@ mod tests {
         // total = 30. A.bet = 25 → odd = 1.20. B.bet = 5 → odd = 6.00.
         assert_eq!(g.options["A"].odd, "1.20");
         assert_eq!(g.options["B"].odd, "6.00");
+    }
+
+    #[test]
+    fn deadline_renders_in_host_timezone() {
+        // 2021-01-01 00:00:00 UTC.
+        let ts = 1_609_459_200;
+        let mut g = Prediction::new(0, Lang::En, "q", &["A", "B"]);
+        g.ends_at = ts;
+
+        // UTC host → "Jan 1 · 00:00 UTC".
+        g.tz_offset = 0;
+        let utc = g.get_text();
+        assert!(utc.contains("⏰ Jan 1 · 00:00 UTC\n"), "got: {utc}");
+
+        // UTC+8 host → same instant shown as 08:00 with a UTC+8 label.
+        g.tz_offset = 480;
+        let plus8 = g.get_text();
+        assert!(plus8.contains("⏰ Jan 1 · 08:00 UTC+8"), "got: {plus8}");
+
+        // No deadline → no clock line at all.
+        g.ends_at = 0;
+        assert!(!g.get_text().contains('⏰'));
     }
 
     #[test]
