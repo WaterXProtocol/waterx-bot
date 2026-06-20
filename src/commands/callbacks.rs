@@ -167,7 +167,10 @@ async fn handle_envelope(
         // stranded), cancelling the envelope.
         let fruit = {
             let mut rng = rand::thread_rng();
-            *SORRY_FRUITS.choose(&mut rng).unwrap()
+            // SORRY_FRUITS is a non-empty const, so `choose` is always `Some`;
+            // fall back to a fixed fruit rather than `unwrap` to keep this path
+            // panic-free regardless.
+            SORRY_FRUITS.choose(&mut rng).copied().unwrap_or('🍑')
         };
         let s = fruit.to_string();
         match db.fruit_change(cb.from.id, &s, true) {

@@ -97,6 +97,38 @@ pub async fn settle(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
+/// Parse Telegram's `retry after N` (seconds) out of a 429 error description.
+/// telexide collapses the API response to its raw `description` string and drops
+/// the structured `parameters.retry_after`, so the wait is only available as text
+/// (e.g. `"Too Many Requests: retry after 7"`).
+fn retry_after_secs(desc: &str) -> Option<u64> {
+    let rest = &desc[desc.find("retry after")? + "retry after".len()..];
+    rest.split_whitespace().next()?.parse().ok()
+}
+
+/// Send `text` to `chat_id`, **retrying through rate limits** so a large fan-out
+/// (`/broadcast`, settle DMs) reaches every chat instead of silently dropping the
+/// ones that hit Telegram's ~30 msg/s cap. A 429 reports `retry after N` — we
+/// sleep that long (+1s slack) and try again, up to `MAX_RETRIES`. Any *other*
+/// error (the user blocked the bot, never opened a DM, deleted the account) is
+/// permanent, so we give up immediately and return false. Returns true once the
+/// message is delivered.
+async fn send_resilient(ctx: &Context, chat_id: i64, text: &str) -> bool {
+    const MAX_RETRIES: u32 = 5;
+    for _ in 0..=MAX_RETRIES {
+        match send_text(ctx, chat_id, text).await {
+            Ok(_) => return true,
+            Err(e) => match retry_after_secs(&e.0) {
+                Some(secs) => {
+                    tokio::time::sleep(std::time::Duration::from_secs(secs + 1)).await;
+                }
+                None => return false,
+            },
+        }
+    }
+    false
+}
+
 /// Settle one market against `winner` (a stored outcome key: `teamA`/`teamB`/
 /// `draw`): pay winners, mark wagers, DM every bettor, and return `(ok, summary)`
 /// — `ok` is false when the settlement itself failed, so the button flow can
@@ -678,13 +710,13 @@ pub async fn load(ctx: Context, message: Message) -> CommandResult {
 /// blocked by `paused_block` until `/unpause`).
 #[command(description = "owner: pause all actions")]
 pub async fn pause(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
+    let Some(user) = message.from.clone() else {
         return Ok(());
     };
-    if !is_owner(&ctx, uid) {
+    if !is_owner(&ctx, user.id) {
         return Ok(());
     }
-    let lang = lang_for(&ctx, message.from.as_ref().unwrap());
+    let lang = lang_for(&ctx, &user);
     db(&ctx).set_paused(true)?;
     reply(&ctx, &message, i18n::service_paused(lang)).await?;
     Ok(())
@@ -693,13 +725,13 @@ pub async fn pause(ctx: Context, message: Message) -> CommandResult {
 /// `/unpause` — resume normal operation.
 #[command(description = "owner: resume all actions")]
 pub async fn unpause(ctx: Context, message: Message) -> CommandResult {
-    let Some(uid) = from_id(&message) else {
+    let Some(user) = message.from.clone() else {
         return Ok(());
     };
-    if !is_owner(&ctx, uid) {
+    if !is_owner(&ctx, user.id) {
         return Ok(());
     }
-    let lang = lang_for(&ctx, message.from.as_ref().unwrap());
+    let lang = lang_for(&ctx, &user);
     db(&ctx).set_paused(false)?;
     reply(&ctx, &message, i18n::im_back(lang)).await?;
     Ok(())
@@ -736,12 +768,26 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
             return Ok(());
         }
     };
+    // Reliability over speed: this can take a while for a big audience, but the
+    // goal is that **every** chat receives it. We pace sends to stay under
+    // Telegram's ~30 msg/s global cap and retry through any 429s, so nothing is
+    // dropped to rate limiting (only genuinely-unreachable chats are skipped).
+    let total = ids.len();
+    reply(&ctx, &message, format!("📣 Sending to {total} chats…")).await?;
     let mut delivered = 0usize;
     for id in ids {
-        if send_text(&ctx, id, body).await.is_ok() {
+        if send_resilient(&ctx, id, body).await {
             delivered += 1;
         }
+        // ~15 msg/s — well below the 30/s cap, leaving plenty of headroom so
+        // live users' commands aren't starved of rate budget during a broadcast.
+        tokio::time::sleep(std::time::Duration::from_millis(67)).await;
     }
-    reply(&ctx, &message, format!("📣 Broadcast sent to {delivered} chats")).await?;
+    reply(
+        &ctx,
+        &message,
+        format!("📣 Broadcast delivered to {delivered}/{total} chats"),
+    )
+    .await?;
     Ok(())
 }

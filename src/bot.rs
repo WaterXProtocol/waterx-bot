@@ -87,7 +87,29 @@ pub async fn run() -> anyhow::Result<()> {
     // actual username makes group commands silently no-op when Telegram
     // appends the @suffix. The call also serves as a token sanity check.
     let probe = telexide::api::APIClient::new(None, &cfg.token);
-    let me = probe.get_me().await?;
+    // Resilient startup: a transient network blip during getMe must NOT crash
+    // the process. A bare `?` here exits `run()`, and systemd would just restart
+    // straight back into the same failure — a tight crash-loop that can trip the
+    // start-limit and leave the bot down for good. Instead retry with capped
+    // exponential backoff until Telegram answers (once polling, `robust_poll`
+    // already tolerates network loss the same way). A genuinely bad/revoked token
+    // simply loops here, logging each attempt, rather than thrashing systemd.
+    let me = {
+        let mut delay = Duration::from_secs(1);
+        loop {
+            match probe.get_me().await {
+                Ok(me) => break me,
+                Err(err) => {
+                    eprintln!(
+                        "getMe failed at startup (retrying in {}s): {err}",
+                        delay.as_secs()
+                    );
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(30));
+                }
+            }
+        }
+    };
     if me.id != bot_id {
         return Err(anyhow::anyhow!(
             "bot id mismatch: token parses to {bot_id} but Telegram reports {}",
