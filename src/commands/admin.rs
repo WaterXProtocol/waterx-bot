@@ -5,9 +5,8 @@
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
-use crate::database::{OpenMarket, COIN};
+use crate::database::OpenMarket;
 use crate::i18n::{self, Lang};
-use crate::types::BetState;
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
@@ -339,27 +338,16 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     }
     let database = db(&ctx);
-    let s = match database.stats() {
+    // Everything — including the open self-host `/predict` game count and the
+    // coins committed to them — comes from one DB aggregate now (the `games`
+    // table holds only live games, so no in-memory fold is needed).
+    let s = match database.dashboard() {
         Ok(s) => s,
         Err(e) => {
             eprintln!("/dashboard query error: {e}");
             reply(&ctx, &message, format!("⚠️ Dashboard error: {e}")).await?;
             return Ok(());
         }
-    };
-    // In-memory self-host `/predict` games: count the still-active ones and the
-    // coins committed to them (stakes are whole coins, debited at bet time, so
-    // they're committed-but-not-in-the-ledger). Scoped so the guard drops here.
-    let (open_games, open_game_coins) = {
-        let g = games(&ctx);
-        let guard = g.lock().await;
-        guard.values().fold((0u32, 0i64), |(n, sum), game| {
-            if matches!(game.state, BetState::betting | BetState::closed) {
-                (n + 1, sum + game.total)
-            } else {
-                (n, sum)
-            }
-        })
     };
     let status = if database.is_paused().unwrap_or(false) {
         "⏸ PAUSED"
@@ -393,8 +381,8 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
         open_stake = fmt_coins(s.open_stake),
         tot_w = format_number(s.total_wagers),
         tot_vol = fmt_coins(s.total_volume),
-        open_g = open_games,
-        open_g_coins = fmt_coins(open_game_coins.saturating_mul(COIN)),
+        open_g = format_number(s.open_games),
+        open_g_coins = fmt_coins(s.open_game_stake),
     );
     reply(&ctx, &message, text).await?;
     Ok(())

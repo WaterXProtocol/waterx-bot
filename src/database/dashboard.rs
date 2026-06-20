@@ -1,10 +1,11 @@
-use super::Database;
+use super::{Database, COIN};
 use rusqlite::Result as SqlResult;
 
-/// Bot-wide aggregate counters for the owner-only `/stats` command. Coin fields
-/// are micro-coins (render with `fmt_coins`); count fields are plain integers.
+/// Bot-wide aggregate counters for the owner-only `/dashboard` command. Coin
+/// fields are micro-coins (render with `fmt_coins`); count fields are plain
+/// integers.
 #[derive(Debug, Default, Clone)]
-pub struct BotStats {
+pub struct Dashboard {
     /// Rows in `balance` — every user the bot has a ledger for.
     pub users: i64,
     /// Users who joined via a referral link (`referrer != 0`).
@@ -25,16 +26,26 @@ pub struct BotStats {
     pub total_wagers: i64,
     /// All-time match-bet volume (micro-coins).
     pub total_volume: i64,
+    /// Open self-host `/predict` games. The `games` table only ever holds live
+    /// (betting/closed) games — settled/draw are dropped on settle — so this is
+    /// `COUNT(*)`.
+    pub open_games: i64,
+    /// Coins committed to open self-host games (micro-coins). `games.total` is
+    /// whole coins, so it's scaled up here to keep every coin field in micro.
+    pub open_game_stake: i64,
 }
 
 impl Database {
-    /// One-shot snapshot of bot-wide metrics for `/stats`: a single lock and a
-    /// handful of aggregate queries. The in-memory self-host game figures are
-    /// added by the caller (they live in `GamesKey`, not the DB).
-    pub fn stats(&self) -> SqlResult<BotStats> {
+    /// One-shot snapshot of bot-wide metrics for `/dashboard`: a single lock and a
+    /// handful of aggregate queries over `balance`/`chats`/`wagers`/`games`. The
+    /// self-host game figures now come straight from the normalized `games` table,
+    /// so the caller no longer folds in the in-memory `GamesKey` map.
+    pub fn dashboard(&self) -> SqlResult<Dashboard> {
         let conn = self.conn.lock();
         let count = |sql: &str| -> SqlResult<i64> { conn.query_row(sql, [], |r| r.get::<_, i64>(0)) };
-        Ok(BotStats {
+        // `games.total` is whole coins; scale to micro so every coin field is uniform.
+        let open_game_whole = count("SELECT COALESCE(SUM(total), 0) FROM games")?;
+        Ok(Dashboard {
             users: count("SELECT COUNT(*) FROM balance")?,
             referred_users: count("SELECT COUNT(*) FROM balance WHERE referrer != 0")?,
             // `last_checkin` stores the last claimed UTC day index (unix/86400);
@@ -51,6 +62,8 @@ impl Database {
             open_stake: count("SELECT COALESCE(SUM(stake), 0) FROM wagers WHERE status = 'open'")?,
             total_wagers: count("SELECT COUNT(*) FROM wagers")?,
             total_volume: count("SELECT COALESCE(SUM(stake), 0) FROM wagers")?,
+            open_games: count("SELECT COUNT(*) FROM games")?,
+            open_game_stake: open_game_whole.saturating_mul(COIN),
         })
     }
 }
@@ -59,6 +72,8 @@ impl Database {
 mod tests {
     use super::super::COIN;
     use super::*;
+    use crate::game::BetGame;
+    use crate::i18n::Lang;
 
     #[test]
     fn counts_users_chats_and_supply() {
@@ -69,7 +84,7 @@ mod tests {
         db.touch_chat(-100).unwrap(); // group (negative id)
         db.touch_chat(-200).unwrap(); // group (negative id)
 
-        let s = db.stats().unwrap();
+        let s = db.dashboard().unwrap();
         assert_eq!(s.users, 2);
         assert_eq!(s.total_supply, 8 * COIN);
         assert_eq!(s.groups, 2);
@@ -85,8 +100,37 @@ mod tests {
         assert!(db.set_referrer_if_new(2, 1).unwrap());
         assert!(db.set_referrer_if_new(3, 1).unwrap());
 
-        let s = db.stats().unwrap();
+        let s = db.dashboard().unwrap();
         assert_eq!(s.users, 3);
         assert_eq!(s.referred_users, 2);
+    }
+
+    #[test]
+    fn aggregates_open_predict_games_from_db() {
+        let db = Database::new(":memory:", 1).unwrap();
+        // Two live games (one betting, one closed) plus a settled one that's been
+        // dropped from storage — the settled one must NOT be counted.
+        let mut a = BetGame::new(1, Lang::En, "a", &["X", "Y"]);
+        a.set_id(1, 1);
+        a.stake(10, "X", 4, "Ann");
+        a.stake(11, "Y", 6, "Bob"); // total 10
+        db.save_bet_game(&a).unwrap();
+
+        let mut b = BetGame::new(2, Lang::En, "b", &["X", "Y"]);
+        b.set_id(2, 2);
+        b.stake(12, "X", 5, "Cy"); // total 5
+        b.close();
+        db.save_bet_game(&b).unwrap();
+
+        let mut done = BetGame::new(3, Lang::En, "c", &["X", "Y"]);
+        done.set_id(3, 3);
+        done.stake(13, "X", 9, "Di");
+        done.close();
+        let _ = done.settle("X");
+        db.save_bet_game(&done).unwrap(); // terminal → dropped, not stored
+
+        let s = db.dashboard().unwrap();
+        assert_eq!(s.open_games, 2);
+        assert_eq!(s.open_game_stake, 15 * COIN); // (4+6) + 5, in micro-coins
     }
 }

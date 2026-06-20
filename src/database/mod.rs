@@ -1,15 +1,15 @@
 mod buffer;
 mod chats;
+mod dashboard;
 mod fruit;
 mod games;
 mod meta;
 mod referral;
-mod stats;
 mod user;
 mod wager;
 
 pub use buffer::OfferOutcome;
-pub use stats::BotStats;
+pub use dashboard::Dashboard;
 pub use user::UserRow;
 pub use wager::{decimal_payout, OpenMarket, Position, Settlement};
 
