@@ -291,22 +291,43 @@ impl Prediction {
         }
 
         self.state = BetState::settled;
-        let mut display = i18n::result_header(self.lang, outcome);
-        for (user, diff) in &changes {
-            let name = self.display_name(*user);
-            let verb = if *diff >= 0 {
-                i18n::verb_won(self.lang)
-            } else {
-                i18n::verb_lost(self.lang)
-            };
-            display.push_str(&i18n::settle_line(
+        // Only the header here — the (potentially huge) per-winner readout is
+        // built separately via `top_winners_block`, so a busy prediction can't
+        // blow past Telegram's message-size limit when it settles.
+        (outputs, i18n::result_header(self.lang, outcome))
+    }
+
+    /// Up to `limit` biggest **net winners** (those with a positive change),
+    /// ranked by amount won, one `settle_line` each, with a "…and N more" tail
+    /// when there are more. Empty when nobody won (draw / void / no-one-bet) —
+    /// reads `self.changes`, so call it **after** `settle`. Lets settlement show
+    /// a bounded top list instead of one line per bettor.
+    pub fn top_winners_block(&self, limit: usize) -> String {
+        let mut winners: Vec<(i64, i64)> = self
+            .changes
+            .iter()
+            .filter(|&(_, &d)| d > 0)
+            .map(|(&u, &d)| (u, d))
+            .collect();
+        if winners.is_empty() {
+            return String::new();
+        }
+        // By amount won (desc), ties broken by id for a stable order.
+        winners.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let total = winners.len();
+        let mut s = String::new();
+        for (user, diff) in winners.iter().take(limit) {
+            s.push_str(&i18n::settle_line(
                 self.lang,
-                &name,
-                verb,
-                &diff.abs().to_string(),
+                &self.display_name(*user),
+                i18n::verb_won(self.lang),
+                &diff.to_string(),
             ));
         }
-        (outputs, display)
+        if total > limit {
+            s.push_str(&i18n::more_winners(self.lang, &(total - limit).to_string()));
+        }
+        s
     }
 
     /// A bettor's captured display name, falling back to a masked id tail
@@ -408,6 +429,30 @@ mod tests {
         // No deadline → no clock line at all.
         g.ends_at = 0;
         assert!(!g.get_text().contains('⏰'));
+    }
+
+    #[test]
+    fn top_winners_block_caps_and_ranks() {
+        // 12 bettors on the winning side A, one loser on B.
+        let mut g = Prediction::new(0, Lang::En, "q", &["A", "B"]);
+        for i in 1..=12 {
+            g.stake(i, "A", i, &format!("u{i}")); // bigger stake → bigger win
+        }
+        // Large losing pool → every A bettor nets clearly positive.
+        g.stake(99, "B", 1000, "loser");
+        g.close();
+        let _ = g.settle("A");
+        let block = g.top_winners_block(10);
+        // Capped to 10 winners + a "2 more" tail; the loser never appears.
+        assert_eq!(block.matches('\n').count(), 11, "10 winner lines + 1 tail");
+        assert!(block.contains("more"), "tail present: {block}");
+        assert!(!block.contains("loser"));
+        // A draw produces no winner block.
+        let mut d = Prediction::new(0, Lang::En, "q", &["A", "B"]);
+        d.stake(1, "A", 10, "Alice");
+        d.close();
+        let _ = d.settle("$draw$");
+        assert_eq!(d.top_winners_block(10), "");
     }
 
     #[test]

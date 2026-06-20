@@ -994,6 +994,16 @@ pub fn settle_line(l: Lang, name: &str, verb: &str, amt: &str) -> String {
     .replace("{amt}", amt)
 }
 
+/// Tail line when the settlement readout is capped to the top winners.
+pub fn more_winners(l: Lang, n: &str) -> String {
+    tr!(l;
+        "\n…and {n} more winners", "\n…還有 {n} 位贏家", "\n…还有 {n} 位赢家", "\n…ほか {n} 人の勝者", "\n…외 {n}명의 승자",
+        "\n…и ещё {n} победителей", "\n…et {n} autres gagnants", "\n…y {n} ganadores más", "\n…und {n} weitere Gewinner", "\n…và {n} người thắng nữa",
+        "\n…dan {n} pemenang lagi", "\n…at {n} pang nanalo", "\n…และผู้ชนะอีก {n} คน", "\n…en nog {n} winnaars", "\n…ve {n} kazanan daha",
+        "\n…e mais {n} vencedores", "\n…और {n} विजेता", "\n…و{n} فائزين آخرين")
+    .replace("{n}", n)
+}
+
 // ----------------------------------------------------------------------------
 // Command-usage hints (shown when a command is called with the wrong format)
 // ----------------------------------------------------------------------------
@@ -1078,6 +1088,32 @@ pub fn predict_post_failed(l: Lang) -> &'static str {
         "⚠️ Не удалось опубликовать карточку — я ещё в том чате?", "⚠️ Impossible de publier la carte — suis-je encore dans ce chat ?", "⚠️ No pude publicar la tarjeta — ¿sigo en ese chat?", "⚠️ Konnte die Karte nicht posten — bin ich noch in dem Chat?", "⚠️ Không đăng được thẻ — tôi còn trong cuộc trò chuyện đó chứ?",
         "⚠️ Gagal memposting kartu — apakah saya masih di chat itu?", "⚠️ Hindi ma-post ang card — nasa chat na iyon pa ba ako?", "⚠️ โพสต์การ์ดไม่ได้ — ฉันยังอยู่ในแชทนั้นไหม?", "⚠️ Kon de kaart niet plaatsen — zit ik nog in die chat?", "⚠️ Kart paylaşılamadı — hâlâ o sohbette miyim?",
         "⚠️ Não consegui postar o cartão — ainda estou nesse chat?", "⚠️ कार्ड पोस्ट नहीं कर सका — क्या मैं अब भी उस चैट में हूँ?", "⚠️ تعذّر نشر البطاقة — هل ما زلت في تلك المحادثة؟")
+}
+
+pub fn btn_custom(l: Lang) -> &'static str {
+    tr!(l;
+        "⌨️ Custom", "⌨️ 自訂", "⌨️ 自定义", "⌨️ カスタム", "⌨️ 직접 입력",
+        "⌨️ Своё", "⌨️ Perso", "⌨️ Personalizado", "⌨️ Eigene", "⌨️ Tùy chỉnh",
+        "⌨️ Kustom", "⌨️ Custom", "⌨️ กำหนดเอง", "⌨️ Aangepast", "⌨️ Özel",
+        "⌨️ Personalizado", "⌨️ कस्टम", "⌨️ مخصص")
+}
+
+/// Prompt after the host taps the custom end-time button: type a duration.
+pub fn predict_ask_custom(l: Lang) -> &'static str {
+    tr!(l;
+        "Type a custom duration — e.g. 2h, 90m, or 1d12h:", "輸入自訂時長 — 例如 2h、90m 或 1d12h：", "输入自定义时长 — 例如 2h、90m 或 1d12h：", "カスタムの長さを入力してね — 例：2h、90m、1d12h：", "직접 기간을 입력해줘 — 예: 2h, 90m, 1d12h:",
+        "Введите своё время — напр. 2h, 90m или 1d12h:", "Entre une durée perso — ex. 2h, 90m ou 1d12h :", "Escribe una duración personalizada — ej. 2h, 90m o 1d12h:", "Gib eine eigene Dauer ein — z. B. 2h, 90m oder 1d12h:", "Nhập thời lượng tùy chỉnh — vd. 2h, 90m hoặc 1d12h:",
+        "Ketik durasi kustom — mis. 2h, 90m, atau 1d12h:", "Mag-type ng custom na tagal — hal. 2h, 90m, o 1d12h:", "พิมพ์ระยะเวลาที่กำหนดเอง — เช่น 2h, 90m หรือ 1d12h:", "Typ een eigen duur — bijv. 2h, 90m of 1d12h:", "Özel süre yaz — örn. 2h, 90m veya 1d12h:",
+        "Digite uma duração personalizada — ex. 2h, 90m ou 1d12h:", "कस्टम अवधि टाइप करें — जैसे 2h, 90m, या 1d12h:", "اكتب مدة مخصصة — مثل 2h أو 90m أو 1d12h:")
+}
+
+/// The host's custom duration text didn't parse.
+pub fn predict_bad_duration(l: Lang) -> &'static str {
+    tr!(l;
+        "Couldn't read that — try like 2h, 90m, or 1d12h.", "無法辨識 — 試試 2h、90m 或 1d12h。", "无法识别 — 试试 2h、90m 或 1d12h。", "読み取れなかったよ — 2h、90m、1d12h みたいに入力してね。", "못 알아들었어 — 2h, 90m, 1d12h 처럼 입력해줘.",
+        "Не понял — попробуйте как 2h, 90m или 1d12h.", "Format non reconnu — essaie 2h, 90m ou 1d12h.", "No lo entendí — prueba 2h, 90m o 1d12h.", "Nicht erkannt — versuch 2h, 90m oder 1d12h.", "Không đọc được — thử 2h, 90m hoặc 1d12h.",
+        "Tidak terbaca — coba 2h, 90m, atau 1d12h.", "Hindi mabasa — subukan ang 2h, 90m, o 1d12h.", "อ่านไม่ออก — ลอง 2h, 90m หรือ 1d12h", "Niet herkend — probeer 2h, 90m of 1d12h.", "Anlaşılmadı — 2h, 90m veya 1d12h dene.",
+        "Não entendi — tente 2h, 90m ou 1d12h.", "समझ नहीं आया — 2h, 90m, या 1d12h जैसा लिखें।", "لم أفهم — جرّب 2h أو 90m أو 1d12h.")
 }
 
 pub fn btn_no_deadline(l: Lang) -> &'static str {

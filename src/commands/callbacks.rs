@@ -286,10 +286,12 @@ async fn handle_gamble(
         };
     }
 
-    // settle: gamble:<outcome>  (host only, after close). The settled board is
-    // rendered in the host's language (prediction.lang) — it's a shared message.
+    // settle: gamble:<outcome>  (host only, after close). The result is posted as
+    // a **new message** (the header + top-10 winners, in the host's language) so a
+    // busy prediction can't blow past Telegram's message-size limit; the original
+    // card is left untouched.
     let outcome = rest;
-    let (outputs, display, state, prediction_lang) = {
+    let (outputs, result_text) = {
         let mut g = predictions.lock().await;
         let result = {
             let Some(prediction) = g.get_mut(&key) else {
@@ -301,15 +303,16 @@ async fn handle_gamble(
             if prediction.state != BetState::closed {
                 return answer(ctx, cb, i18n::not_closed_yet(lang), true).await;
             }
-            let (outputs, display) = prediction.settle(outcome);
+            let (outputs, header) = prediction.settle(outcome);
             // A terminal state → `save_prediction` drops the prediction's rows from the DB.
             if let Err(err) = db.save_prediction(prediction) {
                 eprintln!("save_prediction(settle) error: {err}");
             }
-            (outputs, display, prediction.state.clone(), prediction.lang)
+            // Bounded readout: header + at most the top 10 winners.
+            let result_text = format!("{header}{}", prediction.top_winners_block(10));
+            (outputs, result_text)
         };
-        // Drop the settled prediction from the in-memory map too — the board message
-        // already shows the final result and carries no buttons.
+        // Drop the settled prediction from the in-memory map too.
         g.remove(&key);
         result
     };
@@ -321,13 +324,9 @@ async fn handle_gamble(
             }
         }
     }
-    let _ = tg::edit_text_only(
-        ctx,
-        chat_id,
-        msg_id,
-        &format!("{}\n---{}\n", display, state.label(prediction_lang)),
-    )
-    .await;
+    // Post the result as a reply to the card (falls back to a loose message if the
+    // card is gone). The card itself is intentionally left as-is.
+    let _ = tg::send_text_reply(ctx, chat_id, msg_id, &result_text).await;
     answer(ctx, cb, i18n::settle_success(lang), false).await
 }
 
