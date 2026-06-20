@@ -5,7 +5,8 @@
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
-use crate::database::OpenMarket;
+use crate::core::types::BetState;
+use crate::database::{OpenMarket, COIN};
 use crate::core::i18n::{self, Lang};
 use std::time::Duration;
 use telexide::model::{CallbackQuery, User};
@@ -448,6 +449,140 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
     );
     reply(&ctx, &message, text).await?;
     Ok(())
+}
+
+/// `/profile` — owner-only inspector for one user's state: balance, open match
+/// bets, self-host prediction stakes, referral links, and referee count. Target =
+/// the replied-to user (best — we get their name), a numeric id argument, or the
+/// owner themselves. Sent as HTML so the user id rides in a tap-to-copy `<code>`
+/// span. Plain English (an operator diagnostic, not a user-facing surface).
+#[command(description = "owner: inspect a user's profile")]
+pub async fn profile(ctx: Context, message: Message) -> CommandResult {
+    let Some(owner) = owner_guard(&ctx, &message) else {
+        return Ok(());
+    };
+    // Replied-to user wins (carries a name); else a numeric id arg; else the
+    // owner inspecting themselves.
+    let replied = message.reply_to_message.as_ref().and_then(|r| r.from.clone());
+    let arg_id = args(&message).first().and_then(|s| s.parse::<i64>().ok());
+    let (target_id, named) = match (replied, arg_id) {
+        (Some(u), _) => (u.id, Some(u)),
+        (None, Some(id)) => (id, None),
+        (None, None) => (owner.id, Some(owner)),
+    };
+
+    let body = profile_text(&ctx, target_id, named.as_ref()).await;
+    tg::send_html(&ctx, message.chat.get_id(), &body).await?;
+    Ok(())
+}
+
+/// Assemble the `/profile` body for `id` (`user` supplies the name when known —
+/// a bare-id target stays anonymous). Every dynamic field is HTML-escaped so it
+/// can't break the `<code>`-wrapped id; the id itself is the copyable part.
+async fn profile_text(ctx: &Context, id: i64, user: Option<&User>) -> String {
+    use crate::commands::tg::escape as esc;
+    let database = db(ctx);
+
+    let mut s = String::from("👤 Profile\n");
+    if let Some(u) = user {
+        s.push_str(&format!("{}\n", esc(&full_name(u))));
+        if let Some(un) = u.username.as_deref().filter(|u| !u.is_empty()) {
+            s.push_str(&format!("@{}\n", esc(un)));
+        }
+    }
+    s.push_str(&format!("🆔 <code>{id}</code>\n"));
+
+    if !database.user_exists(id).unwrap_or(false) {
+        s.push_str("\n⚠️ No record — this user hasn't interacted with the bot yet.");
+        return s;
+    }
+
+    // Balance.
+    match database.get_user_info(id) {
+        Ok(info) => s.push_str(&format!("\n🪙 Balance: {}", fmt_coins(info.balance))),
+        Err(e) => s.push_str(&format!("\n🪙 Balance: ⚠️ {e}")),
+    }
+    // Chosen locale (only when explicitly set).
+    if let Ok(Some(lang)) = database.get_lang(id) {
+        s.push_str(&format!("\n🌐 Lang: {}", lang.store_code()));
+    }
+    // Check-in availability (read-only).
+    if let Ok(avail) = database.checkin_available(id) {
+        s.push_str(&format!("\n✅ Check-in: {}", if avail { "available" } else { "claimed today" }));
+    }
+
+    // Referrals.
+    let (referrer, co) = database.get_referrers(id).unwrap_or((0, 0));
+    let invited = database.count_referrals(id).unwrap_or(0);
+    s.push_str("\n\n🤝 Referrals");
+    match (referrer > 0, co > 0) {
+        (true, true) => s.push_str(&format!("\n· referred by <code>{referrer}</code> (co <code>{co}</code>)")),
+        (true, false) => s.push_str(&format!("\n· referred by <code>{referrer}</code>")),
+        _ => s.push_str("\n· referred by —"),
+    }
+    s.push_str(&format!("\n· invited {invited} user(s)"));
+
+    // Open (unsettled) match bets.
+    let bets = database.list_open_wagers(id).unwrap_or_default();
+    s.push_str(&format!("\n\n🎟️ Open match bets ({})", bets.len()));
+    if bets.is_empty() {
+        s.push_str("\n· none");
+    } else {
+        for p in &bets {
+            let side = match p.outcome.as_str() {
+                "teamA" => p.team_a.clone(),
+                "teamB" => p.team_b.clone(),
+                _ => "Draw".to_string(),
+            };
+            s.push_str(&format!(
+                "\n• {} vs. {}\n  {} · 🪙{} → 🏆{}",
+                esc(&p.team_a),
+                esc(&p.team_b),
+                esc(&side),
+                fmt_coins(p.stake),
+                fmt_coins(p.potential_payout()),
+            ));
+        }
+    }
+
+    // Stakes locked in still-open self-host (`/predict`) games (in-memory map).
+    let mut pred = String::new();
+    {
+        let games = predictions(ctx);
+        let guard = games.lock().await;
+        for g in guard.values() {
+            if !matches!(g.state, BetState::betting | BetState::closed) {
+                continue;
+            }
+            let staked: Vec<(&String, i64)> = g
+                .option_order
+                .iter()
+                .filter_map(|opt| {
+                    g.options
+                        .get(opt)
+                        .and_then(|d| d.detail.get(&id).copied())
+                        .filter(|&v| v > 0)
+                        .map(|v| (opt, v))
+                })
+                .collect();
+            if staked.is_empty() {
+                continue;
+            }
+            let desc = g
+                .description
+                .split_once('\n')
+                .map_or(g.description.as_str(), |(_, rest)| rest);
+            pred.push_str(&format!("\n🎲 {}", esc(desc)));
+            for (opt, stake) in staked {
+                pred.push_str(&format!("\n  {} · 🪙{}", esc(opt), fmt_coins(stake * COIN)));
+            }
+        }
+    }
+    if !pred.is_empty() {
+        s.push_str(&format!("\n\n🎲 Open predictions{pred}"));
+    }
+
+    s
 }
 
 /// `/mint <amount>` — credit `amount` whole water-coins to the sender of the

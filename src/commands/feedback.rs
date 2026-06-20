@@ -8,23 +8,30 @@
 //!   half-built `/predict`, and vice versa — at most one DM flow per user).
 
 use crate::bot::Convo;
+use crate::commands::tg;
 use crate::commands::util::*;
 use crate::core::i18n;
 use telexide::model::{UpdateContent, User};
 use telexide::prelude::*;
 
 /// DM the owner a feedback body tagged with the sender (best-effort — a bounce is
-/// logged, never surfaced to the user).
+/// logged, never surfaced to the user). Sent as HTML so the sender's numeric id
+/// rides in a tap-to-copy `<code>` span (handy for `/mint`, `/profile`, etc.);
+/// every dynamic part is escaped so HTML in a name/body can't break the message.
 async fn send_to_owner(ctx: &Context, user: &User, body: &str) {
     let owner = owner_id(ctx);
     if owner == 0 {
         return;
     }
+    let name = tg::escape(&full_name(user));
     let who = match &user.username {
-        Some(u) if !u.is_empty() => format!("{} (@{u}, id {})", full_name(user), user.id),
-        _ => format!("{} (id {})", full_name(user), user.id),
+        Some(u) if !u.is_empty() => {
+            format!("{name} (@{}, id <code>{}</code>)", tg::escape(u), user.id)
+        }
+        _ => format!("{name} (id <code>{}</code>)", user.id),
     };
-    if let Err(e) = send_text(ctx, owner, format!("📣 Feedback from {who}:\n\n{body}")).await {
+    let text = format!("📣 Feedback from {who}:\n\n{}", tg::escape(body));
+    if let Err(e) = tg::send_html(ctx, owner, &text).await {
         eprintln!("feedback owner DM failed (owner {owner}): {e:?}");
     }
 }

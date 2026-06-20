@@ -30,6 +30,18 @@ impl Database {
         Ok(inserted == 1)
     }
 
+    /// The user's recorded `(referrer, co_referrer)` ids (0 = none). For the
+    /// owner-only `/profile` inspector; assumes the row exists (the caller gates
+    /// on `user_exists` first, so this never creates a phantom row).
+    pub fn get_referrers(&self, user: i64) -> SqlResult<(i64, i64)> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT referrer, co_referrer FROM balance WHERE user = ?1",
+            params![user],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+    }
+
     /// How many users were referred by `user`.
     pub fn count_referrals(&self, user: i64) -> SqlResult<i64> {
         let conn = self.conn.lock();

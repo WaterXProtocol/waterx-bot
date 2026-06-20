@@ -171,6 +171,13 @@ pub async fn send_text_reply(
     Ok(())
 }
 
+/// Escape text for Telegram's HTML `parse_mode` (`&`, `<`, `>` only — sufficient
+/// for message-body text, the only place we use HTML). Lets dynamic content
+/// (names, team names, feedback bodies) sit safely next to a `<code>` span.
+pub fn escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 /// Send a plain message with `parse_mode: HTML` (used for the tap-to-copy
 /// `<code>` invite link). No inline keyboard.
 pub async fn send_html(ctx: &Context, chat_id: i64, text: &str) -> Result<(), CommandError> {
