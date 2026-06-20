@@ -912,10 +912,10 @@ fn menu_bets(l: Lang) -> &'static str {
 
 fn menu_settings(l: Lang) -> &'static str {
     tr!(l;
-        "Language, timezone & odds", "語言、時區與賠率", "语言、时区与赔率", "言語・タイムゾーン・オッズ", "언어·시간대·배당",
-        "Язык, часовой пояс и кэфы", "Langue, fuseau & cotes", "Idioma, zona y cuotas", "Sprache, Zeitzone & Quoten", "Ngôn ngữ, múi giờ & tỷ lệ",
-        "Bahasa, zona waktu & odds", "Wika, time zone at odds", "ภาษา โซนเวลา และราคาต่อรอง", "Taal, tijdzone & odds", "Dil, saat dilimi & oran",
-        "Idioma, fuso & odds", "भाषा, टाइमज़ोन और ऑड्स", "اللغة والمنطقة الزمنية والأodds")
+        "Preferences", "偏好設定", "偏好设置", "設定", "환경설정",
+        "Настройки", "Préférences", "Preferencias", "Einstellungen", "Tùy chỉnh",
+        "Preferensi", "Mga kagustuhan", "การตั้งค่า", "Voorkeuren", "Tercihler",
+        "Preferências", "सेटिंग्स", "التفضيلات")
 }
 
 /// `/settings` hub header. The three buttons (Language / Timezone / Format)
