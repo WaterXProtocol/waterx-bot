@@ -839,17 +839,26 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 8] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
     [
         ("start", menu_start(l)),
         ("balance", menu_balance(l)),
         ("bets", menu_bets(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
+        ("markets", menu_markets(l)),
         ("rule", menu_rule(l)),
         ("feedback", menu_feedback(l)),
         ("settings", menu_settings(l)),
     ]
+}
+
+fn menu_markets(l: Lang) -> &'static str {
+    tr!(l;
+        "Browse markets", "瀏覽市場", "浏览市场", "マーケットを見る", "마켓 둘러보기",
+        "Обзор рынков", "Parcourir les marchés", "Ver mercados", "Märkte ansehen", "Xem thị trường",
+        "Lihat pasar", "Tingnan ang mga market", "ดูตลาด", "Markten bekijken", "Piyasalara göz at",
+        "Ver mercados", "मार्केट देखें", "تصفّح الأسواق")
 }
 
 fn menu_feedback(l: Lang) -> &'static str {
@@ -967,6 +976,24 @@ pub fn settings_title(l: Lang) -> &'static str {
         "⚙️ Настройки", "⚙️ Paramètres", "⚙️ Ajustes", "⚙️ Einstellungen", "⚙️ Cài đặt",
         "⚙️ Pengaturan", "⚙️ Mga Setting", "⚙️ การตั้งค่า", "⚙️ Instellingen", "⚙️ Ayarlar",
         "⚙️ Configurações", "⚙️ सेटिंग्स", "⚙️ الإعدادات")
+}
+
+/// In a group, `/settings` opens privately — point the user to their DM.
+pub fn settings_check_dm(l: Lang) -> &'static str {
+    tr!(l;
+        "Check your DM to change settings ⚙️📩", "請查看私訊來變更設定 ⚙️📩", "请查看私信来更改设置 ⚙️📩", "設定はDMで変更してね ⚙️📩", "설정은 DM에서 바꿔줘 ⚙️📩",
+        "Откройте личные сообщения, чтобы изменить настройки ⚙️📩", "Va en privé pour changer les paramètres ⚙️📩", "Revisa tu DM para cambiar los ajustes ⚙️📩", "Schau in deine DMs, um Einstellungen zu ändern ⚙️📩", "Kiểm tra tin nhắn riêng để đổi cài đặt ⚙️📩",
+        "Cek DM untuk mengubah pengaturan ⚙️📩", "Tingnan ang DM mo para baguhin ang settings ⚙️📩", "เช็ค DM เพื่อเปลี่ยนการตั้งค่า ⚙️📩", "Check je DM om instellingen te wijzigen ⚙️📩", "Ayarları değiştirmek için DM'ine bak ⚙️📩",
+        "Veja sua DM para mudar as configurações ⚙️📩", "सेटिंग्स बदलने के लिए अपना DM देखें ⚙️📩", "تحقق من رسائلك الخاصة لتغيير الإعدادات ⚙️📩")
+}
+
+/// `/settings` in a group but the user never opened a DM with the bot.
+pub fn settings_dm_first(l: Lang) -> &'static str {
+    tr!(l;
+        "Start a private chat with me first to change settings 📩", "請先私訊我才能變更設定 📩", "请先私信我才能更改设置 📩", "設定を変えるにはまず私にDMしてね 📩", "설정을 바꾸려면 먼저 나에게 DM을 보내줘 📩",
+        "Сначала напишите мне в личку, чтобы менять настройки 📩", "Écris-moi d'abord en privé pour changer les paramètres 📩", "Primero abre un chat privado conmigo para cambiar los ajustes 📩", "Schreib mir zuerst privat, um Einstellungen zu ändern 📩", "Hãy nhắn riêng cho mình trước để đổi cài đặt 📩",
+        "Mulai chat pribadi dulu untuk mengubah pengaturan 📩", "Mag-DM muna sa akin para baguhin ang settings 📩", "เริ่มแชทส่วนตัวกับฉันก่อนเพื่อเปลี่ยนการตั้งค่า 📩", "Begin eerst een privégesprek met mij om instellingen te wijzigen 📩", "Ayarları değiştirmek için önce bana özelden yaz 📩",
+        "Abra um chat privado comigo primeiro para mudar as configurações 📩", "सेटिंग्स बदलने के लिए पहले मुझसे निजी चैट शुरू करें 📩", "ابدأ محادثة خاصة معي أولًا لتغيير الإعدادات 📩")
 }
 
 /// `[🌐 Language]` button in the `/settings` hub (opens the language picker).
