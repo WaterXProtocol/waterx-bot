@@ -326,13 +326,32 @@ impl Database {
         Ok((games_cleared, refunded))
     }
 
-    /// Selective `/reset` — zero every coin **balance** (the `balance` column),
-    /// leaving each user's row and settings (lang/tz/referrer/odds_fmt) intact.
-    /// Returns the number of accounts zeroed.
-    pub fn reset_balances(&self) -> SqlResult<i64> {
+    /// Snapshot every **non-zero** coin balance as `(user, micro_coins)` — the
+    /// backup an `[Everything]` reset writes to disk and `/load` restores.
+    pub fn export_balances(&self) -> SqlResult<Vec<(i64, i64)>> {
         let conn = self.conn.lock();
-        let n = conn.execute("UPDATE balance SET balance = 0", [])?;
-        Ok(n as i64)
+        let mut stmt = conn.prepare("SELECT user, balance FROM balance WHERE balance > 0")?;
+        let v = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(v)
+    }
+
+    /// Restore coin balances from a `/load` backup: upsert each user's `balance`
+    /// (creating the row if needed), leaving every other column untouched, in one
+    /// transaction. Returns the number of balances written.
+    pub fn import_balances(&self, rows: &[(i64, i64)]) -> SqlResult<usize> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        for (user, balance) in rows {
+            tx.execute(
+                "INSERT INTO balance (user, balance) VALUES (?1, ?2)
+                 ON CONFLICT(user) DO UPDATE SET balance = excluded.balance",
+                params![user, balance],
+            )?;
+        }
+        tx.commit()?;
+        Ok(rows.len())
     }
 
     pub(super) fn ensure_row(&self, user_id: i64) -> SqlResult<()> {
@@ -416,18 +435,24 @@ mod reset_tests {
     }
 
     #[test]
-    fn reset_balances_zeroes_coins_keeps_rows_and_settings() {
+    fn export_then_import_round_trips_balances() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(10, 50 * COIN).unwrap();
-        db.set_lang(10, crate::i18n::Lang::Hans).unwrap();
+        db.force_change(20, 7 * COIN).unwrap();
+        db.force_change(30, 0).unwrap(); // zero balance → not exported
 
-        let n = db.reset_balances().unwrap();
-        assert_eq!(n, 1);
-        assert_eq!(db.get_user_info(10).unwrap().balance, 0);
-        // Row + settings survive (only the coin balance is zeroed).
-        assert_eq!(db.get_lang(10).unwrap(), Some(crate::i18n::Lang::Hans));
-        // Zeroing keeps the row, so a referral still can't re-bind.
-        assert!(db.user_exists(10).unwrap());
+        let snapshot = db.export_balances().unwrap();
+        assert_eq!(snapshot.len(), 2); // only the two non-zero balances
+        assert!(snapshot.contains(&(10, 50 * COIN)));
+        assert!(snapshot.contains(&(20, 7 * COIN)));
+
+        // Wipe, then restore from the snapshot.
+        db.reset_all().unwrap();
+        assert!(!db.user_exists(10).unwrap());
+        let n = db.import_balances(&snapshot).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(db.get_user_info(10).unwrap().balance, 50 * COIN);
+        assert_eq!(db.get_user_info(20).unwrap().balance, 7 * COIN);
     }
 
     #[test]

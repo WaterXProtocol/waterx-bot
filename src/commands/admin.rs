@@ -18,8 +18,7 @@ pub const RESET_CB: &str = "rst:";
 /// Selectable reset parts, OR'd into a bitmask that rides in the callback data.
 const RESET_MATCHES: u8 = 1;
 const RESET_PREDICTIONS: u8 = 2;
-const RESET_BALANCE: u8 = 4;
-const RESET_EVERYTHING: u8 = 8;
+const RESET_EVERYTHING: u8 = 4;
 const RESET_PROMPT: &str = "🧹 Reset (dev) — tap to select, then Submit:";
 
 /// Marker file written by `/redeploy` (holds the chat id to notify) and read by
@@ -438,7 +437,7 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
 
 /// `/reset` — selective, button-driven wipe. Owner-only **and** dev-mode-only, so
 /// it can never fire against a production bot. Posts a multi-select picker
-/// (Matches / Predictions / Balances + Submit); the actual work happens in
+/// (Matches / Predictions / Everything + Submit); the actual work happens in
 /// [`handle_reset_cb`] when Submit is pressed.
 #[command(description = "owner+dev: selective reset")]
 pub async fn reset(ctx: Context, message: Message) -> CommandResult {
@@ -463,16 +462,16 @@ fn reset_picker_rows(flags: u8) -> Vec<tg::Row> {
     vec![
         part(RESET_MATCHES, "Matches (refund open bets)"),
         part(RESET_PREDICTIONS, "Predictions (refund open bets)"),
-        part(RESET_BALANCE, "Balances (zero coins)"),
-        part(RESET_EVERYTHING, "Everything (full wipe → re-refer)"),
+        part(RESET_EVERYTHING, "Everything (refund + backup + wipe)"),
         vec![("🧹 Submit".to_string(), format!("{RESET_CB}go:{flags}"))],
     ]
 }
 
 /// Owner+dev button-driven selective reset (callback prefix [`RESET_CB`]).
 /// `t:<flags>` re-renders the picker with a part toggled; `go:<flags>` executes
-/// the picked parts. Refunds run **before** the balance wipe, so a combined
-/// "balances + matches/predictions" reset cleanly ends at zero.
+/// the picked parts. **Everything** returns all open bets, snapshots balances to a
+/// backup file (`/load`), then wipes every table — aborting the wipe if the
+/// backup can't be written, so balances are never lost.
 pub async fn handle_reset_cb(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -501,24 +500,49 @@ pub async fn handle_reset_cb(
             let database = db(ctx);
             let mut lines: Vec<String> = Vec::new();
             if flags & RESET_EVERYTHING != 0 {
-                // Full wipe — subsumes the granular parts (a nuke, so no refunds).
-                // Deletes every table incl. `balance` (users become brand-new) and
-                // `chats` (the group adder) — re-add the bot to re-record it.
-                match database.reset_all() {
-                    Ok(()) => {
+                // (1) Return every open bet (match + self-host) so the snapshot
+                // captures those coins back in the balances…
+                match database.reset_wagers() {
+                    Ok((n, refunded)) => lines.push(format!("🎟️ Returned {} to {n} open match bet(s)", fmt_coins(refunded))),
+                    Err(e) => {
+                        eprintln!("reset_wagers (everything) error: {e}");
+                        lines.push("🎟️ Match refunds — ⚠️ error".to_string());
+                    }
+                }
+                match database.reset_predictions() {
+                    Ok((n, refunded)) => {
                         games(ctx).lock().await.clear();
-                        lines.push(
-                            "🗑️ Everything wiped — all tables cleared.\nKick + re-add the bot to re-record the group adder, then members re-refer on their next interaction."
-                                .to_string(),
-                        );
+                        lines.push(format!("🎲 Returned {} from {n} prediction(s)", fmt_coins(refunded)));
                     }
                     Err(e) => {
-                        eprintln!("reset_all error: {e}");
-                        lines.push("🗑️ Everything — ⚠️ error".to_string());
+                        eprintln!("reset_predictions (everything) error: {e}");
+                        lines.push("🎲 Prediction refunds — ⚠️ error".to_string());
+                    }
+                }
+                // (2) Snapshot balances to a backup file — the safety net for /load.
+                // If it fails, **abort the wipe** (balances are kept, no data loss).
+                match backup_balances(ctx) {
+                    Ok(file) => {
+                        // (3) …then wipe everything.
+                        match database.reset_all() {
+                            Ok(()) => {
+                                games(ctx).lock().await.clear();
+                                lines.push(format!(
+                                    "💾 Backup saved: {file} (restore with /load {file})\n🗑️ Everything wiped — kick + re-add the bot to re-record the group adder, then members re-refer."
+                                ));
+                            }
+                            Err(e) => {
+                                eprintln!("reset_all error: {e}");
+                                lines.push("🗑️ Wipe — ⚠️ error".to_string());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("backup_balances error: {e}");
+                        lines.push(format!("💾 Backup FAILED — wipe aborted, balances kept ({e})"));
                     }
                 }
             } else {
-                // Refunds first (they credit balances)…
                 if flags & RESET_MATCHES != 0 {
                     match database.reset_wagers() {
                         Ok((n, refunded)) => {
@@ -542,16 +566,6 @@ pub async fn handle_reset_cb(
                         }
                     }
                 }
-                // …then the balance wipe, so it's the final state when both are picked.
-                if flags & RESET_BALANCE != 0 {
-                    match database.reset_balances() {
-                        Ok(n) => lines.push(format!("🪙 Balances zeroed — {n} account(s)")),
-                        Err(e) => {
-                            eprintln!("reset_balances error: {e}");
-                            lines.push("🪙 Balances — ⚠️ error".to_string());
-                        }
-                    }
-                }
             }
             let summary = format!("🧹 Reset done (dev)\n\n{}", lines.join("\n"));
             tg::edit_text_only(ctx, chat, mid, &summary).await.ok();
@@ -560,6 +574,96 @@ pub async fn handle_reset_cb(
         _ => {}
     }
     answer(ctx, cb, "", false).await
+}
+
+/// Snapshot every non-zero coin balance to a timestamped `balances-*.json` file in
+/// the working directory (next to the SQLite DB), returning the filename. The
+/// safety net for the `[Everything]` wipe — restored via `/load`. `Err(String)` on
+/// a DB or filesystem failure so the caller can abort the wipe.
+fn backup_balances(ctx: &Context) -> Result<String, String> {
+    let rows = db(ctx).export_balances().map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(&rows).map_err(|e| e.to_string())?;
+    let file = format!("balances-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+    std::fs::write(&file, json).map_err(|e| e.to_string())?;
+    Ok(file)
+}
+
+/// A safe backup filename: our `balances-*.json` pattern with no path separators —
+/// so a `/load <name>` can't traverse out of the working directory.
+fn valid_backup_name(name: &str) -> bool {
+    name.starts_with("balances-")
+        && name.ends_with(".json")
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+}
+
+/// Balance-backup files in the working directory, newest first (timestamped names
+/// sort lexicographically, so a reversed sort puts the newest on top).
+fn list_backup_files() -> Vec<String> {
+    let mut files: Vec<String> = std::fs::read_dir(".")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| valid_backup_name(n))
+        .collect();
+    files.sort();
+    files.reverse();
+    files
+}
+
+/// `/load` — owner-only. With no argument, list the `balances-*.json` backups (the
+/// snapshots written by an `[Everything]` reset). With a filename, restore those
+/// balances (upsert each user's coin balance from the file).
+#[command(description = "owner: list/restore balance backups")]
+pub async fn load(ctx: Context, message: Message) -> CommandResult {
+    let Some(uid) = from_id(&message) else {
+        return Ok(());
+    };
+    if !is_owner(&ctx, uid) {
+        return Ok(());
+    }
+    let parts = args(&message);
+    let Some(name) = parts.first() else {
+        // No arg → list the available backups.
+        let files = list_backup_files();
+        if files.is_empty() {
+            reply(&ctx, &message, "💾 No balance backups found.").await?;
+        } else {
+            let mut s = String::from("💾 Balance backups (newest first):\n");
+            for f in &files {
+                s.push_str(&format!("\n· {f}"));
+            }
+            s.push_str("\n\nRestore with: /load <filename>");
+            reply(&ctx, &message, s).await?;
+        }
+        return Ok(());
+    };
+    // With an arg → restore that backup.
+    if !valid_backup_name(name) {
+        reply(&ctx, &message, "⚠️ Invalid backup name — run /load to list valid files.").await?;
+        return Ok(());
+    }
+    let content = match std::fs::read_to_string(name) {
+        Ok(c) => c,
+        Err(e) => {
+            reply(&ctx, &message, format!("⚠️ Can't read {name}: {e}")).await?;
+            return Ok(());
+        }
+    };
+    let rows: Vec<(i64, i64)> = match serde_json::from_str(&content) {
+        Ok(r) => r,
+        Err(e) => {
+            reply(&ctx, &message, format!("⚠️ Bad backup file ({name}): {e}")).await?;
+            return Ok(());
+        }
+    };
+    match db(&ctx).import_balances(&rows) {
+        Ok(n) => reply(&ctx, &message, format!("✅ Restored {n} balance(s) from {name}")).await?,
+        Err(e) => reply(&ctx, &message, format!("⚠️ Restore failed: {e}")).await?,
+    }
+    Ok(())
 }
 
 /// `/pause` — flip the bot into the paused state (every non-owner action is
