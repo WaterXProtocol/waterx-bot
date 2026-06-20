@@ -1323,6 +1323,26 @@ pub fn btn_invite_qr(l: Lang) -> &'static str {
         "🔳 Código QR", "🔳 QR कोड", "🔳 رمز QR")
 }
 
+/// Home-page badge (private only) shown when the host has open predictions to
+/// settle; `{n}` is the count.
+pub fn btn_settle_pending(l: Lang, n: usize) -> String {
+    tr!(l;
+        "⚙️ Settle predictions ({n})", "⚙️ 結算預測 ({n})", "⚙️ 结算预测 ({n})", "⚙️ 予測を精算 ({n})", "⚙️ 예측 정산 ({n})",
+        "⚙️ Рассчитать прогнозы ({n})", "⚙️ Régler les prédictions ({n})", "⚙️ Liquidar predicciones ({n})", "⚙️ Vorhersagen abrechnen ({n})", "⚙️ Quyết toán dự đoán ({n})",
+        "⚙️ Selesaikan prediksi ({n})", "⚙️ Ayusin ang prediksyon ({n})", "⚙️ ปิดผลคำทำนาย ({n})", "⚙️ Voorspellingen afrekenen ({n})", "⚙️ Tahminleri sonuçlandır ({n})",
+        "⚙️ Liquidar previsões ({n})", "⚙️ भविष्यवाणियाँ निपटाएँ ({n})", "⚙️ تسوية التوقّعات ({n})")
+    .replace("{n}", &n.to_string())
+}
+
+/// Header of the `menu:settle` list — the host's open predictions.
+pub fn settle_list_title(l: Lang) -> &'static str {
+    tr!(l;
+        "⚙️ Predictions you're hosting — tap one to open and settle it:", "⚙️ 你發起的預測 — 點一個開啟並結算：", "⚙️ 你发起的预测 — 点一个打开并结算：", "⚙️ あなたが主催中の予測 — タップして開き精算しましょう：", "⚙️ 내가 진행 중인 예측 — 눌러서 열고 정산하세요:",
+        "⚙️ Ваши прогнозы — нажмите, чтобы открыть и рассчитать:", "⚙️ Tes prédictions en cours — touche pour l'ouvrir et la régler :", "⚙️ Tus predicciones en curso — toca una para abrirla y liquidarla:", "⚙️ Deine laufenden Vorhersagen — zum Öffnen und Abrechnen tippen:", "⚙️ Dự đoán bạn đang tổ chức — chạm để mở và quyết toán:",
+        "⚙️ Prediksi yang kamu adakan — ketuk untuk membuka dan menyelesaikan:", "⚙️ Mga prediksyong hino-host mo — i-tap para buksan at ayusin:", "⚙️ คำทำนายที่คุณจัด — แตะเพื่อเปิดและปิดผล:", "⚙️ Voorspellingen die je host — tik om te openen en af te rekenen:", "⚙️ Düzenlediğin tahminler — açıp sonuçlandırmak için dokun:",
+        "⚙️ Previsões que você criou — toque para abrir e liquidar:", "⚙️ आपकी चल रही भविष्यवाणियाँ — खोलकर निपटाने के लिए टैप करें:", "⚙️ التوقّعات التي تديرها — انقر لفتحها وتسويتها:")
+}
+
 /// Copyable-link output (HTML `parse_mode`): the link in a `<code>` span renders
 /// monospace and is tap-to-copy on Telegram clients.
 pub fn invite_copy(l: Lang, link: &str) -> String {

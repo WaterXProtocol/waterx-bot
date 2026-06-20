@@ -128,7 +128,7 @@ impl Prediction {
 
     /// The host's question (the board strips the leading id-tail line that
     /// `set_id` prepends to `description`).
-    fn question(&self) -> &str {
+    pub fn question(&self) -> &str {
         self.description
             .split_once('\n')
             .map_or(self.description.as_str(), |(_, q)| q)

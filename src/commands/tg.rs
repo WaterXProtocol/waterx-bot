@@ -274,6 +274,43 @@ pub async fn clear_buttons(ctx: &Context, chat_id: i64, message_id: i64) -> Resu
     Ok(())
 }
 
+/// Pin a message in `chat_id` (best-effort). `disable_notification: true` keeps it
+/// quiet — no "pinned a message" alert blasted at every member. Used to pin a fresh
+/// `/predict` card so members can find it at the top of the group; requires the bot
+/// to hold the `can_pin_messages` admin right, so any failure (not admin, private
+/// chat) is the caller's to ignore.
+pub async fn pin_message(ctx: &Context, chat_id: i64, message_id: i64) -> Result<(), CommandError> {
+    let payload = json!({
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "disable_notification": true,
+    });
+    let resp = ctx
+        .api
+        .post(APIEndpoint::PinChatMessage, Some(payload))
+        .await?;
+    let v: telexide::Result<serde_json::Value> = resp.into();
+    v?;
+    Ok(())
+}
+
+/// Unpin a message in `chat_id` (best-effort). Used to undo a `/predict` card's pin
+/// once it settles. Same admin-right caveat as [`pin_message`]; a failure (already
+/// unpinned, lost rights) is harmless to ignore.
+pub async fn unpin_message(ctx: &Context, chat_id: i64, message_id: i64) -> Result<(), CommandError> {
+    let payload = json!({
+        "chat_id": chat_id,
+        "message_id": message_id,
+    });
+    let resp = ctx
+        .api
+        .post(APIEndpoint::UnpinChatMessage, Some(payload))
+        .await?;
+    let v: telexide::Result<serde_json::Value> = resp.into();
+    v?;
+    Ok(())
+}
+
 /// Upload in-memory PNG bytes as a photo (caption + inline keyboard), in a single
 /// message. Returns the Telegram **`file_id`** of the sent photo so the caller can
 /// cache it and later re-send via [`send_photo_id`] without re-uploading.

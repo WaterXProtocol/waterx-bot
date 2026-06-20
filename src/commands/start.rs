@@ -1,5 +1,5 @@
 use crate::commands::util::*;
-use crate::commands::{menu, referral, tg};
+use crate::commands::{menu, predict, referral, tg};
 use crate::core::i18n::{self, Lang};
 use telexide::prelude::*;
 
@@ -41,11 +41,12 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
         Some(lang) => {
             let available =
                 is_group_chat(chat_id) || database.checkin_available(uid).unwrap_or(true);
+            let pending = predict::pending_settle_count(&ctx, uid).await;
             tg::send_with_buttons(
                 &ctx,
                 chat_id,
                 &menu::menu_text(lang, &full_name(&user)),
-                &menu::main_menu_rows(lang, available, is_group_chat(chat_id)),
+                &menu::main_menu_rows(lang, available, is_group_chat(chat_id), pending),
             )
             .await?;
         }

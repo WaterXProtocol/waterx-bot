@@ -94,6 +94,9 @@ pub const MENU_BALANCE: &str = "menu:balance";
 pub const MENU_MARKETS: &str = "menu:markets";
 pub const MENU_RULE: &str = "menu:rule";
 pub const MENU_INVITE: &str = "menu:invite";
+/// Private-only home-page button (shown only when the host has open predictions):
+/// list the predictions they're running so they can jump in and settle them.
+pub const MENU_SETTLE: &str = "menu:settle";
 /// Group-only home-page button: open the `/predict` builder (handled like the
 /// `/predict` command).
 pub const MENU_PREDICT: &str = "menu:predict";
@@ -105,6 +108,16 @@ pub const INVITE_QR: &str = "inv:qr";
 /// A user's personal referral deep link: opening it sends `/start <user_id>`.
 pub fn referral_link(bot_username: &str, user_id: i64) -> String {
     format!("https://t.me/{bot_username}?start={user_id}")
+}
+
+/// A `t.me/c/<id>/<msg>` deep link to a specific message — only **supergroups**
+/// and channels (chat ids prefixed `-100`) have one, so a plain group / private
+/// chat returns `None`. Used to let a host jump straight to a prediction card to
+/// settle it (the link works for members of that chat).
+pub fn message_link(chat_id: i64, msg_id: i64) -> Option<String> {
+    let internal = chat_id.to_string();
+    let internal = internal.strip_prefix("-100")?;
+    Some(format!("https://t.me/c/{internal}/{msg_id}"))
 }
 
 /// Language-picker keyboard: every supported locale, two per row, labelled with
@@ -143,7 +156,12 @@ pub fn menu_text(lang: Lang, name: &str) -> String {
 /// balance/fruit, so it deliberately carries **no** referral deep-link button —
 /// the `[Play]` URL button lives only in the `menu:invite` output, which has no
 /// private info and is meant to be shared.
-pub fn main_menu_rows(lang: Lang, checkin_available: bool, is_group: bool) -> Vec<Row> {
+pub fn main_menu_rows(
+    lang: Lang,
+    checkin_available: bool,
+    is_group: bool,
+    pending_settle: usize,
+) -> Vec<Row> {
     // One button per row (vertical stack), check-in on top only when claimable.
     // In a **group** the menu is a single shared message, so the per-user actions
     // ([Check assets], [Invite friends]) are hidden — only the shared check-in
@@ -153,6 +171,14 @@ pub fn main_menu_rows(lang: Lang, checkin_available: bool, is_group: bool) -> Ve
         rows.push(vec![(
             i18n::btn_checkin(lang).to_string(),
             MENU_CHECKIN.to_string(),
+        )]);
+    }
+    // Private-only nudge: predictions this host still has to settle. Hidden in a
+    // group (the menu there is shared — this is a per-user to-do).
+    if !is_group && pending_settle > 0 {
+        rows.push(vec![(
+            i18n::btn_settle_pending(lang, pending_settle),
+            MENU_SETTLE.to_string(),
         )]);
     }
     if !is_group {

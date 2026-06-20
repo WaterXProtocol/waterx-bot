@@ -117,6 +117,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_predict(&ctx, &cb).await
     } else if data == menu::MENU_INVITE {
         handle_menu_invite(&ctx, &cb).await
+    } else if data == menu::MENU_SETTLE {
+        handle_menu_settle(&ctx, &cb).await
     } else if data == menu::INVITE_LINK {
         handle_invite_link(&ctx, &cb).await
     } else if data == menu::INVITE_FWD {
@@ -335,6 +337,11 @@ async fn handle_gamble(
     // text is left as-is), then post the result as a reply to it (falling back to
     // a loose message if the card is gone).
     let _ = tg::clear_buttons(ctx, chat_id, msg_id).await;
+    // Undo the pin set when the card was created (best-effort; no-op if it was
+    // never pinned — e.g. a DM prediction or the bot lacks the right).
+    if is_group_chat(chat_id) {
+        let _ = tg::unpin_message(ctx, chat_id, msg_id).await;
+    }
     let _ = tg::send_text_reply(ctx, chat_id, msg_id, &result_text).await;
     answer(ctx, cb, i18n::settle_success(lang), false).await
 }
@@ -559,7 +566,7 @@ async fn handle_set_lang(
                 chat,
                 message.message_id,
                 &menu::menu_text(lang, &full_name(&cb.from)),
-                &menu::main_menu_rows(lang, available, in_group),
+                &menu::main_menu_rows(lang, available, in_group, 0),
             )
             .await;
         } else {
@@ -590,12 +597,13 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
         let chat = message.chat.get_id();
         let in_group = is_group_chat(chat);
         let available = in_group || db.checkin_available(cb.from.id).unwrap_or(true);
+        let pending = predict::pending_settle_count(ctx, cb.from.id).await;
         let _ = tg::edit_with_buttons(
             ctx,
             chat,
             message.message_id,
             &menu::menu_text(lang, &full_name(&cb.from)),
-            &menu::main_menu_rows(lang, available, in_group),
+            &menu::main_menu_rows(lang, available, in_group, pending),
         )
         .await;
     }
@@ -757,12 +765,13 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         Ok(true) => {
             if let Some(message) = cb.message.clone() {
                 if !is_group_chat(message.chat.get_id()) {
+                    let pending = predict::pending_settle_count(ctx, cb.from.id).await;
                     let _ = tg::edit_with_buttons(
                         ctx,
                         message.chat.get_id(),
                         message.message_id,
                         &menu::menu_text(lang, &full_name(&cb.from)),
-                        &menu::main_menu_rows(lang, false, false),
+                        &menu::main_menu_rows(lang, false, false, pending),
                     )
                     .await;
                 }
@@ -815,15 +824,61 @@ async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let chat = message.chat.get_id();
     let in_group = is_group_chat(chat);
     let available = in_group || db(ctx).checkin_available(cb.from.id).unwrap_or(true);
+    let pending = predict::pending_settle_count(ctx, cb.from.id).await;
     let _ = tg::edit_with_buttons(
         ctx,
         chat,
         message.message_id,
         &menu::menu_text(lang, &full_name(&cb.from)),
-        &menu::main_menu_rows(lang, available, in_group),
+        &menu::main_menu_rows(lang, available, in_group, pending),
     )
     .await;
     Ok(())
+}
+
+/// `menu:settle` — edit the menu in place into the host's list of open
+/// predictions, each a tap-to-jump button (a `t.me/c/` deep link to the card,
+/// where the existing close/settle buttons live), plus `[⬅ Back]`. Private-only
+/// (the button isn't shown in groups). Predictions in a plain (non-supergroup)
+/// group have no message link — those are listed in the body text instead.
+async fn handle_menu_settle(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    let chat = message.chat.get_id();
+    let preds = predict::host_open_predictions(ctx, cb.from.id).await;
+    // Raced to empty (all settled since the badge rendered) — just drop back to the
+    // home menu in place (handles its own ack), no "nothing to settle" notice.
+    if preds.is_empty() {
+        return handle_menu_home(ctx, cb).await;
+    }
+    answer(ctx, cb, "", false).await?;
+    let back = vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())];
+    let mut body = i18n::settle_list_title(lang).to_string();
+    let mut rows: Vec<tg::Row> = Vec::new();
+    for p in &preds {
+        // 🔴 ready to settle (deadline passed / none), 🟢 still running.
+        let mark = if p.ready { "🔴" } else { "🟢" };
+        let title = truncate_label(&p.question, 40);
+        match menu::message_link(p.chat_id, p.msg_id) {
+            Some(link) => rows.push(vec![(format!("{mark} {title}"), link)]),
+            // No deep link (plain group) — surface it in the body so it isn't lost.
+            None => body.push_str(&format!("\n{mark} {title}")),
+        }
+    }
+    rows.push(back);
+    let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &body, &rows).await;
+    Ok(())
+}
+
+/// Trim a button label to at most `max` chars (char-safe), adding an ellipsis when cut.
+fn truncate_label(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{cut}…")
 }
 
 /// This user's referral deep link, from the cached bot username.

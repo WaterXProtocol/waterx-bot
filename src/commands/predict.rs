@@ -272,11 +272,57 @@ async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, minutes: i64
     let key = format!("{}:{}", sent.chat.get_id(), sent.message_id);
     // Re-render so the id tail shows (best-effort).
     let _ = tg::edit_with_buttons(ctx, sent.chat.get_id(), sent.message_id, &prediction.get_text(), &prediction.get_buttons()).await;
+    // Pin the fresh card in the group so members can find it at the top (best-effort —
+    // needs the bot's `can_pin_messages` right; unpinned again when it settles). Only
+    // groups: a DM `/predict` card has no shared audience to surface it to.
+    if is_group_chat(sent.chat.get_id()) {
+        let _ = tg::pin_message(ctx, sent.chat.get_id(), sent.message_id).await;
+    }
     if let Err(err) = db(ctx).save_prediction(&prediction) {
         eprintln!("save_prediction error (continuing in-memory only): {err}");
     }
     predictions(ctx).lock().await.insert(key, prediction);
     true
+}
+
+/// One open prediction a user hosts, distilled for the home-menu "to settle"
+/// reminder (`menu:settle`).
+pub struct HostPred {
+    pub chat_id: i64,
+    pub msg_id: i64,
+    pub question: String,
+    /// Past its deadline (or never had one) → the host can close & settle it now.
+    pub ready: bool,
+}
+
+/// Number of open predictions `host` is running — drives the home-menu badge. The
+/// in-memory map holds only **open** games (settled/draw are dropped on settle),
+/// so every entry for this host is unsettled.
+pub async fn pending_settle_count(ctx: &Context, host: i64) -> usize {
+    predictions(ctx).lock().await.values().filter(|p| p.host == host).count()
+}
+
+/// Open predictions `host` is running, settle-ready first then by creation order.
+/// Backs the `menu:settle` list.
+pub async fn host_open_predictions(ctx: &Context, host: i64) -> Vec<HostPred> {
+    let now = now();
+    let games = predictions(ctx);
+    let map = games.lock().await;
+    let mut v: Vec<HostPred> = map
+        .values()
+        .filter(|p| p.host == host)
+        .filter_map(|p| {
+            let (c, m) = p.id.split_once(':')?;
+            Some(HostPred {
+                chat_id: c.parse().ok()?,
+                msg_id: m.parse().ok()?,
+                question: p.question().to_string(),
+                ready: p.can_close(now),
+            })
+        })
+        .collect();
+    v.sort_by(|a, b| b.ready.cmp(&a.ready).then(a.msg_id.cmp(&b.msg_id)));
+    v
 }
 
 /// `gend:<minutes>` — the builder's end-time pick: finalize the draft into a
