@@ -162,8 +162,11 @@ async fn run_settle(ctx: &Context, market_id: &str, winner: &str) -> (bool, Stri
             lost += 1;
             i18n::bet_lost(blang, &descriptor)
         };
-        if let Err(e) = send_text(ctx, st.user, dm).await {
-            eprintln!("settle result DM failed (user {}): {e:?}", st.user);
+        // Resilient send: a rate-limit spike while settling a busy market must
+        // not silently drop win/lose DMs. Payouts are already committed (in the
+        // `settle_market` transaction), so this only governs the notification.
+        if !send_resilient(ctx, st.user, &dm).await {
+            eprintln!("settle result DM undelivered (user {})", st.user);
         }
     }
     let summary = format!(
