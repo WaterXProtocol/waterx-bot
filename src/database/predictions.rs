@@ -265,6 +265,50 @@ mod tests {
         Database::new(":memory:", 999).expect("open in-memory db")
     }
 
+    /// Simulates a `/redeploy` against a **pre-`tz_offset`** production DB: build
+    /// a `games` table with the OLD column set + a live row, then re-open via
+    /// `Database::new` (which runs the idempotent `ALTER … ADD COLUMN tz_offset`)
+    /// and confirm it migrates + loads without crashing (tz_offset defaults to 0).
+    #[test]
+    fn opens_pre_tz_offset_games_db_without_crashing() {
+        let path = std::env::temp_dir().join(format!("waterx_tzmig_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let p = path.to_str().unwrap();
+        {
+            let conn = Connection::open(p).unwrap();
+            // OLD schema — note: NO tz_offset column.
+            conn.execute(
+                "CREATE TABLE games (id TEXT PRIMARY KEY, host INTEGER NOT NULL, lang TEXT NOT NULL DEFAULT '', \
+                 description TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'betting', \
+                 total INTEGER NOT NULL DEFAULT 0, ends_at INTEGER NOT NULL DEFAULT 0, \
+                 odds_fmt TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "CREATE TABLE game_options (game_id TEXT NOT NULL, idx INTEGER NOT NULL, name TEXT NOT NULL, \
+                 bet INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (game_id, idx))",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO games (id, host, ends_at) VALUES ('1:2', 5, 1609459200)",
+                [],
+            )
+            .unwrap();
+            conn.execute("INSERT INTO game_options (game_id, idx, name, bet) VALUES ('1:2', 0, 'A', 0)", [])
+                .unwrap();
+        }
+        // The new binary opening the old DB — this is the redeploy path.
+        let db = Database::new(p, 999).unwrap();
+        let loaded = db.load_all_predictions().unwrap();
+        assert_eq!(loaded.len(), 1);
+        // Migrated column defaulted to 0 (UTC) for the pre-existing row.
+        assert_eq!(loaded[0].1.tz_offset, 0);
+        assert_eq!(loaded[0].1.ends_at, 1_609_459_200);
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn save_load_round_trip() {
         let db = mk_db();
