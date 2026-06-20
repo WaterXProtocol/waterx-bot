@@ -1,5 +1,5 @@
 use crate::commands::util::{
-    bot_token, db, fmt_coins, format_number, full_name, games, is_group_chat, to_micro, SORRY_FRUITS,
+    bot_token, db, fmt_coins, full_name, games, is_group_chat, to_micro, SORRY_FRUITS,
 };
 use crate::database::COIN;
 use crate::commands::{admin, assets, betting, markets, menu, predict, referral, tg};
@@ -167,8 +167,14 @@ async fn handle_envelope(
     if !db.has_buffer(chat_id, msg_id).unwrap_or(false) {
         return answer(ctx, cb, i18n::someone_took_it(lang), false).await;
     }
+    // The amount in the callback data is **untrusted** (a crafted callback could
+    // claim to be any value). It only selects the branch; the actual coin credit
+    // comes from the escrow stored in the buffer row (see `claim_envelope`).
     let amount: i64 = rest.parse().unwrap_or(0);
     if amount <= 0 {
+        // A forged non-positive claim: hand out a consolation fruit and **refund**
+        // the envelope's escrow to its owner (so the coins are neither minted nor
+        // stranded), cancelling the envelope.
         let fruit = {
             let mut rng = rand::thread_rng();
             *SORRY_FRUITS.choose(&mut rng).unwrap()
@@ -176,7 +182,7 @@ async fn handle_envelope(
         let s = fruit.to_string();
         match db.fruit_change(cb.from.id, &s, true) {
             Ok(true) => {
-                db.delete_buffer(chat_id, msg_id).ok();
+                db.refund_envelope(chat_id, msg_id).ok();
                 let _ = tg::edit_text_only(
                     ctx,
                     chat_id,
@@ -190,24 +196,22 @@ async fn handle_envelope(
             Err(_) => return answer(ctx, cb, i18n::db_error(lang), true).await,
         }
     }
-    let Some(units) = to_micro(amount) else {
-        return answer(ctx, cb, i18n::db_error(lang), true).await;
-    };
-    // Atomically claim: the buffer row is deleted and the credit applied only if
-    // THIS tap won the delete, so a concurrent double-tap can't double-credit.
-    match db.claim_envelope(chat_id, msg_id, cb.from.id, units) {
-        Ok(true) => {}
-        Ok(false) => return answer(ctx, cb, i18n::someone_took_it(lang), false).await,
+    // Atomically claim: the buffer row is deleted and the **escrowed** amount
+    // credited only if THIS tap won the delete, so a concurrent double-tap can't
+    // double-credit and a crafted callback can't change the credited amount.
+    let credited = match db.claim_envelope(chat_id, msg_id, cb.from.id) {
+        Ok(Some(units)) => units,
+        Ok(None) => return answer(ctx, cb, i18n::someone_took_it(lang), false).await,
         Err(e) => {
             eprintln!("claim_envelope error (chat {chat_id}, msg {msg_id}): {e}");
             return answer(ctx, cb, i18n::db_error(lang), true).await;
         }
-    }
+    };
     let _ = tg::edit_text_only(
         ctx,
         chat_id,
         msg_id,
-        &i18n::received_coins(lang, &cb.from.first_name, &format_number(amount)),
+        &i18n::received_coins(lang, &cb.from.first_name, &fmt_coins(credited)),
     )
     .await;
     answer(ctx, cb, i18n::grabbed_it(lang), false).await

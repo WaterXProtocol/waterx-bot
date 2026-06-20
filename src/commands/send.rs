@@ -98,7 +98,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
                 return Err(e);
             }
         };
-        if let Err(e) = database.insert_buffer(sent.chat.get_id(), sent.message_id) {
+        if let Err(e) = database.insert_buffer(sent.chat.get_id(), sent.message_id, sender.id, units) {
             // Button is live but the claim checks for this buffer row, so the
             // coins would be stuck — refund the sender.
             eprintln!("envelope insert_buffer failed, refunding sender {}: {e}", sender.id);

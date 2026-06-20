@@ -288,7 +288,7 @@ mod reset_tests {
         // Populate balance, buffer, chats (+ group adder) and meta.
         db.balance_change(100, 50).unwrap();
         db.set_lang(100, crate::i18n::Lang::Hans).unwrap();
-        db.insert_buffer(-200, 5).unwrap();
+        db.insert_buffer(-200, 5, 100, 10).unwrap();
         db.touch_chat(-200).unwrap();
         db.set_group_adder(-200, 100).unwrap();
         db.set_paused(true).unwrap();

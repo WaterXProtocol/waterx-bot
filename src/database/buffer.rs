@@ -29,12 +29,15 @@ fn ensure_row_locked(conn: &Connection, user_id: i64) -> SqlResult<()> {
 }
 
 impl Database {
-    /// Used by envelope-style buffer rows (random drops, /send-to-bot envelope).
-    pub fn insert_buffer(&self, chat: i64, msg: i64) -> SqlResult<()> {
+    /// Record a live envelope, escrowing `amount` micro-coins for `owner`. The
+    /// escrowed amount is stored **in the row** (the `price` column) so the claim
+    /// credits exactly what was escrowed — never a value taken from untrusted
+    /// callback data. `owner` lets an unclaimed/cancelled envelope be refunded.
+    pub fn insert_buffer(&self, chat: i64, msg: i64, owner: i64, amount: i64) -> SqlResult<()> {
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT OR REPLACE INTO buffer (chat, msg, kind, created_at) VALUES (?1, ?2, 'envelope', ?3)",
-            params![chat, msg, current_unix_time()],
+            "INSERT OR REPLACE INTO buffer (chat, msg, kind, owner, price, created_at) VALUES (?1, ?2, 'envelope', ?3, ?4, ?5)",
+            params![chat, msg, owner, amount, current_unix_time()],
         )?;
         Ok(())
     }
@@ -58,27 +61,72 @@ impl Database {
 
     /// Atomically claim a coin envelope: in one transaction, delete its buffer
     /// row and — only if this call won that delete (so a concurrent double-tap
-    /// produces exactly one winner) — credit `units` to `user`. Returns `true`
-    /// when claimed+credited, `false` when the row was already gone (someone
-    /// else took it). Closes the has_buffer-then-credit-then-delete double-credit
-    /// race in the envelope claim path.
-    pub fn claim_envelope(&self, chat: i64, msg: i64, user: i64, units: i64) -> SqlResult<bool> {
+    /// produces exactly one winner) — credit the **escrowed** amount stored in
+    /// the row (`price`) to `user`. The credit is **never** taken from caller
+    /// input: the callback data that triggers a claim is attacker-controlled, so
+    /// trusting it would let a crafted `envelope:<huge>` mint coins. Returns
+    /// `Ok(Some(credited))` (micro-coins) on success, `Ok(None)` when the row was
+    /// already gone / not an escrowed envelope (legacy rows with a NULL price are
+    /// left in place for the TTL refund-sweep rather than credited as zero).
+    pub fn claim_envelope(&self, chat: i64, msg: i64, user: i64) -> SqlResult<Option<i64>> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let claimed = tx.execute(
+        // Read the escrow first; only delete+credit when there's a real amount.
+        let amount: Option<i64> = tx
+            .query_row(
+                "SELECT price FROM buffer WHERE chat = ?1 AND msg = ?2 AND kind = 'envelope'",
+                params![chat, msg],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
+        let Some(amount) = amount else {
+            return Ok(None); // already taken, missing, or a NULL-price legacy row
+        };
+        let deleted = tx.execute(
             "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
             params![chat, msg],
         )?;
-        if claimed != 1 {
-            return Ok(false); // already taken → rollback
+        if deleted != 1 {
+            return Ok(None); // lost the race → rollback, no credit
         }
         ensure_row_locked(&tx, user)?;
         tx.execute(
             "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-            params![units, user],
+            params![amount, user],
         )?;
         tx.commit()?;
-        Ok(true)
+        Ok(Some(amount))
+    }
+
+    /// Cancel an envelope (a forged non-positive claim hit it): delete the row and
+    /// **refund** the escrow to its owner, so the coins are neither minted nor
+    /// stranded. No-op for rows missing an owner/amount (legacy / non-envelope).
+    pub fn refund_envelope(&self, chat: i64, msg: i64) -> SqlResult<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let row: Option<(Option<i64>, Option<i64>)> = tx
+            .query_row(
+                "SELECT owner, price FROM buffer WHERE chat = ?1 AND msg = ?2 AND kind = 'envelope'",
+                params![chat, msg],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let deleted = tx.execute(
+            "DELETE FROM buffer WHERE chat = ?1 AND msg = ?2",
+            params![chat, msg],
+        )?;
+        if deleted == 1 {
+            if let Some((Some(owner), Some(amount))) = row {
+                ensure_row_locked(&tx, owner)?;
+                tx.execute(
+                    "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+                    params![amount, owner],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Open a sell offer. Atomically deducts each char of `fruits` that the
@@ -461,16 +509,30 @@ mod tests {
     }
 
     #[test]
-    fn claim_envelope_credits_exactly_once() {
+    fn claim_envelope_credits_escrowed_amount_exactly_once() {
         let db = mk_db();
-        db.insert_buffer(CHAT, MSG).unwrap();
-        // First claim wins: credits and consumes the row.
-        assert!(db.claim_envelope(CHAT, MSG, BUYER, 50).unwrap());
+        // SELLER escrows 50 for the envelope.
+        db.insert_buffer(CHAT, MSG, SELLER, 50).unwrap();
+        // First claim wins: credits the ESCROWED 50 and consumes the row. The
+        // amount is read from the row — there is no caller-supplied value to
+        // forge (a crafted callback can't change what's credited).
+        assert_eq!(db.claim_envelope(CHAT, MSG, BUYER).unwrap(), Some(50));
         assert_eq!(db.get_user_info(BUYER).unwrap().balance, 50);
         assert!(!db.has_buffer(CHAT, MSG).unwrap());
-        // A second (racing) claim finds the row gone → no double-credit.
-        assert!(!db.claim_envelope(CHAT, MSG, BUYER, 50).unwrap());
+        // A second (racing) claim finds the row gone → None, no double-credit.
+        assert_eq!(db.claim_envelope(CHAT, MSG, BUYER).unwrap(), None);
         assert_eq!(db.get_user_info(BUYER).unwrap().balance, 50);
+    }
+
+    #[test]
+    fn refund_envelope_returns_escrow_to_owner() {
+        let db = mk_db();
+        db.insert_buffer(CHAT, MSG, SELLER, 40).unwrap();
+        db.refund_envelope(CHAT, MSG).unwrap();
+        // Owner got the escrow back; the row is gone; a later claim finds nothing.
+        assert_eq!(db.get_user_info(SELLER).unwrap().balance, 40);
+        assert!(!db.has_buffer(CHAT, MSG).unwrap());
+        assert_eq!(db.claim_envelope(CHAT, MSG, BUYER).unwrap(), None);
     }
 
     #[test]
