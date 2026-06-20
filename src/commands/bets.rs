@@ -1,6 +1,6 @@
 use crate::commands::assets;
 use crate::commands::util::*;
-use crate::i18n;
+use crate::core::i18n;
 use telexide::prelude::*;
 
 /// `/bets` — show the caller's open match bets + self-host predictions. Works in

@@ -5,8 +5,8 @@ use crate::database::COIN;
 use crate::commands::{admin, assets, betting, markets, menu, predict, referral, tg};
 use crate::commands::tg::answer;
 use crate::database::OfferOutcome;
-use crate::i18n::{self, Lang};
-use crate::types::BetState;
+use crate::core::i18n::{self, Lang};
+use crate::core::types::BetState;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use telexide::model::{CallbackQuery, ChatMember, UpdateContent};
@@ -336,7 +336,7 @@ async fn handle_gamble(
 /// state. `owner` locks the board to the tapper; the Dismiss row (`bx:<owner>`)
 /// lets them delete it.
 fn game_builder_rows(lang: Lang, key: &str, idx: usize, owner: i64, total: i64) -> Vec<Vec<(String, String)>> {
-    let add: Vec<(String, String)> = crate::game::STAKE_AMOUNTS
+    let add: Vec<(String, String)> = crate::core::game::STAKE_AMOUNTS
         .iter()
         .map(|p| (format!("+{p}"), format!("gsz:{key}:{idx}:{owner}:{}", total + p)))
         .collect();
@@ -370,7 +370,7 @@ async fn game_option(
     lang: Lang,
     key: &str,
     idx: usize,
-    fmt: crate::types::OddsFormat,
+    fmt: crate::core::types::OddsFormat,
 ) -> Result<(String, String), &'static str> {
     let games = games(ctx);
     let g = games.lock().await;
@@ -596,7 +596,7 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
 /// `setfmt:<code>` — settings-variant odds pick: persist the chosen format and
 /// return to the `/settings` hub in place (uniform with `slang:`/`stz:`).
 async fn handle_set_fmt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
-    let fmt = crate::types::OddsFormat::from_store_code(rest);
+    let fmt = crate::core::types::OddsFormat::from_store_code(rest);
     let db = db(ctx);
     let lang = cb_lang(ctx, cb);
     if db.set_odds_fmt(cb.from.id, fmt).is_err() {

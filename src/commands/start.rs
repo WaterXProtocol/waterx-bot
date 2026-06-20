@@ -1,6 +1,6 @@
 use crate::commands::util::*;
 use crate::commands::{menu, referral, tg};
-use crate::i18n::{self, Lang};
+use crate::core::i18n::{self, Lang};
 use telexide::prelude::*;
 
 #[command(description = "say hi and open the menu")]

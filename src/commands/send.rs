@@ -1,7 +1,7 @@
 use crate::bot::BotIdKey;
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::i18n;
+use crate::core::i18n;
 use std::time::Duration;
 use telexide::prelude::*;
 

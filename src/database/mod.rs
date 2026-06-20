@@ -387,7 +387,7 @@ mod reset_tests {
         let db = Database::new(":memory:", 1).unwrap();
         // Populate balance, buffer, chats (+ group adder) and meta.
         db.balance_change(100, 50).unwrap();
-        db.set_lang(100, crate::i18n::Lang::Hans).unwrap();
+        db.set_lang(100, crate::core::i18n::Lang::Hans).unwrap();
         db.insert_buffer(-200, 5, 100, 10).unwrap();
         db.touch_chat(-200).unwrap();
         db.set_group_adder(-200, 100).unwrap();
@@ -434,7 +434,7 @@ mod reset_tests {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(10, 0).unwrap();
         db.force_change(20, 0).unwrap();
-        let mut g = crate::game::BetGame::new(1, crate::i18n::Lang::En, "q", &["A", "B"]);
+        let mut g = crate::core::game::BetGame::new(1, crate::core::i18n::Lang::En, "q", &["A", "B"]);
         g.set_id(5, 5);
         g.stake(10, "A", 4, "Ann");
         g.stake(20, "B", 6, "Bob");

@@ -1,8 +1,8 @@
 use crate::commands::util::*;
 use crate::database::COIN;
-use crate::i18n;
-use crate::i18n::Lang;
-use crate::types::BetState;
+use crate::core::i18n;
+use crate::core::i18n::Lang;
+use crate::core::types::BetState;
 use telexide::model::User;
 use telexide::prelude::*;
 

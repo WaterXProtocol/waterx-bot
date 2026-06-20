@@ -5,8 +5,8 @@
 
 use crate::commands::tg::Row;
 use crate::commands::util::{format_odds, tz_button_label};
-use crate::i18n::{self, Lang};
-use crate::types::OddsFormat;
+use crate::core::i18n::{self, Lang};
+use crate::core::types::OddsFormat;
 
 /// Callback-data prefixes routed in `callbacks::on_callback`.
 pub const SET_LANG: &str = "setlang:";

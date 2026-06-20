@@ -1,6 +1,6 @@
 use crate::bot::{ConfigKey, Convo, ConvosKey, DbKey, GamesKey};
 use crate::database::Database;
-use crate::game::BetGame;
+use crate::core::game::BetGame;
 use std::collections::HashMap;
 use std::sync::Arc;
 use telexide::api::types::SendMessage;
@@ -154,30 +154,30 @@ pub fn from_id(msg: &Message) -> Option<i64> {
 
 /// Locale for the user who sent `msg`, from their Telegram `language_code`.
 /// Falls back to English when there is no sender or no language tag.
-pub fn lang_of(msg: &Message) -> crate::i18n::Lang {
+pub fn lang_of(msg: &Message) -> crate::core::i18n::Lang {
     msg.from
         .as_ref()
-        .map(crate::i18n::Lang::from_user)
-        .unwrap_or(crate::i18n::Lang::En)
+        .map(crate::core::i18n::Lang::from_user)
+        .unwrap_or(crate::core::i18n::Lang::En)
 }
 
 /// Resolved locale for `user`: their `/start`-chosen language if saved,
 /// otherwise the Telegram-reported one. Prefer this over [`lang_of`] in
 /// command handlers so an explicit choice wins everywhere.
-pub fn lang_for(ctx: &Context, user: &User) -> crate::i18n::Lang {
+pub fn lang_for(ctx: &Context, user: &User) -> crate::core::i18n::Lang {
     db(ctx)
         .get_lang(user.id)
         .ok()
         .flatten()
-        .unwrap_or_else(|| crate::i18n::Lang::from_user(user))
+        .unwrap_or_else(|| crate::core::i18n::Lang::from_user(user))
 }
 
 /// [`lang_for`] keyed off a message's sender; English if there is no sender.
-pub fn lang_for_msg(ctx: &Context, msg: &Message) -> crate::i18n::Lang {
+pub fn lang_for_msg(ctx: &Context, msg: &Message) -> crate::core::i18n::Lang {
     msg.from
         .as_ref()
         .map(|u| lang_for(ctx, u))
-        .unwrap_or(crate::i18n::Lang::En)
+        .unwrap_or(crate::core::i18n::Lang::En)
 }
 
 /// True for group / supergroup / channel chats. Telegram gives private chats a
@@ -264,7 +264,7 @@ pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandE
         true
     });
     if paused {
-        reply(ctx, msg, crate::i18n::service_paused(lang_for_msg(ctx, msg))).await?;
+        reply(ctx, msg, crate::core::i18n::service_paused(lang_for_msg(ctx, msg))).await?;
         return Ok(true);
     }
     // Group referral: a brand-new member's first interaction binds them to the
@@ -343,8 +343,8 @@ pub fn decimal_odds(cents: f64) -> f64 {
 /// A 65¢ price: Decimal `1.54`, American `-185`, Percent `65%`, Price `65¢`.
 /// Callers only invoke this for priced outcomes (`cents > 0`); a non-positive or
 /// degenerate (≥100%) price falls back gracefully rather than dividing by zero.
-pub fn format_odds(odds_cents: f64, fmt: crate::types::OddsFormat) -> String {
-    use crate::types::OddsFormat;
+pub fn format_odds(odds_cents: f64, fmt: crate::core::types::OddsFormat) -> String {
+    use crate::core::types::OddsFormat;
     if odds_cents <= 0.0 {
         return "—".to_string();
     }
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn format_odds_renders_each_format() {
-        use crate::types::OddsFormat::{American, Decimal, Percent, Price};
+        use crate::core::types::OddsFormat::{American, Decimal, Percent, Price};
         // Decimal = 100/cents.
         assert_eq!(format_odds(65.0, Decimal), "1.54");
         assert_eq!(format_odds(50.0, Decimal), "2.00");

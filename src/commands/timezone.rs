@@ -1,6 +1,6 @@
 use crate::commands::util::*;
 use crate::commands::{menu, tg};
-use crate::i18n;
+use crate::core::i18n;
 use telexide::prelude::*;
 
 #[command(description = "set your timezone")]

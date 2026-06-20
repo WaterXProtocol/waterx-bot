@@ -9,7 +9,7 @@
 
 use crate::bot::Convo;
 use crate::commands::util::*;
-use crate::i18n;
+use crate::core::i18n;
 use telexide::model::{UpdateContent, User};
 use telexide::prelude::*;
 

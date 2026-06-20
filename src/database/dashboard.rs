@@ -72,8 +72,8 @@ impl Database {
 mod tests {
     use super::super::COIN;
     use super::*;
-    use crate::game::BetGame;
-    use crate::i18n::Lang;
+    use crate::core::game::BetGame;
+    use crate::core::i18n::Lang;
 
     #[test]
     fn counts_users_chats_and_supply() {

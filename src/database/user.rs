@@ -1,5 +1,5 @@
 use super::Database;
-use crate::i18n::Lang;
+use crate::core::i18n::Lang;
 use rusqlite::{params, OptionalExtension, Result as SqlResult};
 
 /// Micro-coins paid up the referral chain on each successful check-in: direct
@@ -135,8 +135,8 @@ impl Database {
     }
 
     /// The user's chosen odds display format (defaults to `Decimal` when unset
-    /// or unknown — see [`crate::types::OddsFormat::from_store_code`]).
-    pub fn get_odds_fmt(&self, user_id: i64) -> SqlResult<crate::types::OddsFormat> {
+    /// or unknown — see [`crate::core::types::OddsFormat::from_store_code`]).
+    pub fn get_odds_fmt(&self, user_id: i64) -> SqlResult<crate::core::types::OddsFormat> {
         self.ensure_row(user_id)?;
         let conn = self.conn.lock();
         let code: String = conn.query_row(
@@ -144,10 +144,10 @@ impl Database {
             params![user_id],
             |r| r.get(0),
         )?;
-        Ok(crate::types::OddsFormat::from_store_code(&code))
+        Ok(crate::core::types::OddsFormat::from_store_code(&code))
     }
 
-    pub fn set_odds_fmt(&self, user_id: i64, fmt: crate::types::OddsFormat) -> SqlResult<()> {
+    pub fn set_odds_fmt(&self, user_id: i64, fmt: crate::core::types::OddsFormat) -> SqlResult<()> {
         self.ensure_row(user_id)?;
         let conn = self.conn.lock();
         conn.execute(

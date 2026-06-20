@@ -5,7 +5,7 @@
 
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::i18n::{self, Lang};
+use crate::core::i18n::{self, Lang};
 use telexide::model::User;
 use telexide::prelude::Context;
 

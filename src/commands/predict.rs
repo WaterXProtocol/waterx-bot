@@ -11,8 +11,8 @@ use crate::bot::Convo;
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
-use crate::game::BetGame;
-use crate::i18n::{self, Lang};
+use crate::core::game::BetGame;
+use crate::core::i18n::{self, Lang};
 use telexide::model::{CallbackQuery, UpdateContent, User};
 use telexide::prelude::*;
 

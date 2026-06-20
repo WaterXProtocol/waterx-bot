@@ -1,6 +1,6 @@
 use crate::commands::util::*;
 use crate::commands::{menu, tg};
-use crate::i18n;
+use crate::core::i18n;
 use telexide::prelude::*;
 
 /// `/settings` — open the settings hub: pick an odds display format, or open the

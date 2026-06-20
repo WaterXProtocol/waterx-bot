@@ -1,7 +1,7 @@
 use crate::commands::{callbacks, *};
 use crate::database::{db_filename, Database};
-use crate::game::BetGame;
-use crate::types::BotConfig;
+use crate::core::game::BetGame;
+use crate::core::types::BotConfig;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use telexide::{
     api::{types::GetUpdates, APIEndpoint, API},
@@ -63,7 +63,7 @@ pub enum Convo {
     /// A `/predict` builder draft (question → options → end-time).
     Predict(crate::commands::predict::PredictDraft),
     /// Awaiting a `/feedback` message; `lang` is the composer's locale.
-    Feedback { lang: crate::i18n::Lang },
+    Feedback { lang: crate::core::i18n::Lang },
 }
 pub struct ConvosKey;
 impl TypeMapKey for ConvosKey {
@@ -160,12 +160,12 @@ pub async fn run() -> anyhow::Result<()> {
     // per supported locale plus a default (English) menu for everyone else.
     // Telegram serves each user the menu matching their client language.
     {
-        use crate::i18n::Lang;
+        use crate::core::i18n::Lang;
         use telexide::api::types::SetMyCommands;
         use telexide::model::BotCommand;
 
         let menu_for = |lang: Lang| -> Vec<BotCommand> {
-            crate::i18n::command_menu(lang)
+            crate::core::i18n::command_menu(lang)
                 .iter()
                 .map(|(name, desc)| BotCommand {
                     command: (*name).to_string(),

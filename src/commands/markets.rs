@@ -1,7 +1,7 @@
 use crate::commands::tg::Row;
 use crate::commands::util::*;
-use crate::i18n::{self, Lang};
-use crate::types::OddsFormat;
+use crate::core::i18n::{self, Lang};
+use crate::core::types::OddsFormat;
 use chrono::{FixedOffset, TimeZone, Utc};
 use parking_lot::Mutex;
 use serde::Deserialize;

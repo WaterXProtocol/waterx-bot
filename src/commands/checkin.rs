@@ -1,5 +1,5 @@
 use crate::commands::util::*;
-use crate::i18n;
+use crate::core::i18n;
 use telexide::prelude::*;
 
 /// Daily check-in reward, in micro-coins (10 coins). The claim window resets at

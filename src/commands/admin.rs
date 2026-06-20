@@ -6,7 +6,7 @@ use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::database::OpenMarket;
-use crate::i18n::{self, Lang};
+use crate::core::i18n::{self, Lang};
 use std::time::Duration;
 use telexide::model::{CallbackQuery, User};
 use telexide::prelude::*;

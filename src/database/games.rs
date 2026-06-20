@@ -1,7 +1,7 @@
 use super::{current_unix_time, Database};
-use crate::game::{BetGame, OptionData};
-use crate::i18n::Lang;
-use crate::types::{BetState, OddsFormat};
+use crate::core::game::{BetGame, OptionData};
+use crate::core::i18n::Lang;
+use crate::core::types::{BetState, OddsFormat};
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::collections::HashMap;
 

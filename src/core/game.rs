@@ -1,5 +1,5 @@
-use crate::i18n::{self, Lang};
-use crate::types::{BetState, OddsFormat};
+use crate::core::i18n::{self, Lang};
+use crate::core::types::{BetState, OddsFormat};
 use std::collections::HashMap;
 
 /// Stake amounts shown as per-option buttons in the betting keyboard.

@@ -1,6 +1,6 @@
 use crate::commands::tg;
 use crate::commands::util::*;
-use crate::i18n;
+use crate::core::i18n;
 use telexide::api::types::DeleteMessage;
 use telexide::prelude::*;
 

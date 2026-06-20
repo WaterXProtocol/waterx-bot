@@ -1,7 +1,7 @@
 use crate::commands::checkin::CHECKIN_REWARD;
 use crate::commands::referral::REFERRAL_REWARD;
 use crate::commands::util::*;
-use crate::i18n;
+use crate::core::i18n;
 use telexide::prelude::*;
 
 #[command(description = "how to earn coins")]
