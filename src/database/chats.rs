@@ -41,6 +41,32 @@ impl Database {
         Ok(v.filter(|id| *id > 0))
     }
 
+    /// Cache the group's **owner** (Telegram creator), resolved lazily from
+    /// `getChatAdministrators` — distinct from `added_by`. Creates the chat row if
+    /// new; overwrites a prior value (the creator is a fact, not first-wins).
+    pub fn set_group_owner(&self, chat_id: i64, owner_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO chats (chat, seen_at, owner) VALUES (?1, ?2, ?3)
+             ON CONFLICT(chat) DO UPDATE SET owner = excluded.owner",
+            params![chat_id, current_unix_time(), owner_id],
+        )?;
+        Ok(())
+    }
+
+    /// The cached group owner (Telegram creator) of `chat_id`, if known.
+    pub fn group_owner(&self, chat_id: i64) -> SqlResult<Option<i64>> {
+        let conn = self.conn.lock();
+        let v: Option<i64> = conn
+            .query_row(
+                "SELECT owner FROM chats WHERE chat = ?1",
+                params![chat_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(v.filter(|id| *id > 0))
+    }
+
     /// Every chat id the bot has seen — private DMs and groups alike.
     pub fn all_chat_ids(&self) -> SqlResult<Vec<i64>> {
         let conn = self.conn.lock();

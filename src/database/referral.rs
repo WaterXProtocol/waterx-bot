@@ -39,6 +39,60 @@ impl Database {
             |r| r.get(0),
         )
     }
+
+    /// Group-add bind with an optional **co-referrer** (the group owner). Inserts
+    /// the brand-new `referee` with `referrer` (the adder) and, when distinct from
+    /// both the adder and referee, `co_referrer` (the owner). The caller
+    /// force-creates the referrer/owner rows first, so there's no "referrer exists"
+    /// check here. Returns `true` only when the row was newly inserted (no farming
+    /// — `INSERT OR IGNORE` no-ops on an existing user).
+    pub fn bind_group_referral(&self, referee: i64, referrer: i64, co_referrer: i64) -> SqlResult<bool> {
+        if referrer <= 0 || referrer == referee {
+            return Ok(false);
+        }
+        let co = if co_referrer > 0 && co_referrer != referrer && co_referrer != referee {
+            co_referrer
+        } else {
+            0
+        };
+        let conn = self.conn.lock();
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO balance (user, referrer, co_referrer) VALUES (?1, ?2, ?3)",
+            params![referee, referrer, co],
+        )?;
+        Ok(inserted == 1)
+    }
+
+    /// Pay a freshly-bound group referral's signup bonus: the referee gets
+    /// `amount`, and the referrer-side `amount` is **split 50/50** with the
+    /// co-referrer (the owner) when one is set — else the referrer gets it all.
+    /// One transaction (all legs or none).
+    pub fn reward_group_signup(
+        &self,
+        referrer: i64,
+        co_referrer: i64,
+        referee: i64,
+        amount: i64,
+    ) -> SqlResult<()> {
+        self.ensure_row(referrer)?;
+        self.ensure_row(referee)?;
+        let split = co_referrer > 0 && co_referrer != referrer;
+        if split {
+            self.ensure_row(co_referrer)?;
+        }
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        if split {
+            let half = amount / 2;
+            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![half, referrer])?;
+            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount - half, co_referrer])?;
+        } else {
+            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, referrer])?;
+        }
+        tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, referee])?;
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -90,5 +144,58 @@ mod tests {
         assert!(db.set_referrer_if_new(newbie, adder).unwrap());
         // Existing member never binds (already has a row).
         assert!(!db.set_referrer_if_new(existing, adder).unwrap());
+    }
+
+    #[test]
+    fn bind_group_referral_records_co_referrer_when_distinct() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(10, 0).unwrap(); // adder
+        db.force_change(20, 0).unwrap(); // owner
+        assert!(db.bind_group_referral(30, 10, 20).unwrap());
+        let (r, c): (i64, i64) = db
+            .conn
+            .lock()
+            .query_row(
+                "SELECT referrer, co_referrer FROM balance WHERE user = ?1",
+                rusqlite::params![30],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(r, 10);
+        assert_eq!(c, 20);
+        assert!(!db.bind_group_referral(30, 10, 20).unwrap()); // existing → no re-bind
+        // owner == adder → no co-referrer stored.
+        assert!(db.bind_group_referral(40, 10, 10).unwrap());
+        let c2: i64 = db
+            .conn
+            .lock()
+            .query_row("SELECT co_referrer FROM balance WHERE user = ?1", rusqlite::params![40], |row| row.get(0))
+            .unwrap();
+        assert_eq!(c2, 0);
+    }
+
+    #[test]
+    fn reward_group_signup_splits_when_owner_distinct() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.reward_group_signup(10, 20, 30, 10 * COIN).unwrap();
+        assert_eq!(db.get_user_info(10).unwrap().balance, 5 * COIN); // adder half
+        assert_eq!(db.get_user_info(20).unwrap().balance, 5 * COIN); // owner half
+        assert_eq!(db.get_user_info(30).unwrap().balance, 10 * COIN); // referee full
+        // No owner → adder gets the whole referrer share.
+        db.reward_group_signup(11, 0, 31, 10 * COIN).unwrap();
+        assert_eq!(db.get_user_info(11).unwrap().balance, 10 * COIN);
+        assert_eq!(db.get_user_info(31).unwrap().balance, 10 * COIN);
+    }
+
+    #[test]
+    fn checkin_splits_level1_between_referrer_and_co_referrer() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(10, 0).unwrap(); // adder
+        db.force_change(20, 0).unwrap(); // owner
+        assert!(db.bind_group_referral(30, 10, 20).unwrap()); // referee co-referred
+        assert!(db.try_checkin(30, 10 * COIN).unwrap());
+        assert_eq!(db.get_user_info(30).unwrap().balance, 10 * COIN); // own reward
+        assert_eq!(db.get_user_info(10).unwrap().balance, COIN / 2); // adder +0.5
+        assert_eq!(db.get_user_info(20).unwrap().balance, COIN / 2); // owner +0.5
     }
 }

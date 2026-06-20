@@ -72,6 +72,7 @@ impl Database {
                 last_checkin INTEGER NOT NULL DEFAULT 0,
                 lang         TEXT    NOT NULL DEFAULT '',
                 referrer     INTEGER NOT NULL DEFAULT 0,
+                co_referrer  INTEGER NOT NULL DEFAULT 0,
                 tz_offset    INTEGER,
                 odds_fmt     TEXT    NOT NULL DEFAULT ''
             )",
@@ -130,13 +131,26 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS chats (
                 chat     INTEGER NOT NULL PRIMARY KEY,
                 seen_at  INTEGER NOT NULL DEFAULT 0,
-                added_by INTEGER NOT NULL DEFAULT 0
+                added_by INTEGER NOT NULL DEFAULT 0,
+                owner    INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
         // `added_by` (the user who added the bot to this group) for older DBs.
         let _ = conn.execute(
             "ALTER TABLE chats ADD COLUMN added_by INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // `owner` (the group's Telegram creator) — co-refers new members with the
+        // adder, for older DBs.
+        let _ = conn.execute(
+            "ALTER TABLE chats ADD COLUMN owner INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // `co_referrer` (the group owner, when distinct from the adder) — a
+        // level-1 co-credit in the check-in cascade, for older DBs.
+        let _ = conn.execute(
+            "ALTER TABLE balance ADD COLUMN co_referrer INTEGER NOT NULL DEFAULT 0",
             [],
         );
         // Best-effort migrations for older buffer tables (predate escrow / TTL).

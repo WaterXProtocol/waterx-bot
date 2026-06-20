@@ -127,6 +127,27 @@ pub async fn delete_message(
     Ok(())
 }
 
+/// The group's **creator** (owner) via `getChatAdministrators`, found by the
+/// member whose `status` is `creator`. `None` on any failure (API error, no
+/// creator, anonymous owner). Posted at the low level (like the other helpers
+/// here) so we can read the raw JSON without depending on telexide's typed
+/// `ChatMember` deserialization.
+pub async fn chat_creator(ctx: &Context, chat_id: i64) -> Option<i64> {
+    let payload = json!({ "chat_id": chat_id });
+    let resp = ctx
+        .api
+        .post(APIEndpoint::GetChatAdministrators, Some(payload))
+        .await
+        .ok()?;
+    let result: Value = Into::<telexide::Result<Value>>::into(resp).ok()?;
+    for m in result.as_array()? {
+        if m.get("status").and_then(Value::as_str) == Some("creator") {
+            return m.get("user").and_then(|u| u.get("id")).and_then(Value::as_i64);
+        }
+    }
+    None
+}
+
 /// Send a plain message as a **reply** to `reply_to` in `chat_id`. Used to pin a
 /// placed-bet announcement under the group game card it belongs to. Falls back to
 /// a normal message if that card is gone (`allow_sending_without_reply`).

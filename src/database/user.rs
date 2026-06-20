@@ -201,14 +201,29 @@ impl Database {
             params![user_id],
             |r| r.get(0),
         )?;
-        for bonus in CHECKIN_UPLINE {
+        // The referee's optional co-referrer (the group owner) shares the **direct**
+        // (level-1) reward 50/50 with the referrer; deeper levels follow the
+        // referrer's own chain.
+        let co: i64 = tx.query_row(
+            "SELECT co_referrer FROM balance WHERE user = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
+        for (level, bonus) in CHECKIN_UPLINE.into_iter().enumerate() {
             if up == 0 {
                 break;
             }
-            tx.execute(
-                "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-                params![bonus, up],
-            )?;
+            if level == 0 && co > 0 && co != up {
+                let half = bonus / 2;
+                tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![half, up])?;
+                tx.execute("INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')", params![co])?;
+                tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![bonus - half, co])?;
+            } else {
+                tx.execute(
+                    "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+                    params![bonus, up],
+                )?;
+            }
             up = tx
                 .query_row(
                     "SELECT referrer FROM balance WHERE user = ?1",
