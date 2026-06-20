@@ -74,8 +74,6 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_gamble(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gsz:") {
         handle_game_size(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix("gsc:") {
-        handle_game_confirm(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gsp:") {
         handle_game_place(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("bx:") {
@@ -128,8 +126,6 @@ pub async fn on_callback(ctx: Context, update: Update) {
         betting::handle_bet(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(betting::OPT) {
         betting::handle_opt(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix(betting::SIZE_CONFIRM) {
-        betting::handle_size_confirm(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(betting::SIZE_PLACE) {
         betting::handle_size_place(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(betting::SIZE) {
@@ -341,13 +337,15 @@ fn game_builder_rows(lang: Lang, key: &str, idx: usize, owner: i64, total: i64) 
         .iter()
         .map(|p| (format!("+{p}"), format!("gsz:{key}:{idx}:{owner}:{}", total + p)))
         .collect();
+    // Confirm places the bet straight away (no separate confirmation screen); the
+    // board is its own group message, so Dismiss rides on the same action row.
     vec![
         add,
         vec![
-            (i18n::bet_btn_confirm(lang).to_string(), format!("gsc:{key}:{idx}:{owner}:{total}")),
+            (i18n::bet_btn_confirm(lang).to_string(), format!("gsp:{key}:{idx}:{owner}:{total}")),
             (i18n::bet_btn_clear(lang).to_string(), format!("gsz:{key}:{idx}:{owner}:0")),
+            (i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}")),
         ],
-        vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}"))],
     ]
 }
 
@@ -418,36 +416,6 @@ async fn handle_game_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
     answer(ctx, cb, "", false).await
 }
 
-/// `gsc:…` — in-group confirmation screen.
-async fn handle_game_confirm(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let Some((key, idx, owner, total)) = parse_game_draft(rest) else {
-        return answer(ctx, cb, "", false).await;
-    };
-    if owner != cb.from.id {
-        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
-    }
-    if total <= 0 {
-        return answer(ctx, cb, i18n::bad_stake(lang), true).await;
-    }
-    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let (opt, odds) = match game_option(ctx, lang, &key, idx, fmt).await {
-        Ok(p) => p,
-        Err(t) => return answer(ctx, cb, t, true).await,
-    };
-    let rows = vec![
-        vec![(i18n::bet_btn_place(lang).to_string(), format!("gsp:{key}:{idx}:{owner}:{total}"))],
-        vec![(i18n::bet_btn_back(lang).to_string(), format!("gsz:{key}:{idx}:{owner}:{total}"))],
-        vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}"))],
-    ];
-    if let Some(m) = &cb.message {
-        let body = i18n::game_confirm(lang, &total.to_string(), &opt_label(&opt, &odds));
-        let text = board_header(m.chat.get_id(), &full_name(&cb.from), &body);
-        let _ = tg::edit_with_buttons(ctx, m.chat.get_id(), m.message_id, &text, &rows).await;
-    }
-    answer(ctx, cb, "", false).await
-}
-
 /// Best-effort refund of `units` micro-coins to `user`, logging (not swallowing)
 /// a failure — used when a self-host stake debit can't be turned into a placed
 /// bet (game gone / option missing / stake rejected) after the debit succeeded.
@@ -457,8 +425,9 @@ fn log_refund(db: &crate::database::Database, user: i64, units: i64) {
     }
 }
 
-/// `gsp:…` — the only money-moving step: debit, `game.stake`, edit the group
-/// board with new totals, confirm in the DM, and announce in the group.
+/// `gsp:…` — fired by the board's **Confirm**: the only money-moving step. Debit,
+/// `game.stake`, edit the group board with new totals, report the result in a
+/// popup alert, and announce in the group.
 async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some((key, idx, owner, total)) = parse_game_draft(rest) else {
@@ -521,7 +490,7 @@ async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Res
     if let Some(m) = &cb.message {
         let _ = tg::delete_message(ctx, m.chat.get_id(), m.message_id).await;
     }
-    answer(ctx, cb, i18n::bet_success(lang), false).await
+    answer(ctx, cb, i18n::bet_success(lang), true).await
 }
 
 /// `bx:<owner>` — dismiss an in-group personal stake board by deleting it.

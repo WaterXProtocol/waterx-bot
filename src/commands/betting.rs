@@ -31,8 +31,7 @@ const SIZE_PRESETS: [i64; 4] = [1, 5, 10, 50];
 /// Callback-data prefixes (the `bet:` prefix lives in `markets`).
 pub const OPT: &str = "opt:"; // pick a side → open the stake builder
 pub const SIZE: &str = "sz:"; // re-render the builder at an accumulated total
-pub const SIZE_CONFIRM: &str = "szc:"; // builder → confirmation screen
-pub const SIZE_PLACE: &str = "szp:"; // confirmation → debit + place the wager
+pub const SIZE_PLACE: &str = "szp:"; // Confirm → debit + place the wager
 
 /// A snapshot of one match's odds, locked for [`QUOTE_TTL_SECS`].
 #[derive(Clone)]
@@ -388,53 +387,9 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     render_builder(ctx, cb, lang, qid, &outcome, total).await
 }
 
-/// `szc:<qid>:<outcome>:<total>` — the builder's Confirm: show the final
-/// confirmation screen (the "modal" before any debit).
-pub async fn handle_size_confirm(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
-        return answer(ctx, cb, "", false).await;
-    };
-    if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
-        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
-    }
-    // Guard the conversion here too (caps at MAX_COINS, rejects overflow) so a
-    // crafted `total` can't wrap i64 even on this display-only confirm screen.
-    let Some(stake_units) = to_micro(total) else {
-        return answer(ctx, cb, i18n::bad_stake(lang), true).await;
-    };
-    let Some(q) = fresh_quote(ctx, lang, qid).await else {
-        return expire(ctx, cb, lang).await;
-    };
-    let Some(odds) = q.odds(&outcome).filter(|c| *c > 0.0) else {
-        return answer(ctx, cb, "", false).await;
-    };
-    let side = q.side_name(lang, &outcome);
-    let win = fmt_coins(decimal_payout(stake_units, odds));
-    // Keep the owner-name header on the confirm screen too (group boards).
-    let text = board_header(
-        q.origin_chat,
-        &full_name(&cb.from),
-        &i18n::bet_confirm(lang, &fmt_coins(stake_units), &side, &win),
-    );
-    let mut rows = vec![
-        vec![(i18n::bet_btn_place(lang).to_string(), format!("{SIZE_PLACE}{qid}:{outcome}:{total}"))],
-        vec![(i18n::bet_btn_back(lang).to_string(), format!("{SIZE}{qid}:{outcome}:{total}"))],
-    ];
-    // In a group the board is its own message — let the owner dismiss it.
-    if let Some(row) = dismiss_row(lang, &q) {
-        rows.push(row);
-    }
-    edit(ctx, cb, &text, &rows).await?;
-    answer(ctx, cb, "", false).await
-}
-
-/// `szp:<qid>:<outcome>:<total>` — the only step that moves money: re-check
-/// freshness + balance, debit, and record the wager.
+/// `szp:<qid>:<outcome>:<total>` — fired by the builder's **Confirm**: the only
+/// step that moves money. Re-checks freshness + balance, debits, records the
+/// wager, and reports the result in a popup alert.
 pub async fn handle_size_place(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -489,6 +444,7 @@ pub async fn handle_size_place(
     let side = q.side_name(lang, &outcome);
     // Confirmation + group announce show the odds in the bettor's chosen format.
     let odds_str = format_odds(odds, database.get_odds_fmt(cb.from.id).unwrap_or_default());
+    let placed = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
     if is_group_chat(q.origin_chat) {
         // Group: the stake board is its own message — delete it and post the
         // result as a reply to the game card it was bet on (falling back to a
@@ -504,10 +460,10 @@ pub async fn handle_size_place(
     } else {
         // Private `/markets`: the board edits in place into the placed confirmation
         // (no game card to reply to — the origin is the caller's own DM).
-        let text = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
-        let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &text).await;
+        let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &placed).await;
     }
-    answer(ctx, cb, i18n::bet_done(lang), false).await
+    // Report the placed bet in a popup alert (Confirm places straight away now).
+    answer(ctx, cb, &placed, true).await
 }
 
 /// Build the stake-builder screen for `total` coins on `outcome`: presets that
@@ -539,26 +495,17 @@ fn builder_text_rows(
         .iter()
         .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{outcome}:{}", total.saturating_add(*p))))
         .collect();
-    let mut rows = vec![
-        add_row,
-        vec![
-            (i18n::bet_btn_confirm(lang).to_string(), format!("{SIZE_CONFIRM}{qid}:{outcome}:{total}")),
-            (i18n::bet_btn_clear(lang).to_string(), format!("{SIZE}{qid}:{outcome}:0")),
-        ],
+    // Confirm places the bet straight away (re-pricing at place time) — no
+    // separate confirmation screen. In a group the board is its own message, so
+    // the owner's Dismiss rides on the same action row.
+    let mut action_row = vec![
+        (i18n::bet_btn_confirm(lang).to_string(), format!("{SIZE_PLACE}{qid}:{outcome}:{total}")),
+        (i18n::bet_btn_clear(lang).to_string(), format!("{SIZE}{qid}:{outcome}:0")),
     ];
-    // In a group the board is its own message — let the owner dismiss it.
-    if let Some(row) = dismiss_row(lang, q) {
-        rows.push(row);
+    if is_group_chat(q.origin_chat) {
+        action_row.push((i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{}", q.owner)));
     }
-    Some((text, rows))
-}
-
-/// The Dismiss row for an in-group stake board (`bx:<owner>`, owner-locked in
-/// `callbacks`). `None` for a private `/markets` board, which is the caller's own
-/// in-place message and has no separate board to delete.
-fn dismiss_row(lang: Lang, q: &Quote) -> Option<tg::Row> {
-    is_group_chat(q.origin_chat)
-        .then(|| vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{}", q.owner))])
+    Some((text, vec![add_row, action_row]))
 }
 
 /// Render the accumulate screen in place (edits the DM builder message).

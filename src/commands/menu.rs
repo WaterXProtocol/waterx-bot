@@ -31,6 +31,7 @@ pub fn settings_rows(lang: Lang) -> Vec<Row> {
         vec![(i18n::btn_language(lang).to_string(), CFG_LANG.to_string())],
         vec![(i18n::btn_timezone(lang).to_string(), CFG_TZ.to_string())],
         vec![(i18n::btn_odds(lang).to_string(), CFG_ODDS.to_string())],
+        vec![(i18n::bet_btn_back(lang).to_string(), MENU_HOME.to_string())],
     ]
 }
 
