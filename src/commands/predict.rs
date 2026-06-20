@@ -11,7 +11,7 @@ use crate::bot::Convo;
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
-use crate::core::game::BetGame;
+use crate::core::prediction::Prediction;
 use crate::core::i18n::{self, Lang};
 use telexide::model::{CallbackQuery, UpdateContent, User};
 use telexide::prelude::*;
@@ -171,7 +171,7 @@ fn end_time_rows(lang: Lang) -> Vec<tg::Row> {
 }
 
 /// `gend:<minutes>` — the builder's end-time pick: finalize the draft into a
-/// `BetGame`, post the card to the origin chat, register it, and confirm in the DM.
+/// `Prediction`, post the card to the origin chat, register it, and confirm in the DM.
 pub async fn handle_predict_endtime(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -193,27 +193,27 @@ pub async fn handle_predict_endtime(
     let ends_at = if minutes <= 0 { 0 } else { now().saturating_add(minutes.saturating_mul(60)) };
 
     let opt_refs: Vec<&str> = options.iter().map(String::as_str).collect();
-    let mut game = BetGame::new(cb.from.id, lang, &description, &opt_refs);
-    game.ends_at = ends_at;
+    let mut prediction = Prediction::new(cb.from.id, lang, &description, &opt_refs);
+    prediction.ends_at = ends_at;
     // Pin the board to the host's odds format (shared message — like its locale).
-    game.odds_fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    prediction.odds_fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
 
-    // Post the card to the origin chat; only on success do we register the game.
-    let sent = match tg::send_with_buttons(ctx, draft.origin_chat, &game.get_text(), &game.get_buttons()).await {
+    // Post the card to the origin chat; only on success do we register the prediction.
+    let sent = match tg::send_with_buttons(ctx, draft.origin_chat, &prediction.get_text(), &prediction.get_buttons()).await {
         Ok(m) => m,
         Err(e) => {
             eprintln!("predict card post failed (chat {}): {e:?}", draft.origin_chat);
             return answer(ctx, cb, i18n::predict_post_failed(lang), true).await;
         }
     };
-    game.set_id(sent.chat.get_id(), sent.message_id);
+    prediction.set_id(sent.chat.get_id(), sent.message_id);
     let key = format!("{}:{}", sent.chat.get_id(), sent.message_id);
     // Re-render so the id tail shows (best-effort, like the old `/predict`).
-    let _ = tg::edit_with_buttons(ctx, sent.chat.get_id(), sent.message_id, &game.get_text(), &game.get_buttons()).await;
-    if let Err(err) = db(ctx).save_bet_game(&game) {
-        eprintln!("save_bet_game error (continuing in-memory only): {err}");
+    let _ = tg::edit_with_buttons(ctx, sent.chat.get_id(), sent.message_id, &prediction.get_text(), &prediction.get_buttons()).await;
+    if let Err(err) = db(ctx).save_prediction(&prediction) {
+        eprintln!("save_prediction error (continuing in-memory only): {err}");
     }
-    games(ctx).lock().await.insert(key, game);
+    predictions(ctx).lock().await.insert(key, prediction);
 
     // Confirm in the builder DM (edit the end-time message in place).
     if let Some(m) = &cb.message {

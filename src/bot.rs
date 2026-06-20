@@ -1,6 +1,6 @@
 use crate::commands::{callbacks, *};
 use crate::database::{db_filename, Database};
-use crate::core::game::BetGame;
+use crate::core::prediction::Prediction;
 use crate::core::types::BotConfig;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use telexide::{
@@ -24,9 +24,9 @@ impl TypeMapKey for DbKey {
     type Value = Arc<Database>;
 }
 
-pub struct GamesKey;
-impl TypeMapKey for GamesKey {
-    type Value = Arc<Mutex<HashMap<String, BetGame>>>;
+pub struct PredictionsKey;
+impl TypeMapKey for PredictionsKey {
+    type Value = Arc<Mutex<HashMap<String, Prediction>>>;
 }
 
 pub struct ConfigKey;
@@ -79,14 +79,14 @@ pub async fn run() -> anyhow::Result<()> {
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| anyhow::anyhow!("malformed bot token (expected `<id>:<secret>`)"))?;
     let db = Arc::new(Database::new(db_filename(cfg.dev), bot_id)?);
-    let games_map: HashMap<String, BetGame> = match db.load_all_bet_games() {
+    let predictions_map: HashMap<String, Prediction> = match db.load_all_predictions() {
         Ok(rows) => rows.into_iter().collect(),
         Err(err) => {
             eprintln!("bet_games load error (starting with empty map): {err}");
             HashMap::new()
         }
     };
-    let games: Arc<Mutex<HashMap<String, BetGame>>> = Arc::new(Mutex::new(games_map));
+    let games: Arc<Mutex<HashMap<String, Prediction>>> = Arc::new(Mutex::new(predictions_map));
     let cfg_arc = Arc::new(cfg.clone());
 
     // Resolve the bot's real @username via getMe BEFORE building the framework
@@ -146,7 +146,7 @@ pub async fn run() -> anyhow::Result<()> {
     {
         let mut data = client.data.write();
         data.insert::<DbKey>(db);
-        data.insert::<GamesKey>(games);
+        data.insert::<PredictionsKey>(games);
         data.insert::<ConfigKey>(cfg_arc);
         data.insert::<BotIdKey>(bot_id);
         data.insert::<BotUsernameKey>(bot_username.clone());

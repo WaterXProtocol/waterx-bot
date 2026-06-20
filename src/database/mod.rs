@@ -2,7 +2,7 @@ mod buffer;
 mod chats;
 mod dashboard;
 mod fruit;
-mod games;
+mod predictions;
 mod meta;
 mod referral;
 mod user;
@@ -270,7 +270,7 @@ impl Database {
     }
 
     /// Wipe every table (dev-only `/reset`). In-memory bet games must be
-    /// cleared separately by the caller (they live in `GamesKey`, not the DB).
+    /// cleared separately by the caller (they live in `PredictionsKey`, not the DB).
     pub fn reset_all(&self) -> SqlResult<()> {
         let conn = self.conn.lock();
         conn.execute_batch(
@@ -311,14 +311,14 @@ impl Database {
     }
 
     /// Selective `/reset` — refund + clear all self-host **predictions**: credit
-    /// every game stake (whole coins → micro) back to its bettor, then wipe the
+    /// every prediction stake (whole coins → micro) back to its bettor, then wipe the
     /// `games`/`game_options`/`game_stakes` tables in one transaction. The caller
-    /// must also clear the in-memory `GamesKey` map. Returns
-    /// `(games_cleared, micro_coins_refunded)`.
+    /// must also clear the in-memory `PredictionsKey` map. Returns
+    /// `(predictions_cleared, micro_coins_refunded)`.
     pub fn reset_predictions(&self) -> SqlResult<(i64, i64)> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let games_cleared: i64 = tx.query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0))?;
+        let predictions_cleared: i64 = tx.query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0))?;
         let stakes: Vec<(i64, i64)> = {
             let mut stmt = tx.prepare("SELECT user, amount FROM game_stakes")?;
             let v = stmt
@@ -337,7 +337,7 @@ impl Database {
         tx.execute("DELETE FROM game_options", [])?;
         tx.execute("DELETE FROM games", [])?;
         tx.commit()?;
-        Ok((games_cleared, refunded))
+        Ok((predictions_cleared, refunded))
     }
 
     /// Snapshot every **non-zero** coin balance as `(user, micro_coins)` — the
@@ -434,18 +434,18 @@ mod reset_tests {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(10, 0).unwrap();
         db.force_change(20, 0).unwrap();
-        let mut g = crate::core::game::BetGame::new(1, crate::core::i18n::Lang::En, "q", &["A", "B"]);
+        let mut g = crate::core::prediction::Prediction::new(1, crate::core::i18n::Lang::En, "q", &["A", "B"]);
         g.set_id(5, 5);
         g.stake(10, "A", 4, "Ann");
         g.stake(20, "B", 6, "Bob");
-        db.save_bet_game(&g).unwrap();
+        db.save_prediction(&g).unwrap();
 
-        let (games_cleared, refunded) = db.reset_predictions().unwrap();
-        assert_eq!(games_cleared, 1);
+        let (predictions_cleared, refunded) = db.reset_predictions().unwrap();
+        assert_eq!(predictions_cleared, 1);
         assert_eq!(refunded, 10 * COIN); // (4 + 6) whole coins → micro
         assert_eq!(db.get_user_info(10).unwrap().balance, 4 * COIN);
         assert_eq!(db.get_user_info(20).unwrap().balance, 6 * COIN);
-        assert!(db.load_all_bet_games().unwrap().is_empty());
+        assert!(db.load_all_predictions().unwrap().is_empty());
     }
 
     #[test]

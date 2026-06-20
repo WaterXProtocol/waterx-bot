@@ -89,14 +89,14 @@ pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> S
         }
     }
 
-    // Stakes locked in still-open self-host (`/predict`) games. The stake was
+    // Stakes locked in still-open self-host (`/predict`) predictions. The stake was
     // debited at bet time, so these coins are committed positions — not yet
-    // reconciled into the balance (settled/draw games already are, so skip them).
+    // reconciled into the balance (settled/draw predictions already are, so skip them).
     // Game stakes are stored in whole coins; render via fmt_coins(× COIN).
-    let mut game_lines = String::new();
+    let mut prediction_lines = String::new();
     {
-        let games = games(ctx);
-        let guard = games.lock().await;
+        let predictions = predictions(ctx);
+        let guard = predictions.lock().await;
         for g in guard.values() {
             if !matches!(g.state, BetState::betting | BetState::closed) {
                 continue;
@@ -120,14 +120,14 @@ pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> S
                 .description
                 .split_once('\n')
                 .map_or(g.description.as_str(), |(_, rest)| rest);
-            game_lines.push_str(&format!("\n🎲 {desc}"));
+            prediction_lines.push_str(&format!("\n🎲 {desc}"));
             for (opt, stake) in staked {
-                game_lines.push_str(&format!("\n  {} · 🪙{}", opt, fmt_coins(stake * COIN)));
+                prediction_lines.push_str(&format!("\n  {} · 🪙{}", opt, fmt_coins(stake * COIN)));
             }
         }
     }
-    if !game_lines.is_empty() {
-        body.push_str(&format!("\n\n{}{}", i18n::predictions_title(lang), game_lines));
+    if !prediction_lines.is_empty() {
+        body.push_str(&format!("\n\n{}{}", i18n::predictions_title(lang), prediction_lines));
     }
 
     body

@@ -12,7 +12,7 @@
 //! language. Messages that are a single shared/edited post — the bet-game
 //! board and the sell/buy listings — are rendered in their **creator's**
 //! language (the game host, or the seller/buyer), because one message body is
-//! shown to everyone. `BetGame` therefore stores a [`Lang`] (see `game.rs`).
+//! shown to everyone. `Prediction` therefore stores a [`Lang`] (see `game.rs`).
 //!
 //! ## Adding a message
 //!
@@ -25,7 +25,7 @@
 ///
 /// `Hant` = Traditional Chinese (the bot's original language); `Hans` =
 /// Simplified Chinese. Serialize/Deserialize + Default(En) are needed because
-/// `BetGame` persists a `Lang` to SQLite as JSON.
+/// `Prediction` persists a `Lang` to SQLite as JSON.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Lang {
     #[default]
@@ -346,7 +346,7 @@ pub fn db_error(l: Lang) -> &'static str {
         "Erro de banco de dados", "डेटाबेस त्रुटि", "خطأ في قاعدة البيانات")
 }
 
-pub fn game_invalid(l: Lang) -> &'static str {
+pub fn prediction_invalid(l: Lang) -> &'static str {
     tr!(l;
         "This game is no longer valid", "賭局已失效", "赌局已失效", "この賭けは無効です", "이 게임은 만료됐어",
         "Игра больше недействительна", "Ce pari n'est plus valide", "Esta apuesta ya no es válida", "Diese Wette ist nicht mehr gültig", "Ván cược không còn hiệu lực",
@@ -370,7 +370,7 @@ pub fn already_closed(l: Lang) -> &'static str {
         "Já encerrado", "पहले ही बंद हो चुका", "مغلق بالفعل")
 }
 
-pub fn close_game_toast(l: Lang) -> &'static str {
+pub fn close_prediction_toast(l: Lang) -> &'static str {
     tr!(l;
         "Game closed", "關閉賭局", "关闭赌局", "賭けを締め切りました", "베팅 마감",
         "Ставки закрыты", "Paris clôturés", "Apuestas cerradas", "Wetten geschlossen", "Đã đóng cược",
@@ -1358,7 +1358,7 @@ pub fn bet_closed(l: Lang) -> &'static str {
         "As apostas para esta partida estão encerradas ⏱️", "इस मैच पर बेटिंग बंद हो चुकी है ⏱️", "أُغلق الرهان على هذه المباراة ⏱️")
 }
 
-pub fn match_finished(l: Lang) -> &'static str {
+pub fn market_finished(l: Lang) -> &'static str {
     tr!(l;
         "🏁 This match has finished — bets will be settled soon.", "🏁 這場比賽已結束，賭注將盡快結算。", "🏁 这场比赛已结束，赌注将尽快结算。", "🏁 この試合は終了したよ。賭けはまもなく精算されるよ。", "🏁 이 경기는 끝났어. 베팅은 곧 정산될 거야.",
         "🏁 Матч завершён — ставки скоро рассчитают.", "🏁 Ce match est terminé — les paris seront réglés bientôt.", "🏁 Este partido ha terminado — las apuestas se liquidarán pronto.", "🏁 Dieses Spiel ist beendet — Wetten werden bald abgerechnet.", "🏁 Trận này đã kết thúc — cược sẽ sớm được quyết toán.",
@@ -1501,7 +1501,7 @@ pub fn bet_announce(l: Lang, name: &str, stake: &str, side: &str, odds: &str) ->
 }
 
 /// Self-host (`/predict`) DM stake builder — no odds (pari-mutuel).
-pub fn game_build(l: Lang, option: &str, stake: &str) -> String {
+pub fn prediction_build(l: Lang, option: &str, stake: &str) -> String {
     tr!(l;
         "🎲 Bet on {option}\nStake: {stake} 🪙\nTap to add:", "🎲 押 {option}\n下注：{stake} 🪙\n點擊加注：", "🎲 押 {option}\n下注：{stake} 🪙\n点击加注：", "🎲 {option} に賭ける\nステーク：{stake} 🪙\nタップで追加：", "🎲 {option} 에 베팅\n베팅: {stake} 🪙\n탭하여 추가:",
         "🎲 Ставка на {option}\nСтавка: {stake} 🪙\nНажмите, чтобы добавить:", "🎲 Parier sur {option}\nMise : {stake} 🪙\nAppuyez pour ajouter :", "🎲 Apostar a {option}\nApuesta: {stake} 🪙\nToca para añadir:", "🎲 Auf {option} wetten\nEinsatz: {stake} 🪙\nZum Hinzufügen tippen:", "🎲 Cược cho {option}\nĐặt: {stake} 🪙\nChạm để thêm:",
@@ -1511,7 +1511,7 @@ pub fn game_build(l: Lang, option: &str, stake: &str) -> String {
     .replace("{stake}", stake)
 }
 
-pub fn game_confirm(l: Lang, stake: &str, option: &str) -> String {
+pub fn prediction_confirm(l: Lang, stake: &str, option: &str) -> String {
     tr!(l;
         "Place {stake} 🪙 on {option}?", "確定下注 {stake} 🪙 押 {option}？", "确定下注 {stake} 🪙 押 {option}？", "{option} に {stake} 🪙 を賭けますか？", "{option} 에 {stake} 🪙 베팅할까요?",
         "Поставить {stake} 🪙 на {option}?", "Miser {stake} 🪙 sur {option} ?", "¿Apostar {stake} 🪙 a {option}?", "{stake} 🪙 auf {option} setzen?", "Đặt {stake} 🪙 cho {option}?",
@@ -1521,7 +1521,7 @@ pub fn game_confirm(l: Lang, stake: &str, option: &str) -> String {
     .replace("{option}", option)
 }
 
-pub fn game_announce(l: Lang, name: &str, stake: &str, option: &str) -> String {
+pub fn prediction_announce(l: Lang, name: &str, stake: &str, option: &str) -> String {
     tr!(l;
         "🎲 {name} bet {stake} 🪙 on {option}", "🎲 {name} 下注 {stake} 🪙 押 {option}", "🎲 {name} 下注 {stake} 🪙 押 {option}", "🎲 {name} が {option} に {stake} 🪙 を賭けた", "🎲 {name} 님이 {option} 에 {stake} 🪙 베팅",
         "🎲 {name} поставил {stake} 🪙 на {option}", "🎲 {name} a misé {stake} 🪙 sur {option}", "🎲 {name} apostó {stake} 🪙 a {option}", "🎲 {name} hat {stake} 🪙 auf {option} gesetzt", "🎲 {name} đã đặt {stake} 🪙 cho {option}",

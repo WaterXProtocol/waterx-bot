@@ -1,6 +1,6 @@
-use crate::bot::{ConfigKey, Convo, ConvosKey, DbKey, GamesKey};
+use crate::bot::{ConfigKey, Convo, ConvosKey, DbKey, PredictionsKey};
 use crate::database::Database;
-use crate::core::game::BetGame;
+use crate::core::prediction::Prediction;
 use std::collections::HashMap;
 use std::sync::Arc;
 use telexide::api::types::SendMessage;
@@ -23,11 +23,11 @@ pub fn db(ctx: &Context) -> Arc<Database> {
         .clone()
 }
 
-pub fn games(ctx: &Context) -> Arc<Mutex<HashMap<String, BetGame>>> {
+pub fn predictions(ctx: &Context) -> Arc<Mutex<HashMap<String, Prediction>>> {
     ctx.data
         .read()
-        .get::<GamesKey>()
-        .expect("GamesKey missing — bot::run did not init properly")
+        .get::<PredictionsKey>()
+        .expect("PredictionsKey missing — bot::run did not init properly")
         .clone()
 }
 

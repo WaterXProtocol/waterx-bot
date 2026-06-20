@@ -19,7 +19,7 @@ pub struct OptionData {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct BetGame {
+pub struct Prediction {
     pub id: String,
     pub host: i64,
     /// Language the shared board is rendered in — the host's locale, resolved
@@ -53,7 +53,7 @@ pub struct BetGame {
     pub odds_fmt: OddsFormat,
 }
 
-impl BetGame {
+impl Prediction {
     pub fn new(host: i64, lang: Lang, description: &str, options: &[&str]) -> Self {
         let mut opts = HashMap::new();
         let mut order = Vec::new();
@@ -326,7 +326,7 @@ impl BetGame {
     }
 
     /// Per-user status line. Returns `""` if this user has no record in this
-    /// game, so callers can skip uninteresting entries when listing.
+    /// prediction, so callers can skip uninteresting entries when listing.
     pub fn check(&self, user: i64) -> String {
         let record = match self.state {
             BetState::betting | BetState::closed => {
@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn stake_updates_all_odds() {
-        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
+        let mut g = Prediction::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10, "Alice");
         g.stake(2, "B", 5, "Bob");
         // total = 15. A.bet = 10 → odd = 1.50. B.bet = 5 → odd = 3.00.
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn settle_pays_winners_proportionally() {
-        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
+        let mut g = Prediction::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10, "Alice");
         g.stake(2, "A", 30, "Bob");
         g.stake(3, "B", 10, "Cara");
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn settle_draw_refunds_inputs() {
-        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
+        let mut g = Prediction::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10, "Alice");
         g.stake(2, "B", 7, "Bob");
         g.close();
@@ -423,7 +423,7 @@ mod tests {
 
     #[test]
     fn settle_no_bets_at_all_is_draw() {
-        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
+        let mut g = Prediction::new(0, Lang::En, "test", &["A", "B"]);
         g.close();
         let (out, display) = g.settle("A");
         assert!(out.is_empty());
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn check_skips_users_with_no_record() {
-        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
+        let mut g = Prediction::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10, "Alice");
         assert!(!g.check(1).is_empty()); // bettor sees their row
         assert!(g.check(99).is_empty()); // someone who didn't bet sees nothing
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn check_shows_settled_result() {
-        let mut g = BetGame::new(0, Lang::En, "test", &["A", "B"]);
+        let mut g = Prediction::new(0, Lang::En, "test", &["A", "B"]);
         g.stake(1, "A", 10, "Alice");
         g.stake(2, "B", 10, "Bob");
         g.close();

@@ -1,5 +1,6 @@
 use crate::commands::util::{
-    board_header, bot_token, db, fmt_coins, full_name, games, is_group_chat, to_micro, SORRY_FRUITS,
+    board_header, bot_token, db, fmt_coins, full_name, is_group_chat, predictions, to_micro,
+    SORRY_FRUITS,
 };
 use crate::database::COIN;
 use crate::commands::{admin, assets, betting, markets, menu, predict, referral, tg};
@@ -73,9 +74,9 @@ pub async fn on_callback(ctx: Context, update: Update) {
     } else if let Some(rest) = data.strip_prefix("gamble:") {
         handle_gamble(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gsz:") {
-        handle_game_size(&ctx, &cb, rest).await
+        handle_prediction_size(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("gsp:") {
-        handle_game_place(&ctx, &cb, rest).await
+        handle_prediction_place(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("bx:") {
         handle_board_dismiss(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(predict::PREDICT_END) {
@@ -222,35 +223,35 @@ async fn handle_gamble(
     let msg_id = message.message_id;
     let key = format!("{chat_id}:{msg_id}");
     // Tapper's locale for the private toast; the shared board uses the host's
-    // `game.lang`.
+    // `prediction.lang`.
     let lang = cb_lang(ctx, cb);
-    let games = games(ctx);
+    let predictions = predictions(ctx);
     let db = db(ctx);
 
     // close: gamble:  (host only)
     if rest.is_empty() {
         let (text, rows) = {
-            let mut g = games.lock().await;
-            let Some(game) = g.get_mut(&key) else {
-                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
+            let mut g = predictions.lock().await;
+            let Some(prediction) = g.get_mut(&key) else {
+                return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
             };
-            if game.host != cb.from.id {
+            if prediction.host != cb.from.id {
                 return answer(ctx, cb, i18n::not_host(lang), true).await;
             }
-            if !game.close() {
+            if !prediction.close() {
                 return answer(ctx, cb, i18n::already_closed(lang), true).await;
             }
-            if let Err(err) = db.save_bet_game(game) {
-                eprintln!("save_bet_game(close) error: {err}");
+            if let Err(err) = db.save_prediction(prediction) {
+                eprintln!("save_prediction(close) error: {err}");
             }
-            (game.get_text(), game.get_buttons())
+            (prediction.get_text(), prediction.get_buttons())
         };
         let _ = tg::edit_with_buttons(ctx, chat_id, msg_id, &text, &rows).await;
-        return answer(ctx, cb, i18n::close_game_toast(lang), false).await;
+        return answer(ctx, cb, i18n::close_prediction_toast(lang), false).await;
     }
 
     // pick: gamble:pick:<idx> — post the tapper their OWN stake board as a reply
-    // to the shared game card (owner-locked, so only they can use it; the placed
+    // to the shared prediction card (owner-locked, so only they can use it; the placed
     // bet is announced back under the card). The board stays out of the shared
     // card so every member can tap for their own board.
     if let Some(idx_s) = rest.strip_prefix("pick:") {
@@ -260,22 +261,22 @@ async fn handle_gamble(
         // The builder shows the odds in the *bettor's* format (not the host's).
         let fmt = db.get_odds_fmt(cb.from.id).unwrap_or_default();
         let label = {
-            let g = games.lock().await;
-            let Some(game) = g.get(&key) else {
-                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
+            let g = predictions.lock().await;
+            let Some(prediction) = g.get(&key) else {
+                return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
             };
-            if game.state != BetState::betting || game.ended(chrono::Utc::now().timestamp()) {
+            if prediction.state != BetState::betting || prediction.ended(chrono::Utc::now().timestamp()) {
                 return answer(ctx, cb, i18n::already_closed(lang), true).await;
             }
-            match game.option_order.get(idx) {
-                Some(o) => opt_label(o, &game.option_odds(o, fmt)),
+            match prediction.option_order.get(idx) {
+                Some(o) => opt_label(o, &prediction.option_odds(o, fmt)),
                 None => return answer(ctx, cb, "", false).await,
             }
         };
         // Head the board with the tapper's name in a group so members can tell
         // whose owner-locked board it is.
-        let text = board_header(chat_id, &full_name(&cb.from), &i18n::game_build(lang, &label, "0"));
-        let rows = game_builder_rows(lang, &key, idx, cb.from.id, 0);
+        let text = board_header(chat_id, &full_name(&cb.from), &i18n::prediction_build(lang, &label, "0"));
+        let rows = prediction_builder_rows(lang, &key, idx, cb.from.id, 0);
         return match tg::send_with_buttons_reply(ctx, chat_id, msg_id, &text, &rows).await {
             Ok(_) => answer(ctx, cb, "", false).await,
             Err(e) => {
@@ -286,28 +287,28 @@ async fn handle_gamble(
     }
 
     // settle: gamble:<outcome>  (host only, after close). The settled board is
-    // rendered in the host's language (game.lang) — it's a shared message.
+    // rendered in the host's language (prediction.lang) — it's a shared message.
     let outcome = rest;
-    let (outputs, display, state, game_lang) = {
-        let mut g = games.lock().await;
+    let (outputs, display, state, prediction_lang) = {
+        let mut g = predictions.lock().await;
         let result = {
-            let Some(game) = g.get_mut(&key) else {
-                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
+            let Some(prediction) = g.get_mut(&key) else {
+                return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
             };
-            if game.host != cb.from.id {
+            if prediction.host != cb.from.id {
                 return answer(ctx, cb, i18n::not_host(lang), true).await;
             }
-            if game.state != BetState::closed {
+            if prediction.state != BetState::closed {
                 return answer(ctx, cb, i18n::not_closed_yet(lang), true).await;
             }
-            let (outputs, display) = game.settle(outcome);
-            // A terminal state → `save_bet_game` drops the game's rows from the DB.
-            if let Err(err) = db.save_bet_game(game) {
-                eprintln!("save_bet_game(settle) error: {err}");
+            let (outputs, display) = prediction.settle(outcome);
+            // A terminal state → `save_prediction` drops the prediction's rows from the DB.
+            if let Err(err) = db.save_prediction(prediction) {
+                eprintln!("save_prediction(settle) error: {err}");
             }
-            (outputs, display, game.state.clone(), game.lang)
+            (outputs, display, prediction.state.clone(), prediction.lang)
         };
-        // Drop the settled game from the in-memory map too — the board message
+        // Drop the settled prediction from the in-memory map too — the board message
         // already shows the final result and carries no buttons.
         g.remove(&key);
         result
@@ -324,19 +325,19 @@ async fn handle_gamble(
         ctx,
         chat_id,
         msg_id,
-        &format!("{}\n---{}\n", display, state.label(game_lang)),
+        &format!("{}\n---{}\n", display, state.label(prediction_lang)),
     )
     .await;
     answer(ctx, cb, i18n::settle_success(lang), false).await
 }
 
 /// In-group stake-builder keyboard for a `/predict` option at `total` whole coins.
-/// The game ref + owner + total all ride in the callback data
+/// The prediction ref + owner + total all ride in the callback data
 /// (`gsz/gsc/gsp:<chat>:<msg>:<idx>:<owner>:<total>`) — no server-side per-user
 /// state. `owner` locks the board to the tapper; the Dismiss row (`bx:<owner>`)
 /// lets them delete it.
-fn game_builder_rows(lang: Lang, key: &str, idx: usize, owner: i64, total: i64) -> Vec<Vec<(String, String)>> {
-    let add: Vec<(String, String)> = crate::core::game::STAKE_AMOUNTS
+fn prediction_builder_rows(lang: Lang, key: &str, idx: usize, owner: i64, total: i64) -> Vec<Vec<(String, String)>> {
+    let add: Vec<(String, String)> = crate::core::prediction::STAKE_AMOUNTS
         .iter()
         .map(|p| (format!("+{p}"), format!("gsz:{key}:{idx}:{owner}:{}", total + p)))
         .collect();
@@ -352,9 +353,9 @@ fn game_builder_rows(lang: Lang, key: &str, idx: usize, owner: i64, total: i64) 
     ]
 }
 
-/// Parse `<chat>:<msg>:<idx>:<owner>:<total>` → (game key `"chat:msg"`, option
+/// Parse `<chat>:<msg>:<idx>:<owner>:<total>` → (prediction key `"chat:msg"`, option
 /// idx, board owner, total).
-fn parse_game_draft(rest: &str) -> Option<(String, usize, i64, i64)> {
+fn parse_prediction_draft(rest: &str) -> Option<(String, usize, i64, i64)> {
     let parts: Vec<&str> = rest.split(':').collect();
     let [chat, msg, idx, owner, total] = parts.as_slice() else {
         return None;
@@ -362,26 +363,26 @@ fn parse_game_draft(rest: &str) -> Option<(String, usize, i64, i64)> {
     Some((format!("{chat}:{msg}"), idx.parse().ok()?, owner.parse().ok()?, total.parse().ok()?))
 }
 
-/// The option's `(name, odds-in-`fmt`)` for `(key, idx)` if the game is still
-/// open; else the toast to show (`game_invalid`/`already_closed`). The odds are
+/// The option's `(name, odds-in-`fmt`)` for `(key, idx)` if the prediction is still
+/// open; else the toast to show (`prediction_invalid`/`already_closed`). The odds are
 /// the pari-mutuel multiplier rendered in the *bettor's* format for the DM builder.
-async fn game_option(
+async fn prediction_option(
     ctx: &Context,
     lang: Lang,
     key: &str,
     idx: usize,
     fmt: crate::core::types::OddsFormat,
 ) -> Result<(String, String), &'static str> {
-    let games = games(ctx);
-    let g = games.lock().await;
-    let Some(game) = g.get(key) else {
-        return Err(i18n::game_invalid(lang));
+    let predictions = predictions(ctx);
+    let g = predictions.lock().await;
+    let Some(prediction) = g.get(key) else {
+        return Err(i18n::prediction_invalid(lang));
     };
-    if game.state != BetState::betting || game.ended(chrono::Utc::now().timestamp()) {
+    if prediction.state != BetState::betting || prediction.ended(chrono::Utc::now().timestamp()) {
         return Err(i18n::already_closed(lang));
     }
-    let name = game.option_order.get(idx).cloned().ok_or_else(|| i18n::game_invalid(lang))?;
-    let odds = game.option_odds(&name, fmt);
+    let name = prediction.option_order.get(idx).cloned().ok_or_else(|| i18n::prediction_invalid(lang))?;
+    let odds = prediction.option_odds(&name, fmt);
     Ok((name, odds))
 }
 
@@ -391,28 +392,28 @@ fn opt_label(name: &str, odds: &str) -> String {
 }
 
 /// `gsz:…` — re-render the DM builder at the accumulated total.
-async fn handle_game_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+async fn handle_prediction_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((key, idx, owner, total)) = parse_game_draft(rest) else {
+    let Some((key, idx, owner, total)) = parse_prediction_draft(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if owner != cb.from.id {
         return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
     }
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let (opt, odds) = match game_option(ctx, lang, &key, idx, fmt).await {
+    let (opt, odds) = match prediction_option(ctx, lang, &key, idx, fmt).await {
         Ok(p) => p,
         Err(t) => return answer(ctx, cb, t, true).await,
     };
     if let Some(m) = &cb.message {
-        let body = i18n::game_build(lang, &opt_label(&opt, &odds), &total.max(0).to_string());
+        let body = i18n::prediction_build(lang, &opt_label(&opt, &odds), &total.max(0).to_string());
         let text = board_header(m.chat.get_id(), &full_name(&cb.from), &body);
         let _ = tg::edit_with_buttons(
             ctx,
             m.chat.get_id(),
             m.message_id,
             &text,
-            &game_builder_rows(lang, &key, idx, owner, total),
+            &prediction_builder_rows(lang, &key, idx, owner, total),
         )
         .await;
     }
@@ -421,19 +422,19 @@ async fn handle_game_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
 
 /// Best-effort refund of `units` micro-coins to `user`, logging (not swallowing)
 /// a failure — used when a self-host stake debit can't be turned into a placed
-/// bet (game gone / option missing / stake rejected) after the debit succeeded.
+/// bet (prediction gone / option missing / stake rejected) after the debit succeeded.
 fn log_refund(db: &crate::database::Database, user: i64, units: i64) {
     if let Err(e) = db.force_change(user, units) {
-        eprintln!("game stake refund failed (user {user}, +{units}): {e}");
+        eprintln!("prediction stake refund failed (user {user}, +{units}): {e}");
     }
 }
 
 /// `gsp:…` — fired by the board's **Confirm**: the only money-moving step. Debit,
-/// `game.stake`, edit the group board with new totals, report the result in a
+/// `prediction.stake`, edit the group board with new totals, report the result in a
 /// popup alert, and announce in the group.
-async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+async fn handle_prediction_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((key, idx, owner, total)) = parse_game_draft(rest) else {
+    let Some((key, idx, owner, total)) = parse_prediction_draft(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if owner != cb.from.id {
@@ -449,47 +450,47 @@ async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Res
     if !db.balance_change(cb.from.id, -units).unwrap_or(false) {
         return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
     }
-    let games = games(ctx);
+    let predictions = predictions(ctx);
     let placed = {
-        let mut g = games.lock().await;
-        let Some(game) = g.get_mut(&key) else {
+        let mut g = predictions.lock().await;
+        let Some(prediction) = g.get_mut(&key) else {
             log_refund(&db, cb.from.id, units);
-            return answer(ctx, cb, i18n::game_invalid(lang), true).await;
+            return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
         };
-        // Reject (and refund) a place on a closed/ended game — the builder DM may
+        // Reject (and refund) a place on a closed/ended prediction — the builder DM may
         // have been opened before the deadline passed.
-        if game.state != BetState::betting || game.ended(chrono::Utc::now().timestamp()) {
+        if prediction.state != BetState::betting || prediction.ended(chrono::Utc::now().timestamp()) {
             log_refund(&db, cb.from.id, units);
             return answer(ctx, cb, i18n::already_closed(lang), true).await;
         }
-        let Some(option) = game.option_order.get(idx).cloned() else {
+        let Some(option) = prediction.option_order.get(idx).cloned() else {
             log_refund(&db, cb.from.id, units);
             return answer(ctx, cb, i18n::bet_failed(lang), true).await;
         };
-        if !game.stake(cb.from.id, &option, total, &full_name(&cb.from)) {
+        if !prediction.stake(cb.from.id, &option, total, &full_name(&cb.from)) {
             log_refund(&db, cb.from.id, units);
             return answer(ctx, cb, i18n::bet_failed(lang), true).await;
         }
-        if let Err(err) = db.save_bet_game(game) {
-            eprintln!("save_bet_game(stake) error: {err}");
+        if let Err(err) = db.save_prediction(prediction) {
+            eprintln!("save_prediction(stake) error: {err}");
         }
-        (option, game.get_text(), game.get_buttons())
+        (option, prediction.get_text(), prediction.get_buttons())
     };
     let (option, board_text, board_rows) = placed;
     // Edit the group board with the new totals and announce the bet there — as a
-    // reply to the board card (like match betting replies to its game card), so
+    // reply to the board card (like match betting replies to its prediction card), so
     // the announcement is threaded under the prediction it belongs to. Falls back
     // to a loose message if the card is gone (`send_text_reply` sets
     // `allow_sending_without_reply`).
     if let Some((c, m)) = key.split_once(':') {
         if let (Ok(chat), Ok(msg)) = (c.parse::<i64>(), m.parse::<i64>()) {
             let _ = tg::edit_with_buttons(ctx, chat, msg, &board_text, &board_rows).await;
-            let announce = i18n::game_announce(lang, &full_name(&cb.from), &total.to_string(), &option);
+            let announce = i18n::prediction_announce(lang, &full_name(&cb.from), &total.to_string(), &option);
             let _ = tg::send_text_reply(ctx, chat, msg, &announce).await;
         }
     }
     // The stake board is its own message — delete it now that the bet is placed
-    // (the result rides in the announcement reply under the game card above).
+    // (the result rides in the announcement reply under the prediction card above).
     if let Some(m) = &cb.message {
         let _ = tg::delete_message(ctx, m.chat.get_id(), m.message_id).await;
     }

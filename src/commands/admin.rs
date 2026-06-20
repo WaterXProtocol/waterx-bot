@@ -443,7 +443,7 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
         open_stake = fmt_coins(s.open_stake),
         tot_w = format_number(s.total_wagers),
         tot_vol = fmt_coins(s.total_volume),
-        open_g = format_number(s.open_games),
+        open_g = format_number(s.open_predictions),
         open_g_coins = fmt_coins(s.open_game_stake),
     );
     reply(&ctx, &message, text).await?;
@@ -558,7 +558,7 @@ pub async fn handle_reset_cb(
                 }
                 match database.reset_predictions() {
                     Ok((n, refunded)) => {
-                        games(ctx).lock().await.clear();
+                        predictions(ctx).lock().await.clear();
                         lines.push(format!("🎲 Returned {} from {n} prediction(s)", fmt_coins(refunded)));
                     }
                     Err(e) => {
@@ -573,7 +573,7 @@ pub async fn handle_reset_cb(
                         // (3) …then wipe everything.
                         match database.reset_all() {
                             Ok(()) => {
-                                games(ctx).lock().await.clear();
+                                predictions(ctx).lock().await.clear();
                                 lines.push(format!(
                                     "💾 Backup saved: {file} (restore with /load {file})\n🗑️ Everything wiped — kick + re-add the bot to re-record the group adder, then members re-refer."
                                 ));
@@ -604,8 +604,8 @@ pub async fn handle_reset_cb(
                 if flags & RESET_PREDICTIONS != 0 {
                     match database.reset_predictions() {
                         Ok((n, refunded)) => {
-                            games(ctx).lock().await.clear();
-                            lines.push(format!("🎲 Predictions cleared — {n} game(s), refunded {}", fmt_coins(refunded)))
+                            predictions(ctx).lock().await.clear();
+                            lines.push(format!("🎲 Predictions cleared — {n} prediction(s), refunded {}", fmt_coins(refunded)))
                         }
                         Err(e) => {
                             eprintln!("reset_predictions error: {e}");

@@ -48,7 +48,7 @@ pub struct Quote {
     /// Chat the match was tapped in (the group brief) — the placed bet is
     /// announced back here. Equals the DM when `/markets` was used privately.
     origin_chat: i64,
-    /// In a group, the message id of the posted game card (A vs B + side
+    /// In a group, the message id of the posted prediction card (A vs B + side
     /// buttons) the placed bet is announced as a reply to. 0 when private.
     origin_msg: i64,
     /// The user this quote's stake board belongs to. In a group the board is a
@@ -352,7 +352,7 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         // (b) Refresh the shared card to current odds in its OWN locale (no-op when
         // unchanged), then post the tapper their OWN stake board as a reply to the
         // card — so the shared card stays a card (others can tap it for their own
-        // boards) and each board is owner-locked + threaded under the game.
+        // boards) and each board is owner-locked + threaded under the prediction.
         let _ = tg::edit_with_buttons(
             ctx,
             cb.message_chat(),
@@ -447,7 +447,7 @@ pub async fn handle_size_place(
     let placed = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
     if is_group_chat(q.origin_chat) {
         // Group: the stake board is its own message — delete it and post the
-        // result as a reply to the game card it was bet on (falling back to a
+        // result as a reply to the prediction card it was bet on (falling back to a
         // loose message if that card is gone).
         let _ = tg::delete_message(ctx, cb.message_chat(), cb.message_id()).await;
         let announce =
@@ -459,7 +459,7 @@ pub async fn handle_size_place(
         }
     } else {
         // Private `/markets`: the board edits in place into the placed confirmation
-        // (no game card to reply to — the origin is the caller's own DM).
+        // (no prediction card to reply to — the origin is the caller's own DM).
         let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &placed).await;
     }
     // Report the placed bet in a popup alert (Confirm places straight away now).
@@ -544,7 +544,7 @@ async fn finish_card(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<()
         ctx,
         cb.message_chat(),
         cb.message_id(),
-        i18n::match_finished(lang),
+        i18n::market_finished(lang),
         no_rows,
     )
     .await;

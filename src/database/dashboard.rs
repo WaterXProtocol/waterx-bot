@@ -29,7 +29,7 @@ pub struct Dashboard {
     /// Open self-host `/predict` games. The `games` table only ever holds live
     /// (betting/closed) games — settled/draw are dropped on settle — so this is
     /// `COUNT(*)`.
-    pub open_games: i64,
+    pub open_predictions: i64,
     /// Coins committed to open self-host games (micro-coins). `games.total` is
     /// whole coins, so it's scaled up here to keep every coin field in micro.
     pub open_game_stake: i64,
@@ -38,8 +38,8 @@ pub struct Dashboard {
 impl Database {
     /// One-shot snapshot of bot-wide metrics for `/dashboard`: a single lock and a
     /// handful of aggregate queries over `balance`/`chats`/`wagers`/`games`. The
-    /// self-host game figures now come straight from the normalized `games` table,
-    /// so the caller no longer folds in the in-memory `GamesKey` map.
+    /// self-host prediction figures now come straight from the normalized `games` table,
+    /// so the caller no longer folds in the in-memory `PredictionsKey` map.
     pub fn dashboard(&self) -> SqlResult<Dashboard> {
         let conn = self.conn.lock();
         let count = |sql: &str| -> SqlResult<i64> { conn.query_row(sql, [], |r| r.get::<_, i64>(0)) };
@@ -62,7 +62,7 @@ impl Database {
             open_stake: count("SELECT COALESCE(SUM(stake), 0) FROM wagers WHERE status = 'open'")?,
             total_wagers: count("SELECT COUNT(*) FROM wagers")?,
             total_volume: count("SELECT COALESCE(SUM(stake), 0) FROM wagers")?,
-            open_games: count("SELECT COUNT(*) FROM games")?,
+            open_predictions: count("SELECT COUNT(*) FROM games")?,
             open_game_stake: open_game_whole.saturating_mul(COIN),
         })
     }
@@ -72,7 +72,7 @@ impl Database {
 mod tests {
     use super::super::COIN;
     use super::*;
-    use crate::core::game::BetGame;
+    use crate::core::prediction::Prediction;
     use crate::core::i18n::Lang;
 
     #[test]
@@ -110,27 +110,27 @@ mod tests {
         let db = Database::new(":memory:", 1).unwrap();
         // Two live games (one betting, one closed) plus a settled one that's been
         // dropped from storage — the settled one must NOT be counted.
-        let mut a = BetGame::new(1, Lang::En, "a", &["X", "Y"]);
+        let mut a = Prediction::new(1, Lang::En, "a", &["X", "Y"]);
         a.set_id(1, 1);
         a.stake(10, "X", 4, "Ann");
         a.stake(11, "Y", 6, "Bob"); // total 10
-        db.save_bet_game(&a).unwrap();
+        db.save_prediction(&a).unwrap();
 
-        let mut b = BetGame::new(2, Lang::En, "b", &["X", "Y"]);
+        let mut b = Prediction::new(2, Lang::En, "b", &["X", "Y"]);
         b.set_id(2, 2);
         b.stake(12, "X", 5, "Cy"); // total 5
         b.close();
-        db.save_bet_game(&b).unwrap();
+        db.save_prediction(&b).unwrap();
 
-        let mut done = BetGame::new(3, Lang::En, "c", &["X", "Y"]);
+        let mut done = Prediction::new(3, Lang::En, "c", &["X", "Y"]);
         done.set_id(3, 3);
         done.stake(13, "X", 9, "Di");
         done.close();
         let _ = done.settle("X");
-        db.save_bet_game(&done).unwrap(); // terminal → dropped, not stored
+        db.save_prediction(&done).unwrap(); // terminal → dropped, not stored
 
         let s = db.dashboard().unwrap();
-        assert_eq!(s.open_games, 2);
+        assert_eq!(s.open_predictions, 2);
         assert_eq!(s.open_game_stake, 15 * COIN); // (4+6) + 5, in micro-coins
     }
 }

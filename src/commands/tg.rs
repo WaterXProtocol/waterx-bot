@@ -88,7 +88,7 @@ pub async fn send_with_buttons(
 }
 
 /// Send a message **with an inline keyboard** as a **reply** to `reply_to`. Used
-/// to post a per-user stake board threaded under the group game card it belongs
+/// to post a per-user stake board threaded under the group prediction card it belongs
 /// to. Falls back to a loose message if that card is gone
 /// (`allow_sending_without_reply`). Returns the sent `Message` so the caller can
 /// track the board's id.
@@ -149,7 +149,7 @@ pub async fn chat_creator(ctx: &Context, chat_id: i64) -> Option<i64> {
 }
 
 /// Send a plain message as a **reply** to `reply_to` in `chat_id`. Used to pin a
-/// placed-bet announcement under the group game card it belongs to. Falls back to
+/// placed-bet announcement under the group prediction card it belongs to. Falls back to
 /// a normal message if that card is gone (`allow_sending_without_reply`).
 pub async fn send_text_reply(
     ctx: &Context,

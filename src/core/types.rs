@@ -45,8 +45,8 @@ pub enum BetState {
 }
 
 impl BetState {
-    /// Localized status label shown on the shared bet-game board (rendered in
-    /// the host's language; see [`crate::core::game::BetGame`]).
+    /// Localized status label shown on the shared prediction board (rendered in
+    /// the host's language; see [`crate::core::prediction::Prediction`]).
     pub fn label(&self, lang: Lang) -> &'static str {
         match self {
             BetState::betting => i18n::state_betting(lang),

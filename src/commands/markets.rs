@@ -25,7 +25,7 @@ pub const BET: &str = "bet:";
 
 /// A single sport match, distilled from the browse feed.
 #[derive(Debug, Clone)]
-pub struct MatchInfo {
+pub struct MarketInfo {
     pub market_id: String,
     pub slug: String,
     pub team_a: String,
@@ -39,7 +39,7 @@ pub struct MatchInfo {
     pub live: bool,
 }
 
-impl MatchInfo {
+impl MarketInfo {
     /// YES odds (cents) for one of `teamA`/`teamB`/`draw`.
     pub fn odds(&self, outcome: &str) -> Option<f64> {
         match outcome {
@@ -86,7 +86,7 @@ pub async fn markets(ctx: Context, message: Message) -> CommandResult {
 /// line and no buttons.
 pub(crate) async fn brief(lang: Lang, tz_min: i64, fmt: OddsFormat) -> (String, Vec<Row>) {
     let now = Utc::now().timestamp();
-    let matches = match fetch_matches(lang).await {
+    let matches = match fetch_markets(lang).await {
         Ok(mut m) => {
             m.retain(|x| within_window(x, now));
             m
@@ -113,7 +113,7 @@ pub(crate) async fn brief(lang: Lang, tz_min: i64, fmt: OddsFormat) -> (String, 
     out.push('\n');
     let shown = &matches[..matches.len().min(MAX_MATCHES)];
     for (idx, m) in shown.iter().enumerate() {
-        out.push_str(&render_match(lang, idx + 1, m, tz_min, fmt));
+        out.push_str(&render_market(lang, idx + 1, m, tz_min, fmt));
     }
     if matches.len() > MAX_MATCHES {
         out.push_str(&i18n::markets_more(lang, &(matches.len() - MAX_MATCHES).to_string()));
@@ -146,20 +146,20 @@ pub(crate) async fn brief(lang: Lang, tz_min: i64, fmt: OddsFormat) -> (String, 
 pub(crate) async fn fetch_one(
     lang: Lang,
     market_id: &str,
-) -> Result<Option<MatchInfo>, reqwest::Error> {
-    Ok(fetch_matches(lang)
+) -> Result<Option<MarketInfo>, reqwest::Error> {
+    Ok(fetch_markets(lang)
         .await?
         .into_iter()
         .find(|m| m.market_id == market_id))
 }
 
 /// True when a match should appear in the brief: live, or kicking off within 24h.
-fn within_window(m: &MatchInfo, now: i64) -> bool {
+fn within_window(m: &MarketInfo, now: i64) -> bool {
     m.live || m.starts_at.is_some_and(|t| t >= now && t <= now + 86_400)
 }
 
 /// Per-locale cache of the parsed feed: `locale → (fetched_at_unix, matches)`.
-type FeedCache = HashMap<&'static str, (i64, Vec<MatchInfo>)>;
+type FeedCache = HashMap<&'static str, (i64, Vec<MarketInfo>)>;
 
 /// Process-wide [`FeedCache`]. Guards are never held across an `.await`.
 fn feed_cache() -> &'static Mutex<FeedCache> {
@@ -169,7 +169,7 @@ fn feed_cache() -> &'static Mutex<FeedCache> {
 
 /// Pull and parse the feed into sport matches, live-first then soonest. Served
 /// from a [`FEED_CACHE_TTL`]-second per-locale cache to avoid hammering the API.
-async fn fetch_matches(lang: Lang) -> Result<Vec<MatchInfo>, reqwest::Error> {
+async fn fetch_markets(lang: Lang) -> Result<Vec<MarketInfo>, reqwest::Error> {
     // Chinese users get Chinese team names; everyone else English.
     let api_locale = match lang {
         Lang::Hant | Lang::Hans => "zh",
@@ -195,13 +195,13 @@ async fn fetch_matches(lang: Lang) -> Result<Vec<MatchInfo>, reqwest::Error> {
         .json::<BrowseResp>()
         .await?;
 
-    let mut matches: Vec<MatchInfo> = resp.data.items.iter().filter_map(to_match_info).collect();
+    let mut matches: Vec<MarketInfo> = resp.data.items.iter().filter_map(to_match_info).collect();
     matches.sort_by_key(|m| (!m.live, m.starts_at.unwrap_or(i64::MAX)));
     feed_cache().lock().insert(api_locale, (now, matches.clone()));
     Ok(matches)
 }
 
-fn to_match_info(it: &Item) -> Option<MatchInfo> {
+fn to_match_info(it: &Item) -> Option<MarketInfo> {
     let d = &it.market.display;
     if d.kind.as_deref() != Some("sport") {
         return None;
@@ -209,7 +209,7 @@ fn to_match_info(it: &Item) -> Option<MatchInfo> {
     let a = d.team_a.as_ref()?;
     let b = d.team_b.as_ref()?;
     let r = it.next_round.as_ref()?;
-    Some(MatchInfo {
+    Some(MarketInfo {
         market_id: it.market.id.clone(),
         slug: it.market.slug.clone(),
         team_a: a.name.clone(),
@@ -223,7 +223,7 @@ fn to_match_info(it: &Item) -> Option<MatchInfo> {
     })
 }
 
-fn render_match(lang: Lang, n: usize, m: &MatchInfo, tz_min: i64, fmt: OddsFormat) -> String {
+fn render_market(lang: Lang, n: usize, m: &MarketInfo, tz_min: i64, fmt: OddsFormat) -> String {
     let dot = if m.live { "🔴 " } else { "" };
     let mut s = format!("\n{n}) {dot}{} vs. {}\n", m.team_a, m.team_b);
     if let Some(t) = fmt_time(m.starts_at, tz_min) {
