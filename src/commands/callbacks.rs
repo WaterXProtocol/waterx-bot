@@ -485,16 +485,16 @@ async fn handle_game_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Res
         (option, game.get_text(), game.get_buttons())
     };
     let (option, board_text, board_rows) = placed;
-    // Edit the group board with the new totals and announce the bet there.
+    // Edit the group board with the new totals and announce the bet there — as a
+    // reply to the board card (like match betting replies to its game card), so
+    // the announcement is threaded under the prediction it belongs to. Falls back
+    // to a loose message if the card is gone (`send_text_reply` sets
+    // `allow_sending_without_reply`).
     if let Some((c, m)) = key.split_once(':') {
         if let (Ok(chat), Ok(msg)) = (c.parse::<i64>(), m.parse::<i64>()) {
             let _ = tg::edit_with_buttons(ctx, chat, msg, &board_text, &board_rows).await;
-            let _ = crate::commands::util::send_text(
-                ctx,
-                chat,
-                i18n::game_announce(lang, &full_name(&cb.from), &total.to_string(), &option),
-            )
-            .await;
+            let announce = i18n::game_announce(lang, &full_name(&cb.from), &total.to_string(), &option);
+            let _ = tg::send_text_reply(ctx, chat, msg, &announce).await;
         }
     }
     // Confirm in the DM (where the builder lives).
