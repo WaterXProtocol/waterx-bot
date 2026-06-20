@@ -13,7 +13,7 @@ use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::game::BetGame;
 use crate::i18n::{self, Lang};
-use telexide::model::{CallbackQuery, UpdateContent};
+use telexide::model::{CallbackQuery, UpdateContent, User};
 use telexide::prelude::*;
 
 /// Callback prefix for the builder's end-time presets: `gend:<minutes>` (0 = no
@@ -40,6 +40,26 @@ fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
+/// Open a fresh `/predict` builder for `host`: DM them the first prompt and (only
+/// if the DM lands) register the `Convo::Predict` draft pinned to `origin_chat`
+/// (where the finished card will post). Returns `true` when the DM landed and the
+/// draft is registered, `false` when it bounced (the host never started the bot).
+/// Shared by the `/predict` command and the `menu:predict` home-page button.
+/// Inserting overwrites any in-flight `/feedback` flow — the last-started wins.
+pub(crate) async fn open_draft(ctx: &Context, host: &User, origin_chat: i64) -> bool {
+    let lang = lang_for(ctx, host);
+    match send_text(ctx, host.id, i18n::predict_ask_question(lang)).await {
+        Ok(_) => {
+            convos(ctx).lock().await.insert(
+                host.id,
+                Convo::Predict(PredictDraft { origin_chat, lang, description: None, options: None }),
+            );
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 #[command(description = "create a prediction")]
 pub async fn predict(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
@@ -52,25 +72,13 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
     let lang = lang_for(&ctx, &host);
     let origin_chat = message.chat.get_id();
 
-    // DM the first prompt; only register the draft once we know the DM lands (a
-    // user who never started the bot can't run the wizard). Starting `/predict`
-    // again just replaces any half-finished draft.
-    match send_text(&ctx, host.id, i18n::predict_ask_question(lang)).await {
-        Ok(_) => {
-            // Inserting overwrites any in-flight `/feedback` flow for this user —
-            // the last-started DM flow wins.
-            convos(&ctx).lock().await.insert(
-                host.id,
-                Convo::Predict(PredictDraft { origin_chat, lang, description: None, options: None }),
-            );
-            // In a group the prompt went to the host's DM — point them there.
-            if is_group_chat(origin_chat) {
-                reply(&ctx, &message, i18n::predict_check_dm(lang)).await?;
-            }
+    if open_draft(&ctx, &host, origin_chat).await {
+        // In a group the prompt went to the host's DM — point them there.
+        if is_group_chat(origin_chat) {
+            reply(&ctx, &message, i18n::predict_check_dm(lang)).await?;
         }
-        Err(_) => {
-            reply(&ctx, &message, i18n::bet_dm_first(lang)).await?;
-        }
+    } else {
+        reply(&ctx, &message, i18n::bet_dm_first(lang)).await?;
     }
     Ok(())
 }

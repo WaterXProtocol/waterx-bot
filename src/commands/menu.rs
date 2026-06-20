@@ -90,6 +90,9 @@ pub const MENU_BALANCE: &str = "menu:balance";
 pub const MENU_MATCHES: &str = "menu:matches";
 pub const MENU_RULE: &str = "menu:rule";
 pub const MENU_INVITE: &str = "menu:invite";
+/// Group-only home-page button: open the `/predict` builder (handled like the
+/// `/predict` command).
+pub const MENU_PREDICT: &str = "menu:predict";
 /// Invite-format chooser (shown after `menu:invite`).
 pub const INVITE_LINK: &str = "inv:link";
 pub const INVITE_FWD: &str = "inv:fwd";
@@ -158,9 +161,15 @@ pub fn main_menu_rows(lang: Lang, checkin_available: bool, is_group: bool) -> Ve
         i18n::btn_matches(lang).to_string(),
         MENU_MATCHES.to_string(),
     )]);
-    // Rules carry no private info, so the button is shown in groups too.
-    rows.push(vec![(i18n::btn_rule(lang).to_string(), MENU_RULE.to_string())]);
-    if !is_group {
+    if is_group {
+        // Group-only: kick off a shared prediction (handled like `/predict`).
+        rows.push(vec![(
+            i18n::btn_predict(lang).to_string(),
+            MENU_PREDICT.to_string(),
+        )]);
+    } else {
+        // Private-only: the rules brief and the personal invite chooser.
+        rows.push(vec![(i18n::btn_rule(lang).to_string(), MENU_RULE.to_string())]);
         rows.push(vec![(
             i18n::btn_invite(lang).to_string(),
             MENU_INVITE.to_string(),

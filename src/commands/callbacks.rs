@@ -114,6 +114,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_matches(&ctx, &cb).await
     } else if data == menu::MENU_RULE {
         handle_menu_rule(&ctx, &cb).await
+    } else if data == menu::MENU_PREDICT {
+        handle_menu_predict(&ctx, &cb).await
     } else if data == menu::MENU_INVITE {
         handle_menu_invite(&ctx, &cb).await
     } else if data == menu::INVITE_LINK {
@@ -984,6 +986,21 @@ async fn handle_menu_rule(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
     let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
     Ok(())
+}
+
+/// `menu:predict` — the group home page's "create prediction" button: open the
+/// `/predict` builder for the presser (same flow as the `/predict` command), DM'd
+/// to them, with a toast pointing there (or "DM me first" if they have no DM open).
+async fn handle_menu_predict(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    if predict::open_draft(ctx, &cb.from, message.chat.get_id()).await {
+        answer(ctx, cb, i18n::predict_check_dm(lang), false).await
+    } else {
+        answer(ctx, cb, i18n::bet_dm_first(lang), true).await
+    }
 }
 
 async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
