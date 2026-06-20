@@ -265,6 +265,15 @@ impl Prediction {
                 i18n::result_header(self.lang, i18n::void_label(self.lang)),
             );
         }
+        // Nobody bet at all → void with a "no one bet" note.
+        if self.inputs.is_empty() {
+            self.state = BetState::draw;
+            return (
+                HashMap::new(),
+                i18n::result_header(self.lang, outcome) + i18n::no_one_bet_suffix(self.lang),
+            );
+        }
+
         let mut outputs = HashMap::new();
         if let Some(win_opt) = self.options.get(outcome) {
             if win_opt.bet > 0 {
@@ -274,6 +283,20 @@ impl Prediction {
                 }
             }
         }
+
+        // People bet, but the winning option drew **no stakes** (e.g. a one-sided
+        // pool settled onto the empty side). Nobody to pay and no counterparty
+        // pool to distribute, so **refund every staker** (void) rather than
+        // burning the pool. `changes` stays empty (like a draw).
+        if outputs.is_empty() {
+            self.state = BetState::draw;
+            return (
+                self.inputs.clone(),
+                i18n::result_header(self.lang, i18n::void_label(self.lang))
+                    + i18n::no_winners_refund(self.lang),
+            );
+        }
+
         let mut changes = HashMap::new();
         for (&user, &input) in &self.inputs {
             let win = outputs.get(&user).copied().unwrap_or(0);
@@ -282,19 +305,23 @@ impl Prediction {
         self.outputs = outputs.clone();
         self.changes = changes.clone();
 
-        if changes.is_empty() {
-            // Nobody bet at all.
-            self.state = BetState::draw;
-            let display = i18n::result_header(self.lang, outcome)
-                + i18n::no_one_bet_suffix(self.lang);
-            return (outputs, display);
-        }
-
         self.state = BetState::settled;
-        // Only the header here — the (potentially huge) per-winner readout is
-        // built separately via `top_winners_block`, so a busy prediction can't
-        // blow past Telegram's message-size limit when it settles.
+        // Only the header here — the per-winner readout is built separately via
+        // `winners_readout`, so a busy prediction can't blow past Telegram's
+        // message-size limit when it settles.
         (outputs, i18n::result_header(self.lang, outcome))
+    }
+
+    /// The settlement body shown below the header: the top-`limit` net winners
+    /// (`top_winners_block`), or an "everyone broke even" note when it settled
+    /// with payouts but **no net winner** (a one-sided pool where all the money
+    /// was on the winning side). Empty for a void/refund — the header says it all.
+    pub fn winners_readout(&self, limit: usize) -> String {
+        let block = self.top_winners_block(limit);
+        if block.is_empty() && self.state == BetState::settled {
+            return i18n::all_broke_even(self.lang).to_string();
+        }
+        block
     }
 
     /// Up to `limit` biggest **net winners** (those with a positive change),
@@ -453,6 +480,37 @@ mod tests {
         d.close();
         let _ = d.settle("$draw$");
         assert_eq!(d.top_winners_block(10), "");
+    }
+
+    #[test]
+    fn onesided_settle_winning_side_breaks_even() {
+        // Everyone on A; settle A → ratio 1.0, each refunded their stake.
+        let mut g = Prediction::new(0, Lang::En, "q", &["A", "B"]);
+        g.stake(1, "A", 10, "Alice");
+        g.stake(2, "A", 30, "Bob");
+        g.close();
+        let (outputs, _h) = g.settle("A");
+        assert_eq!(outputs[&1], 10);
+        assert_eq!(outputs[&2], 30); // got stakes back
+        assert_eq!(g.state, BetState::settled);
+        // No net winner → break-even note instead of an empty body.
+        assert_eq!(g.top_winners_block(10), "");
+        assert!(g.winners_readout(10).contains("broke even"));
+    }
+
+    #[test]
+    fn onesided_settle_empty_side_refunds_not_burns() {
+        // Everyone on A; settle B (nobody bet B) → refund all, don't burn.
+        let mut g = Prediction::new(0, Lang::En, "q", &["A", "B"]);
+        g.stake(1, "A", 10, "Alice");
+        g.stake(2, "A", 30, "Bob");
+        g.close();
+        let (outputs, header) = g.settle("B");
+        assert_eq!(outputs[&1], 10); // refunded their stake
+        assert_eq!(outputs[&2], 30);
+        assert_eq!(g.state, BetState::draw); // voided, not settled
+        assert!(header.contains("refunded") || !header.is_empty());
+        assert_eq!(g.winners_readout(10), ""); // void → no winner body
     }
 
     #[test]

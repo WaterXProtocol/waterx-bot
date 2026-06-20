@@ -308,8 +308,9 @@ async fn handle_gamble(
             if let Err(err) = db.save_prediction(prediction) {
                 eprintln!("save_prediction(settle) error: {err}");
             }
-            // Bounded readout: header + at most the top 10 winners.
-            let result_text = format!("{header}{}", prediction.top_winners_block(10));
+            // Bounded readout: header + at most the top 10 winners (or a
+            // break-even note for a one-sided settle).
+            let result_text = format!("{header}{}", prediction.winners_readout(10));
             (outputs, result_text)
         };
         // Drop the settled prediction from the in-memory map too.

@@ -793,6 +793,26 @@ pub fn result_header(l: Lang, outcome: &str) -> String {
     .replace("{outcome}", outcome)
 }
 
+/// Appended to the void header when the host settled an outcome **nobody bet** —
+/// the pool is refunded rather than burned.
+pub fn no_winners_refund(l: Lang) -> &'static str {
+    tr!(l;
+        "\nNo winning bets — all stakes refunded 🔄", "\n沒有人押中 — 全額退回 🔄", "\n没有人押中 — 全额退回 🔄", "\n的中者なし — 全額返金したよ 🔄", "\n맞힌 사람이 없어 — 전액 환불했어 🔄",
+        "\nНет выигрышных ставок — всё возвращено 🔄", "\nAucun pari gagnant — tout est remboursé 🔄", "\nSin apuestas ganadoras — todo reembolsado 🔄", "\nKeine Gewinnwetten — alles erstattet 🔄", "\nKhông có cược thắng — đã hoàn lại tất cả 🔄",
+        "\nTidak ada taruhan menang — semua dikembalikan 🔄", "\nWalang nanalong taya — isinauli lahat 🔄", "\nไม่มีใครเดิมพันถูก — คืนเงินทั้งหมด 🔄", "\nGeen winnende inzetten — alles terugbetaald 🔄", "\nKazanan bahis yok — tümü iade edildi 🔄",
+        "\nSem apostas vencedoras — tudo reembolsado 🔄", "\nकोई जीतने वाला दांव नहीं — सब वापस 🔄", "\nلا رهانات فائزة — تم رد الجميع 🔄")
+}
+
+/// Shown when a prediction settles with payouts but **no net winner** (all the
+/// money was on the winning side, so everyone just gets their stake back).
+pub fn all_broke_even(l: Lang) -> &'static str {
+    tr!(l;
+        "\nEveryone broke even — stakes returned 🤝", "\n大家打平 — 退回本金 🤝", "\n大家打平 — 退回本金 🤝", "\nみんな引き分け — 元金を返したよ 🤝", "\n모두 본전 — 베팅금 돌려줬어 🤝",
+        "\nВсе при своих — ставки возвращены 🤝", "\nÉgalité pour tous — mises rendues 🤝", "\nTodos en tablas — apuestas devueltas 🤝", "\nAlle unentschieden — Einsätze zurück 🤝", "\nHòa cả làng — đã trả lại tiền cược 🤝",
+        "\nSemua impas — taruhan dikembalikan 🤝", "\nPatas lahat — isinauli ang taya 🤝", "\nเสมอกันทุกคน — คืนเงินเดิมพัน 🤝", "\nIedereen quitte — inzetten terug 🤝", "\nHerkes başa baş — bahisler iade 🤝",
+        "\nTodos empataram — apostas devolvidas 🤝", "\nसब बराबर — दांव वापस 🤝", "\nالجميع تعادل — أُعيدت الرهانات 🤝")
+}
+
 pub fn no_one_bet_suffix(l: Lang) -> &'static str {
     tr!(l;
         "\nbut it seems nobody placed a bet 😶", "\n但好像沒有人下注欸😶", "\n但好像没有人下注欸😶", "\nでも誰も賭けてないみたい😶", "\n근데 아무도 안 건 것 같아😶",
