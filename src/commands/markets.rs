@@ -185,7 +185,7 @@ async fn fetch_matches(lang: Lang) -> Result<Vec<MatchInfo>, reqwest::Error> {
         }
     }
 
-    let resp = reqwest::Client::new()
+    let resp = http_client()
         .get(BROWSE_URL)
         .query(&[("locale", api_locale), ("limit", "200")])
         .header("user-agent", "waterx-bot/0.1")

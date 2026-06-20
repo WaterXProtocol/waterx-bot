@@ -41,6 +41,23 @@ pub fn convos(ctx: &Context) -> Arc<Mutex<HashMap<i64, Convo>>> {
         .clone()
 }
 
+/// Process-wide HTTP client with bounded timeouts, reused across calls. The
+/// timeouts are the point: `reqwest`'s default is *no* request timeout, so a
+/// hung upstream (connection held open, no response) would park the calling
+/// handler task forever. With these, a stall instead surfaces as an `Err` that
+/// the markets/QR call sites already degrade gracefully on. Reusing one client
+/// also avoids per-call connection-pool churn.
+pub fn http_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .connect_timeout(std::time::Duration::from_secs(4))
+            .build()
+            .unwrap_or_default()
+    })
+}
+
 pub async fn reply(
     ctx: &Context,
     msg: &Message,

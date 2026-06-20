@@ -243,7 +243,7 @@ async fn send_photo_form(
     form: reqwest::multipart::Form,
 ) -> Result<Option<String>, CommandError> {
     let url = format!("https://api.telegram.org/bot{token}/sendPhoto");
-    let resp = reqwest::Client::new()
+    let resp = crate::commands::util::http_client()
         .post(url)
         .multipart(form)
         .send()
