@@ -309,6 +309,41 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// A prediction created **before** this deploy (persisted while open) must
+    /// settle correctly on the new reply path after a restart: save an open
+    /// prediction with stakes, reload it (the redeploy), close + settle, and
+    /// confirm payouts and the top-winners readout come out right.
+    #[test]
+    fn reloaded_prediction_settles_on_new_path() {
+        let db = mk_db();
+        let mut p = Prediction::new(5, Lang::En, "q", &["A", "B"]);
+        p.set_id(1, 2);
+        p.stake(10, "A", 30, "Winner");
+        p.stake(11, "A", 10, "Small");
+        p.stake(12, "B", 20, "Loser");
+        db.save_prediction(&p).unwrap();
+
+        // Restart: rebuild the prediction purely from the DB rows.
+        let mut loaded = db.load_all_predictions().unwrap().pop().unwrap().1;
+        assert_eq!(loaded.total, 60);
+        assert!(loaded.outputs.is_empty() && loaded.changes.is_empty()); // not persisted
+
+        // Settle via the same path the callback handler uses.
+        loaded.close();
+        let (outputs, header) = loaded.settle("A");
+        assert!(!header.is_empty());
+        // total=60, A pool=40 → ratio 1.5: user10 stake30 → 45, user11 stake10 → 15.
+        assert_eq!(outputs[&10], 45);
+        assert_eq!(outputs[&11], 15);
+        assert!(!outputs.contains_key(&12)); // loser gets nothing
+
+        // Top-winners block: both A bettors net positive, names survived the round-trip.
+        let block = loaded.top_winners_block(10);
+        assert!(block.contains("Winner")); // net +15
+        assert!(block.contains("Small")); // net +5
+        assert!(!block.contains("Loser"));
+    }
+
     #[test]
     fn save_load_round_trip() {
         let db = mk_db();
