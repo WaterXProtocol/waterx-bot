@@ -13,6 +13,14 @@ use telexide::prelude::*;
 /// Callback-data prefix for the button-driven settle flow (owner-only).
 pub const SETTLE_CB: &str = "stl:";
 
+/// Callback-data prefix for the button-driven selective `/reset` flow (owner+dev).
+pub const RESET_CB: &str = "rst:";
+/// Selectable reset parts, OR'd into a bitmask that rides in the callback data.
+const RESET_MATCHES: u8 = 1;
+const RESET_PREDICTIONS: u8 = 2;
+const RESET_BALANCE: u8 = 4;
+const RESET_PROMPT: &str = "🧹 Reset (dev) — tap to select, then Submit:";
+
 /// Marker file written by `/redeploy` (holds the chat id to notify) and read by
 /// `bot::run` on the next startup to confirm the bot is back online. Relative to
 /// the working directory (same place as the SQLite file).
@@ -427,9 +435,11 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
-/// `/reset` — wipe the database. Owner-only **and** dev-mode-only, so it can
-/// never fire against a production bot. Also clears the in-memory bet games.
-#[command(description = "owner+dev: wipe the database")]
+/// `/reset` — selective, button-driven wipe. Owner-only **and** dev-mode-only, so
+/// it can never fire against a production bot. Posts a multi-select picker
+/// (Matches / Predictions / Balances + Submit); the actual work happens in
+/// [`handle_reset_cb`] when Submit is pressed.
+#[command(description = "owner+dev: selective reset")]
 pub async fn reset(ctx: Context, message: Message) -> CommandResult {
     let Some(uid) = from_id(&message) else {
         return Ok(());
@@ -437,10 +447,98 @@ pub async fn reset(ctx: Context, message: Message) -> CommandResult {
     if !is_owner(&ctx, uid) || !is_dev(&ctx) {
         return Ok(());
     }
-    db(&ctx).reset_all()?;
-    games(&ctx).lock().await.clear();
-    reply(&ctx, &message, "🧹 Database cleared (dev)").await?;
+    let _ = tg::send_with_buttons(&ctx, message.chat.get_id(), RESET_PROMPT, &reset_picker_rows(0)).await;
     Ok(())
+}
+
+/// `✅`/`⬜`-toggle picker for the selective reset. Each part button carries the
+/// **resulting** bitmask (`flags ^ bit`) so a tap re-renders with that part
+/// flipped — stateless, the selection rides entirely in the callback data.
+fn reset_picker_rows(flags: u8) -> Vec<tg::Row> {
+    let part = |bit: u8, label: &str| -> tg::Row {
+        let mark = if flags & bit != 0 { "✅" } else { "⬜" };
+        vec![(format!("{mark} {label}"), format!("{RESET_CB}t:{}", flags ^ bit))]
+    };
+    vec![
+        part(RESET_MATCHES, "Matches (refund open bets)"),
+        part(RESET_PREDICTIONS, "Predictions (refund open bets)"),
+        part(RESET_BALANCE, "Balances"),
+        vec![("🧹 Submit".to_string(), format!("{RESET_CB}go:{flags}"))],
+    ]
+}
+
+/// Owner+dev button-driven selective reset (callback prefix [`RESET_CB`]).
+/// `t:<flags>` re-renders the picker with a part toggled; `go:<flags>` executes
+/// the picked parts. Refunds run **before** the balance wipe, so a combined
+/// "balances + matches/predictions" reset cleanly ends at zero.
+pub async fn handle_reset_cb(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    rest: &str,
+) -> Result<(), telexide::Error> {
+    // Destructive + dev-only — silently ack anyone who isn't the owner on a dev bot.
+    if !is_owner(ctx, cb.from.id) || !is_dev(ctx) {
+        return answer(ctx, cb, "", false).await;
+    }
+    let Some(message) = cb.message.clone() else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let chat = message.chat.get_id();
+    let mid = message.message_id;
+    let (action, arg) = rest.split_once(':').unwrap_or((rest, ""));
+    match action {
+        "t" => {
+            let flags: u8 = arg.parse().unwrap_or(0);
+            tg::edit_with_buttons(ctx, chat, mid, RESET_PROMPT, &reset_picker_rows(flags)).await.ok();
+        }
+        "go" => {
+            let flags: u8 = arg.parse().unwrap_or(0);
+            if flags == 0 {
+                return answer(ctx, cb, "Nothing selected", true).await;
+            }
+            let database = db(ctx);
+            let mut lines: Vec<String> = Vec::new();
+            // Refunds first (they credit balances)…
+            if flags & RESET_MATCHES != 0 {
+                match database.reset_wagers() {
+                    Ok((n, refunded)) => {
+                        lines.push(format!("🎟️ Matches cleared — refunded {} to {n} open bet(s)", fmt_coins(refunded)))
+                    }
+                    Err(e) => {
+                        eprintln!("reset_wagers error: {e}");
+                        lines.push("🎟️ Matches — ⚠️ error".to_string());
+                    }
+                }
+            }
+            if flags & RESET_PREDICTIONS != 0 {
+                match database.reset_predictions() {
+                    Ok((n, refunded)) => {
+                        games(ctx).lock().await.clear();
+                        lines.push(format!("🎲 Predictions cleared — {n} game(s), refunded {}", fmt_coins(refunded)))
+                    }
+                    Err(e) => {
+                        eprintln!("reset_predictions error: {e}");
+                        lines.push("🎲 Predictions — ⚠️ error".to_string());
+                    }
+                }
+            }
+            // …then the balance wipe, so it's the final state when both are picked.
+            if flags & RESET_BALANCE != 0 {
+                match database.reset_balances() {
+                    Ok(n) => lines.push(format!("🪙 Balances zeroed — {n} account(s)")),
+                    Err(e) => {
+                        eprintln!("reset_balances error: {e}");
+                        lines.push("🪙 Balances — ⚠️ error".to_string());
+                    }
+                }
+            }
+            let summary = format!("🧹 Reset done (dev)\n\n{}", lines.join("\n"));
+            tg::edit_text_only(ctx, chat, mid, &summary).await.ok();
+            return answer(ctx, cb, "Done ✅", true).await;
+        }
+        _ => {}
+    }
+    answer(ctx, cb, "", false).await
 }
 
 /// `/pause` — flip the bot into the paused state (every non-owner action is

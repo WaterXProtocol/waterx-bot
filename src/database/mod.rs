@@ -271,6 +271,70 @@ impl Database {
         )
     }
 
+    /// Selective `/reset` — refund + clear all real-money **match bets**: credit
+    /// every *open* wager's stake back to its bettor, then wipe the `wagers` table
+    /// (open + settled history) in one transaction. Returns
+    /// `(open_bets_refunded, micro_coins_refunded)`.
+    pub fn reset_wagers(&self) -> SqlResult<(i64, i64)> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let open: Vec<(i64, i64)> = {
+            let mut stmt = tx.prepare("SELECT user, stake FROM wagers WHERE status = 'open'")?;
+            let v = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            v
+        };
+        let mut refunded = 0i64;
+        for (user, stake) in &open {
+            tx.execute("INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')", params![user])?;
+            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![stake, user])?;
+            refunded += stake;
+        }
+        tx.execute("DELETE FROM wagers", [])?;
+        tx.commit()?;
+        Ok((open.len() as i64, refunded))
+    }
+
+    /// Selective `/reset` — refund + clear all self-host **predictions**: credit
+    /// every game stake (whole coins → micro) back to its bettor, then wipe the
+    /// `games`/`game_options`/`game_stakes` tables in one transaction. The caller
+    /// must also clear the in-memory `GamesKey` map. Returns
+    /// `(games_cleared, micro_coins_refunded)`.
+    pub fn reset_predictions(&self) -> SqlResult<(i64, i64)> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let games_cleared: i64 = tx.query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0))?;
+        let stakes: Vec<(i64, i64)> = {
+            let mut stmt = tx.prepare("SELECT user, amount FROM game_stakes")?;
+            let v = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            v
+        };
+        let mut refunded = 0i64;
+        for (user, amount) in &stakes {
+            let micro = amount.saturating_mul(COIN);
+            tx.execute("INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')", params![user])?;
+            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![micro, user])?;
+            refunded += micro;
+        }
+        tx.execute("DELETE FROM game_stakes", [])?;
+        tx.execute("DELETE FROM game_options", [])?;
+        tx.execute("DELETE FROM games", [])?;
+        tx.commit()?;
+        Ok((games_cleared, refunded))
+    }
+
+    /// Selective `/reset` — zero every coin **balance** (the `balance` column),
+    /// leaving each user's row and settings (lang/tz/referrer/odds_fmt) intact.
+    /// Returns the number of accounts zeroed.
+    pub fn reset_balances(&self) -> SqlResult<i64> {
+        let conn = self.conn.lock();
+        let n = conn.execute("UPDATE balance SET balance = 0", [])?;
+        Ok(n as i64)
+    }
+
     pub(super) fn ensure_row(&self, user_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock();
         conn.execute(
@@ -315,5 +379,52 @@ mod reset_tests {
         db.reset_all().unwrap();
         assert_eq!(total(&db), 0, "every table should be empty after reset");
         assert!(!db.is_paused().unwrap(), "pause flag cleared");
+    }
+
+    #[test]
+    fn reset_wagers_refunds_open_and_clears() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(10, 100 * COIN).unwrap();
+        // Stake 30 → balance 70, one open wager.
+        assert!(db.place_wager(10, "m1", "s", "A", "B", "teamA", 30 * COIN, 200.0, 0).unwrap());
+        assert_eq!(db.get_user_info(10).unwrap().balance, 70 * COIN);
+
+        let (n, refunded) = db.reset_wagers().unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(refunded, 30 * COIN);
+        assert_eq!(db.get_user_info(10).unwrap().balance, 100 * COIN); // stake returned
+        assert!(db.list_open_wagers(10).unwrap().is_empty()); // table cleared
+    }
+
+    #[test]
+    fn reset_predictions_refunds_stakes_and_clears() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(10, 0).unwrap();
+        db.force_change(20, 0).unwrap();
+        let mut g = crate::game::BetGame::new(1, crate::i18n::Lang::En, "q", &["A", "B"]);
+        g.set_id(5, 5);
+        g.stake(10, "A", 4, "Ann");
+        g.stake(20, "B", 6, "Bob");
+        db.save_bet_game(&g).unwrap();
+
+        let (games_cleared, refunded) = db.reset_predictions().unwrap();
+        assert_eq!(games_cleared, 1);
+        assert_eq!(refunded, 10 * COIN); // (4 + 6) whole coins → micro
+        assert_eq!(db.get_user_info(10).unwrap().balance, 4 * COIN);
+        assert_eq!(db.get_user_info(20).unwrap().balance, 6 * COIN);
+        assert!(db.load_all_bet_games().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reset_balances_zeroes_coins_keeps_rows_and_settings() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(10, 50 * COIN).unwrap();
+        db.set_lang(10, crate::i18n::Lang::Hans).unwrap();
+
+        let n = db.reset_balances().unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(db.get_user_info(10).unwrap().balance, 0);
+        // Row + settings survive (only the coin balance is zeroed).
+        assert_eq!(db.get_lang(10).unwrap(), Some(crate::i18n::Lang::Hans));
     }
 }
