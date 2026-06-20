@@ -918,7 +918,7 @@ fn menu_settings(l: Lang) -> &'static str {
         "Idioma, fuso & odds", "भाषा, टाइमज़ोन और ऑड्स", "اللغة والمنطقة الزمنية والأodds")
 }
 
-/// `/settings` hub header. The three buttons (Language / Timezone / Odds format)
+/// `/settings` hub header. The three buttons (Language / Timezone / Format)
 /// each open a picker that ✅-marks the current choice.
 pub fn settings_title(l: Lang) -> &'static str {
     tr!(l;
@@ -946,13 +946,13 @@ pub fn btn_timezone(l: Lang) -> &'static str {
         "🕐 Fuso horário", "🕐 टाइमज़ोन", "🕐 المنطقة الزمنية")
 }
 
-/// `[🎲 Odds format]` button in the `/settings` hub (opens the odds-format picker).
+/// `[🎲 Format]` button in the `/settings` hub (opens the odds-format picker).
 pub fn btn_odds(l: Lang) -> &'static str {
     tr!(l;
-        "🎲 Odds format", "🎲 賠率格式", "🎲 赔率格式", "🎲 オッズ表記", "🎲 배당 형식",
-        "🎲 Формат кэфов", "🎲 Format des cotes", "🎲 Formato de cuotas", "🎲 Quotenformat", "🎲 Định dạng tỷ lệ",
-        "🎲 Format odds", "🎲 Format ng odds", "🎲 รูปแบบราคาต่อรอง", "🎲 Oddsformaat", "🎲 Oran biçimi",
-        "🎲 Formato de odds", "🎲 ऑड्स फ़ॉर्मैट", "🎲 صيغة الأodds")
+        "🎲 Format", "🎲 格式", "🎲 格式", "🎲 形式", "🎲 형식",
+        "🎲 Формат", "🎲 Format", "🎲 Formato", "🎲 Format", "🎲 Định dạng",
+        "🎲 Format", "🎲 Format", "🎲 รูปแบบ", "🎲 Formaat", "🎲 Biçim",
+        "🎲 Formato", "🎲 फ़ॉर्मैट", "🎲 الصيغة")
 }
 
 fn menu_send(l: Lang) -> &'static str {

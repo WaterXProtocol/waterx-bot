@@ -23,7 +23,7 @@ pub const SLANG: &str = "slang:"; // slang:<store_code>
 pub const STZ: &str = "stz:"; // stz:<minutes>
 
 /// `/settings` hub keyboard: three uniform buttons — `[🌐 Language]`,
-/// `[🕐 Timezone]`, `[🎲 Odds format]` — each opening its own picker (where the
+/// `[🕐 Timezone]`, `[🎲 Format]` — each opening its own picker (where the
 /// current choice is `✅`-marked). Built by `/settings` and the `cfg:home` /
 /// `setfmt:` re-renders.
 pub fn settings_rows(lang: Lang) -> Vec<Row> {
