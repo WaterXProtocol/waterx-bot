@@ -324,8 +324,10 @@ async fn handle_gamble(
             }
         }
     }
-    // Post the result as a reply to the card (falls back to a loose message if the
-    // card is gone). The card itself is intentionally left as-is.
+    // Strip the now-dead settle buttons from the card (keyboard only — the card
+    // text is left as-is), then post the result as a reply to it (falling back to
+    // a loose message if the card is gone).
+    let _ = tg::clear_buttons(ctx, chat_id, msg_id).await;
     let _ = tg::send_text_reply(ctx, chat_id, msg_id, &result_text).await;
     answer(ctx, cb, i18n::settle_success(lang), false).await
 }

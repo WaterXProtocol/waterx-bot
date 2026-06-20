@@ -246,6 +246,27 @@ pub async fn edit_text_only(
     Ok(())
 }
 
+/// Remove a message's inline keyboard **without touching its text** (Telegram
+/// `editMessageReplyMarkup` with no markup). Used after a prediction settles to
+/// strip the now-dead settle buttons while leaving the card itself as-is.
+pub async fn clear_buttons(ctx: &Context, chat_id: i64, message_id: i64) -> Result<(), CommandError> {
+    let payload = json!({
+        "chat_id": chat_id,
+        "message_id": message_id,
+    });
+    let resp = ctx
+        .api
+        .post(APIEndpoint::EditMessageReplyMarkup, Some(payload))
+        .await?;
+    if let Err(e) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
+        let msg = e.to_string();
+        if !msg.contains("not modified") {
+            eprintln!("[tg] editMessageReplyMarkup failed (chat {chat_id}, msg {message_id}): {msg}");
+        }
+    }
+    Ok(())
+}
+
 /// Upload in-memory PNG bytes as a photo (caption + inline keyboard), in a single
 /// message. Returns the Telegram **`file_id`** of the sent photo so the caller can
 /// cache it and later re-send via [`send_photo_id`] without re-uploading.
