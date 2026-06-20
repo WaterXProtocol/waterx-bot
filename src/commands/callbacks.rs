@@ -109,8 +109,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_home(&ctx, &cb).await
     } else if data == menu::MENU_BALANCE {
         handle_menu_balance(&ctx, &cb).await
-    } else if data == menu::MENU_MATCHES {
-        handle_menu_matches(&ctx, &cb).await
+    } else if data == menu::MENU_MARKETS {
+        handle_menu_markets(&ctx, &cb).await
     } else if data == menu::MENU_RULE {
         handle_menu_rule(&ctx, &cb).await
     } else if data == menu::MENU_PREDICT {
@@ -927,9 +927,9 @@ async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     Ok(())
 }
 
-/// `menu:matches` — post the match brief as a fresh message, leaving the menu
+/// `menu:markets` — post the market brief as a fresh message, leaving the menu
 /// in place.
-async fn handle_menu_matches(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+async fn handle_menu_markets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some(message) = cb.message.clone() else {
         return Ok(());

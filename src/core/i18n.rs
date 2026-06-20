@@ -553,7 +553,7 @@ pub fn predictions_title(l: Lang) -> &'static str {
         "🎲 Previsões abertas", "🎲 चालू भविष्यवाणियाँ", "🎲 التوقعات المفتوحة")
 }
 
-/// Shown by `/bets` when the caller has no open match bets or predictions.
+/// Shown by `/bets` when the caller has no open market bets or predictions.
 pub fn no_open_bets(l: Lang) -> &'static str {
     tr!(l;
         "You have no open bets 🫥", "你目前沒有未結算的下注 🫥", "你目前没有未结算的下注 🫥", "未決済のベットはないよ 🫥", "미정산 베팅이 없어 🫥",
@@ -1142,12 +1142,12 @@ pub fn btn_balance(l: Lang) -> &'static str {
         "💰 Ver ativos", "💰 संपत्ति देखें", "💰 عرض الأصول")
 }
 
-pub fn btn_matches(l: Lang) -> &'static str {
+pub fn btn_markets(l: Lang) -> &'static str {
     tr!(l;
-        "⚽ Today's matches", "⚽ 今日賽事", "⚽ 今日比赛", "⚽ 今日の試合", "⚽ 오늘의 경기",
-        "⚽ Матчи сегодня", "⚽ Matchs du jour", "⚽ Partidos de hoy", "⚽ Heutige Spiele", "⚽ Trận hôm nay",
-        "⚽ Pertandingan hari ini", "⚽ Mga laro ngayon", "⚽ แมตช์วันนี้", "⚽ Wedstrijden vandaag", "⚽ Bugünkü maçlar",
-        "⚽ Jogos de hoje", "⚽ आज के मैच", "⚽ مباريات اليوم")
+        "⚽ Today's markets", "⚽ 今日市場", "⚽ 今日市场", "⚽ 今日のマーケット", "⚽ 오늘의 마켓",
+        "⚽ Рынки сегодня", "⚽ Marchés du jour", "⚽ Mercados de hoy", "⚽ Heutige Märkte", "⚽ Thị trường hôm nay",
+        "⚽ Pasar hari ini", "⚽ Mga market ngayon", "⚽ ตลาดวันนี้", "⚽ Markten vandaag", "⚽ Bugünkü piyasalar",
+        "⚽ Mercados de hoje", "⚽ आज के मार्केट", "⚽ أسواق اليوم")
 }
 
 pub fn btn_rule(l: Lang) -> &'static str {
@@ -1296,12 +1296,12 @@ pub fn markets_title(l: Lang) -> &'static str {
         "🌍 Resumo do mercado", "🌍 मार्केट ब्रीफ", "🌍 موجز السوق")
 }
 
-pub fn markets_matches(l: Lang) -> &'static str {
+pub fn markets_section(l: Lang) -> &'static str {
     tr!(l;
-        "⚽ Matches:", "⚽ 比賽：", "⚽ 比赛：", "⚽ 試合：", "⚽ 경기:",
-        "⚽ Матчи:", "⚽ Matchs :", "⚽ Partidos:", "⚽ Spiele:", "⚽ Trận đấu:",
-        "⚽ Pertandingan:", "⚽ Mga Laro:", "⚽ การแข่งขัน:", "⚽ Wedstrijden:", "⚽ Maçlar:",
-        "⚽ Partidas:", "⚽ मैच:", "⚽ المباريات:")
+        "⚽ Markets:", "⚽ 市場：", "⚽ 市场：", "⚽ マーケット：", "⚽ 마켓:",
+        "⚽ Рынки:", "⚽ Marchés :", "⚽ Mercados:", "⚽ Märkte:", "⚽ Thị trường:",
+        "⚽ Pasar:", "⚽ Mga Market:", "⚽ ตลาด:", "⚽ Markten:", "⚽ Piyasalar:",
+        "⚽ Mercados:", "⚽ मार्केट:", "⚽ الأسواق:")
 }
 
 pub fn markets_empty(l: Lang) -> &'static str {
@@ -1331,7 +1331,7 @@ pub fn markets_more(l: Lang, n: &str) -> String {
 }
 
 // ----------------------------------------------------------------------------
-// Match betting
+// Market betting
 // ----------------------------------------------------------------------------
 
 pub fn bet_pick(l: Lang) -> &'static str {
@@ -1344,26 +1344,26 @@ pub fn bet_pick(l: Lang) -> &'static str {
 
 pub fn bet_unavailable(l: Lang) -> &'static str {
     tr!(l;
-        "Couldn't load this match — open /matches again 😶", "無法載入這場比賽，請重新開啟 /matches 😶", "无法加载这场比赛，请重新打开 /matches 😶", "この試合を読み込めなかった。/matches を開き直してね 😶", "이 경기를 못 불러왔어. /matches 를 다시 열어줘 😶",
-        "Не удалось загрузить матч — открой /matches заново 😶", "Impossible de charger ce match — rouvre /matches 😶", "No se pudo cargar este partido — abre /matches otra vez 😶", "Spiel konnte nicht geladen werden — /matches erneut öffnen 😶", "Không tải được trận này — mở lại /matches 😶",
-        "Gagal memuat pertandingan ini — buka /matches lagi 😶", "Hindi ma-load ang laban — buksan ulit ang /matches 😶", "โหลดแมตช์นี้ไม่ได้ — เปิด /matches อีกครั้ง 😶", "Kon deze wedstrijd niet laden — open /matches opnieuw 😶", "Bu maç yüklenemedi — /matches'i tekrar aç 😶",
-        "Não foi possível carregar esta partida — abra /matches de novo 😶", "यह मैच लोड नहीं हो सका — /matches फिर खोलें 😶", "تعذّر تحميل هذه المباراة — افتح /matches من جديد 😶")
+        "Couldn't load this market — open /markets again 😶", "無法載入這個市場，請重新開啟 /markets 😶", "无法加载这个市场，请重新打开 /markets 😶", "この市場を読み込めなかった。/markets を開き直してね 😶", "이 마켓을 못 불러왔어. /markets 를 다시 열어줘 😶",
+        "Не удалось загрузить рынок — открой /markets заново 😶", "Impossible de charger ce marché — rouvre /markets 😶", "No se pudo cargar este mercado — abre /markets otra vez 😶", "Markt konnte nicht geladen werden — /markets erneut öffnen 😶", "Không tải được thị trường này — mở lại /markets 😶",
+        "Gagal memuat pasar ini — buka /markets lagi 😶", "Hindi ma-load ang market — buksan ulit ang /markets 😶", "โหลดตลาดนี้ไม่ได้ — เปิด /markets อีกครั้ง 😶", "Kon deze markt niet laden — open /markets opnieuw 😶", "Bu piyasa yüklenemedi — /markets'i tekrar aç 😶",
+        "Não foi possível carregar este mercado — abra /markets de novo 😶", "यह मार्केट लोड नहीं हो सका — /markets फिर खोलें 😶", "تعذّر تحميل هذا السوق — افتح /markets من جديد 😶")
 }
 
 pub fn bet_closed(l: Lang) -> &'static str {
     tr!(l;
-        "Betting for this match has closed ⏱️", "這場比賽已停止下注 ⏱️", "这场比赛已停止下注 ⏱️", "この試合の賭けは締め切られたよ ⏱️", "이 경기 베팅은 마감됐어 ⏱️",
-        "Ставки на этот матч закрыты ⏱️", "Les paris sur ce match sont clos ⏱️", "Las apuestas para este partido están cerradas ⏱️", "Wetten für dieses Spiel sind geschlossen ⏱️", "Đã đóng cược cho trận này ⏱️",
-        "Taruhan untuk pertandingan ini sudah ditutup ⏱️", "Sarado na ang pagtaya para sa laban na ito ⏱️", "ปิดรับเดิมพันแมตช์นี้แล้ว ⏱️", "Wedden op deze wedstrijd is gesloten ⏱️", "Bu maç için bahisler kapandı ⏱️",
-        "As apostas para esta partida estão encerradas ⏱️", "इस मैच पर बेटिंग बंद हो चुकी है ⏱️", "أُغلق الرهان على هذه المباراة ⏱️")
+        "Betting for this market has closed ⏱️", "這個市場已停止下注 ⏱️", "这个市场已停止下注 ⏱️", "この市場の賭けは締め切られたよ ⏱️", "이 마켓 베팅은 마감됐어 ⏱️",
+        "Ставки на этот рынок закрыты ⏱️", "Les paris sur ce marché sont clos ⏱️", "Las apuestas para este mercado están cerradas ⏱️", "Wetten für diesen Markt sind geschlossen ⏱️", "Đã đóng cược cho thị trường này ⏱️",
+        "Taruhan untuk pasar ini sudah ditutup ⏱️", "Sarado na ang pagtaya para sa market na ito ⏱️", "ปิดรับเดิมพันตลาดนี้แล้ว ⏱️", "Wedden op deze markt is gesloten ⏱️", "Bu piyasa için bahisler kapandı ⏱️",
+        "As apostas para este mercado estão encerradas ⏱️", "इस मार्केट पर बेटिंग बंद हो चुकी है ⏱️", "أُغلق الرهان على هذا السوق ⏱️")
 }
 
 pub fn market_finished(l: Lang) -> &'static str {
     tr!(l;
-        "🏁 This match has finished — bets will be settled soon.", "🏁 這場比賽已結束，賭注將盡快結算。", "🏁 这场比赛已结束，赌注将尽快结算。", "🏁 この試合は終了したよ。賭けはまもなく精算されるよ。", "🏁 이 경기는 끝났어. 베팅은 곧 정산될 거야.",
-        "🏁 Матч завершён — ставки скоро рассчитают.", "🏁 Ce match est terminé — les paris seront réglés bientôt.", "🏁 Este partido ha terminado — las apuestas se liquidarán pronto.", "🏁 Dieses Spiel ist beendet — Wetten werden bald abgerechnet.", "🏁 Trận này đã kết thúc — cược sẽ sớm được quyết toán.",
-        "🏁 Pertandingan ini sudah selesai — taruhan akan segera diselesaikan.", "🏁 Tapos na ang laban na ito — aayusin ang mga pusta sa lalong madaling panahon.", "🏁 แมตช์นี้จบแล้ว — จะชำระเงินเดิมพันเร็ว ๆ นี้", "🏁 Deze wedstrijd is afgelopen — weddenschappen worden binnenkort afgewikkeld.", "🏁 Bu maç sona erdi — bahisler yakında sonuçlanacak.",
-        "🏁 Esta partida terminou — as apostas serão liquidadas em breve.", "🏁 यह मैच समाप्त हो गया — दांव जल्द ही निपटाए जाएंगे।", "🏁 انتهت هذه المباراة — ستتم تسوية الرهانات قريبًا.")
+        "🏁 This market has finished — bets will be settled soon.", "🏁 這個市場已結束，賭注將盡快結算。", "🏁 这个市场已结束，赌注将尽快结算。", "🏁 この市場は終了したよ。賭けはまもなく精算されるよ。", "🏁 이 마켓은 끝났어. 베팅은 곧 정산될 거야.",
+        "🏁 Рынок завершён — ставки скоро рассчитают.", "🏁 Ce marché est terminé — les paris seront réglés bientôt.", "🏁 Este mercado ha terminado — las apuestas se liquidarán pronto.", "🏁 Dieser Markt ist beendet — Wetten werden bald abgerechnet.", "🏁 Thị trường này đã kết thúc — cược sẽ sớm được quyết toán.",
+        "🏁 Pasar ini sudah selesai — taruhan akan segera diselesaikan.", "🏁 Tapos na ang market na ito — aayusin ang mga pusta sa lalong madaling panahon.", "🏁 ตลาดนี้จบแล้ว — จะชำระเงินเดิมพันเร็ว ๆ นี้", "🏁 Deze markt is afgelopen — weddenschappen worden binnenkort afgewikkeld.", "🏁 Bu piyasa sona erdi — bahisler yakında sonuçlanacak.",
+        "🏁 Este mercado terminou — as apostas serão liquidadas em breve.", "🏁 यह मार्केट समाप्त हो गया — दांव जल्द ही निपटाए जाएंगे।", "🏁 انتهى هذا السوق — ستتم تسوية الرهانات قريبًا.")
 }
 
 pub fn bet_dm_first(l: Lang) -> &'static str {
@@ -1376,10 +1376,10 @@ pub fn bet_dm_first(l: Lang) -> &'static str {
 
 pub fn bet_expired(l: Lang) -> &'static str {
     tr!(l;
-        "⌛ Odds changed — open /matches again.", "⌛ 賠率已變動，請重新開啟 /matches。", "⌛ 赔率已变动，请重新打开 /matches。", "⌛ オッズが変わったよ。/matches をもう一度開いてね。", "⌛ 배당이 변경됐어 — /matches 를 다시 열어줘.",
-        "⌛ Коэффициенты изменились — откройте /matches снова.", "⌛ Les cotes ont changé — rouvre /matches.", "⌛ Las cuotas cambiaron — abre /matches de nuevo.", "⌛ Quoten geändert — öffne /matches erneut.", "⌛ Tỷ lệ đã thay đổi — mở lại /matches.",
-        "⌛ Odds berubah — buka /matches lagi.", "⌛ Nagbago ang odds — buksan ulit ang /matches.", "⌛ อัตราต่อรองเปลี่ยนแล้ว — เปิด /matches อีกครั้ง", "⌛ Odds gewijzigd — open /matches opnieuw.", "⌛ Oranlar değişti — /matches'i tekrar aç.",
-        "⌛ As odds mudaram — abra /matches de novo.", "⌛ ऑड्स बदल गए — /matches फिर से खोलें।", "⌛ تغيّرت الاحتمالات — افتح /matches من جديد.")
+        "⌛ Odds changed — open /markets again.", "⌛ 賠率已變動，請重新開啟 /markets。", "⌛ 赔率已变动，请重新打开 /markets。", "⌛ オッズが変わったよ。/markets をもう一度開いてね。", "⌛ 배당이 변경됐어 — /markets 를 다시 열어줘.",
+        "⌛ Коэффициенты изменились — откройте /markets снова.", "⌛ Les cotes ont changé — rouvre /markets.", "⌛ Las cuotas cambiaron — abre /markets de nuevo.", "⌛ Quoten geändert — öffne /markets erneut.", "⌛ Tỷ lệ đã thay đổi — mở lại /markets.",
+        "⌛ Odds berubah — buka /markets lagi.", "⌛ Nagbago ang odds — buksan ulit ang /markets.", "⌛ อัตราต่อรองเปลี่ยนแล้ว — เปิด /markets อีกครั้ง", "⌛ Odds gewijzigd — open /markets opnieuw.", "⌛ Oranlar değişti — /markets'i tekrar aç.",
+        "⌛ As odds mudaram — abra /markets de novo.", "⌛ ऑड्स बदल गए — /markets फिर से खोलें।", "⌛ تغيّرت الاحتمالات — افتح /markets من جديد.")
 }
 
 pub fn bet_done(l: Lang) -> &'static str {
@@ -1392,11 +1392,11 @@ pub fn bet_done(l: Lang) -> &'static str {
 
 pub fn bet_lost(l: Lang, m: &str) -> String {
     tr!(l;
-        "😔 {match}\nYour bet didn't win this time.", "😔 {match}\n這次下注沒中。", "😔 {match}\n这次下注没中。", "😔 {match}\n今回は外れたよ。", "😔 {match}\n이번 베팅은 졌어.",
-        "😔 {match}\nВ этот раз ставка не сыграла.", "😔 {match}\nTon pari n'a pas gagné cette fois.", "😔 {match}\nTu apuesta no ganó esta vez.", "😔 {match}\nDeine Wette hat diesmal nicht gewonnen.", "😔 {match}\nLần này cược của bạn không thắng.",
-        "😔 {match}\nTaruhanmu kali ini kalah.", "😔 {match}\nHindi nanalo ang taya mo ngayon.", "😔 {match}\nครั้งนี้เดิมพันไม่ชนะ", "😔 {match}\nJe weddenschap heeft deze keer niet gewonnen.", "😔 {match}\nBahsin bu sefer kazanmadı.",
-        "😔 {match}\nSua aposta não ganhou desta vez.", "😔 {match}\nइस बार आपका दांव नहीं जीता।", "😔 {match}\nلم يفز رهانك هذه المرة.")
-    .replace("{match}", m)
+        "😔 {market}\nYour bet didn't win this time.", "😔 {market}\n這次下注沒中。", "😔 {market}\n这次下注没中。", "😔 {market}\n今回は外れたよ。", "😔 {market}\n이번 베팅은 졌어.",
+        "😔 {market}\nВ этот раз ставка не сыграла.", "😔 {market}\nTon pari n'a pas gagné cette fois.", "😔 {market}\nTu apuesta no ganó esta vez.", "😔 {market}\nDeine Wette hat diesmal nicht gewonnen.", "😔 {market}\nLần này cược của bạn không thắng.",
+        "😔 {market}\nTaruhanmu kali ini kalah.", "😔 {market}\nHindi nanalo ang taya mo ngayon.", "😔 {market}\nครั้งนี้เดิมพันไม่ชนะ", "😔 {market}\nJe weddenschap heeft deze keer niet gewonnen.", "😔 {market}\nBahsin bu sefer kazanmadı.",
+        "😔 {market}\nSua aposta não ganhou desta vez.", "😔 {market}\nइस बार आपका दांव नहीं जीता।", "😔 {market}\nلم يفز رهانك هذه المرة.")
+    .replace("{market}", m)
 }
 
 /// Stake-builder screen: the chosen side/odds, the running stake and potential
@@ -1534,11 +1534,11 @@ pub fn prediction_announce(l: Lang, name: &str, stake: &str, option: &str) -> St
 
 pub fn bet_won(l: Lang, m: &str, payout: &str) -> String {
     tr!(l;
-        "🎉 {match}\nYour bet won! +{payout} coins", "🎉 {match}\n你的下注贏了！+{payout} 金幣", "🎉 {match}\n你的下注赢了！+{payout} 金币", "🎉 {match}\n賭けに勝ったよ！+{payout} コイン", "🎉 {match}\n베팅에서 이겼어! +{payout} 코인",
-        "🎉 {match}\nВаша ставка выиграла! +{payout} монет", "🎉 {match}\nTon pari est gagné ! +{payout} pièces", "🎉 {match}\n¡Tu apuesta ganó! +{payout} monedas", "🎉 {match}\nDeine Wette hat gewonnen! +{payout} Münzen", "🎉 {match}\nCược của bạn đã thắng! +{payout} xu",
-        "🎉 {match}\nTaruhanmu menang! +{payout} koin", "🎉 {match}\nNanalo ang taya mo! +{payout} coins", "🎉 {match}\nเดิมพันของคุณชนะ! +{payout} เหรียญ", "🎉 {match}\nJe weddenschap is gewonnen! +{payout} munten", "🎉 {match}\nBahsin kazandı! +{payout} para",
-        "🎉 {match}\nSua aposta ganhou! +{payout} moedas", "🎉 {match}\nआपका दांव जीत गया! +{payout} कॉइन", "🎉 {match}\nفاز رهانك! +{payout} عملة")
-    .replace("{match}", m)
+        "🎉 {market}\nYour bet won! +{payout} coins", "🎉 {market}\n你的下注贏了！+{payout} 金幣", "🎉 {market}\n你的下注赢了！+{payout} 金币", "🎉 {market}\n賭けに勝ったよ！+{payout} コイン", "🎉 {market}\n베팅에서 이겼어! +{payout} 코인",
+        "🎉 {market}\nВаша ставка выиграла! +{payout} монет", "🎉 {market}\nTon pari est gagné ! +{payout} pièces", "🎉 {market}\n¡Tu apuesta ganó! +{payout} monedas", "🎉 {market}\nDeine Wette hat gewonnen! +{payout} Münzen", "🎉 {market}\nCược của bạn đã thắng! +{payout} xu",
+        "🎉 {market}\nTaruhanmu menang! +{payout} koin", "🎉 {market}\nNanalo ang taya mo! +{payout} coins", "🎉 {market}\nเดิมพันของคุณชนะ! +{payout} เหรียญ", "🎉 {market}\nJe weddenschap is gewonnen! +{payout} munten", "🎉 {market}\nBahsin kazandı! +{payout} para",
+        "🎉 {market}\nSua aposta ganhou! +{payout} moedas", "🎉 {market}\nआपका दांव जीत गया! +{payout} कॉइन", "🎉 {market}\nفاز رهانك! +{payout} عملة")
+    .replace("{market}", m)
     .replace("{payout}", payout)
 }
 

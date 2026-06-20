@@ -18,9 +18,9 @@ const BROWSE_URL: &str = "https://api.waterx.app/predict/browse";
 const FEED_CACHE_TTL: i64 = 30;
 /// Cap so the brief stays well under Telegram's 4096-char message limit; the
 /// overflow is summarised with a "…and N more" tail.
-const MAX_MATCHES: usize = 8;
+const MAX_MARKETS: usize = 8;
 
-/// Callback-data prefix: tapping a match number opens the bet flow.
+/// Callback-data prefix: tapping a market number opens the bet flow.
 pub const BET: &str = "bet:";
 
 /// A single sport match, distilled from the browse feed.
@@ -80,13 +80,13 @@ pub async fn markets(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
-/// Build the match brief (text) plus a numbered button per shown match
+/// Build the market brief (text) plus a numbered button per shown match
 /// (`bet:<market_id>`). Kickoff times are shown in `tz_min` (minutes east of
 /// UTC; 0 = UTC). On any fetch/parse failure returns the localized "unavailable"
 /// line and no buttons.
 pub(crate) async fn brief(lang: Lang, tz_min: i64, fmt: OddsFormat) -> (String, Vec<Row>) {
     let now = Utc::now().timestamp();
-    let matches = match fetch_markets(lang).await {
+    let markets = match fetch_markets(lang).await {
         Ok(mut m) => {
             m.retain(|x| within_window(x, now));
             m
@@ -102,21 +102,21 @@ pub(crate) async fn brief(lang: Lang, tz_min: i64, fmt: OddsFormat) -> (String, 
         i18n::markets_title(lang),
         fmt_date(now, tz_min)
     );
-    if matches.is_empty() {
+    if markets.is_empty() {
         out.push('\n');
         out.push_str(i18n::markets_empty(lang));
         return (out, Vec::new());
     }
 
     out.push('\n');
-    out.push_str(i18n::markets_matches(lang));
+    out.push_str(i18n::markets_section(lang));
     out.push('\n');
-    let shown = &matches[..matches.len().min(MAX_MATCHES)];
+    let shown = &markets[..markets.len().min(MAX_MARKETS)];
     for (idx, m) in shown.iter().enumerate() {
         out.push_str(&render_market(lang, idx + 1, m, tz_min, fmt));
     }
-    if matches.len() > MAX_MATCHES {
-        out.push_str(&i18n::markets_more(lang, &(matches.len() - MAX_MATCHES).to_string()));
+    if markets.len() > MAX_MARKETS {
+        out.push_str(&i18n::markets_more(lang, &(markets.len() - MAX_MARKETS).to_string()));
         out.push('\n');
     }
 
@@ -142,7 +142,7 @@ pub(crate) async fn brief(lang: Lang, tz_min: i64, fmt: OddsFormat) -> (String, 
 /// Re-fetch the feed and return the current snapshot for one match (fresh odds),
 /// regardless of the display window — used when the user taps a bet button.
 /// `Err` = feed fetch/parse failure (a tech error worth alerting on); `Ok(None)`
-/// = fetched fine but the match is no longer listed (stale button, expected).
+/// = fetched fine but the market is no longer listed (stale button, expected).
 pub(crate) async fn fetch_one(
     lang: Lang,
     market_id: &str,
@@ -158,7 +158,7 @@ fn within_window(m: &MarketInfo, now: i64) -> bool {
     m.live || m.starts_at.is_some_and(|t| t >= now && t <= now + 86_400)
 }
 
-/// Per-locale cache of the parsed feed: `locale → (fetched_at_unix, matches)`.
+/// Per-locale cache of the parsed feed: `locale → (fetched_at_unix, markets)`.
 type FeedCache = HashMap<&'static str, (i64, Vec<MarketInfo>)>;
 
 /// Process-wide [`FeedCache`]. Guards are never held across an `.await`.
@@ -167,7 +167,7 @@ fn feed_cache() -> &'static Mutex<FeedCache> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Pull and parse the feed into sport matches, live-first then soonest. Served
+/// Pull and parse the feed into sport markets, live-first then soonest. Served
 /// from a [`FEED_CACHE_TTL`]-second per-locale cache to avoid hammering the API.
 async fn fetch_markets(lang: Lang) -> Result<Vec<MarketInfo>, reqwest::Error> {
     // Chinese users get Chinese team names; everyone else English.
@@ -179,9 +179,9 @@ async fn fetch_markets(lang: Lang) -> Result<Vec<MarketInfo>, reqwest::Error> {
 
     // Cache hit: reuse a snapshot fetched within the TTL. (Clone out, then drop
     // the guard — it must not be held across the network await below.)
-    if let Some((fetched_at, matches)) = feed_cache().lock().get(api_locale) {
+    if let Some((fetched_at, markets)) = feed_cache().lock().get(api_locale) {
         if now - *fetched_at <= FEED_CACHE_TTL {
-            return Ok(matches.clone());
+            return Ok(markets.clone());
         }
     }
 
@@ -195,10 +195,10 @@ async fn fetch_markets(lang: Lang) -> Result<Vec<MarketInfo>, reqwest::Error> {
         .json::<BrowseResp>()
         .await?;
 
-    let mut matches: Vec<MarketInfo> = resp.data.items.iter().filter_map(to_match_info).collect();
-    matches.sort_by_key(|m| (!m.live, m.starts_at.unwrap_or(i64::MAX)));
-    feed_cache().lock().insert(api_locale, (now, matches.clone()));
-    Ok(matches)
+    let mut markets: Vec<MarketInfo> = resp.data.items.iter().filter_map(to_match_info).collect();
+    markets.sort_by_key(|m| (!m.live, m.starts_at.unwrap_or(i64::MAX)));
+    feed_cache().lock().insert(api_locale, (now, markets.clone()));
+    Ok(markets)
 }
 
 fn to_match_info(it: &Item) -> Option<MarketInfo> {

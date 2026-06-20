@@ -1,4 +1,4 @@
-//! Real-money match betting: tap a match in `/matches` → a fresh odds quote
+//! Real-money match betting: tap a match in `/markets` → a fresh odds quote
 //! (replacing the brief in place in a private chat, or DM'd from a group where
 //! the brief is shared) → pick a side → **build a stake** (preset buttons add up; `Clear`
 //! resets) → **Confirm** (a confirmation screen — the only step that debits the
@@ -45,7 +45,7 @@ pub struct Quote {
     odds_b: Option<f64>,
     ends_at: i64,
     quoted_at: i64,
-    /// Chat the match was tapped in (the group brief) — the placed bet is
+    /// Chat the market was tapped in (the group brief) — the placed bet is
     /// announced back here. Equals the DM when `/markets` was used privately.
     origin_chat: i64,
     /// In a group, the message id of the posted prediction card (A vs B + side
@@ -123,7 +123,7 @@ fn now() -> i64 {
 /// `markets::FEED_CACHE_TTL` old) and store the relocked quote, ignoring the
 /// quote's own TTL. Every real-money placement goes through this so a wager is
 /// booked at the latest odds, never a stale locked snapshot. Returns `None` if
-/// the quote was evicted, the match ended, or the feed is unreachable (a feed
+/// the quote was evicted, the market ended, or the feed is unreachable (a feed
 /// error also alerts the owner). The relocked quote keeps its
 /// `origin_chat`/`origin_msg` so the announcement still lands.
 async fn refetch_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
@@ -213,7 +213,7 @@ fn quote_text(lang: Lang, q: &Quote, fmt: OddsFormat) -> String {
     s
 }
 
-/// `bet:<market_id>` — render that match's card. In both group and private chats
+/// `bet:<market_id>` — render that market's card. In both group and private chats
 /// the brief is replaced in place with the card, so the chat converges on one
 /// focal message. The card is **stateless** — its side buttons carry the market
 /// id, so a side tap re-prices on demand (`handle_opt`); nothing is stored in
@@ -227,7 +227,7 @@ pub async fn handle_bet(
     let m = match markets::fetch_one(lang, market_id).await {
         Ok(Some(m)) => m,
         Ok(None) => {
-            // Fetched fine but the match isn't listed — stale button, expected.
+            // Fetched fine but the market isn't listed — stale button, expected.
             eprintln!("[bet] market {market_id} not in feed (stale button)");
             return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         }
@@ -276,7 +276,7 @@ pub async fn handle_bet(
     Ok(())
 }
 
-/// `opt:<lang>:<market_id>:<outcome>` — a side was tapped on the match card.
+/// `opt:<lang>:<market_id>:<outcome>` — a side was tapped on the market card.
 /// **Always re-prices** from the live feed (cache-served, so ~free and
 /// self-healing — works even after the prior quote was evicted or the bot
 /// restarted), then opens the stake builder at 0. The **shared card stays in its
@@ -286,7 +286,7 @@ pub async fn handle_bet(
 /// Telegram returns "not modified" (no flicker, concurrent taps idempotent). In a
 /// **group** the builder is **DM'd** in the *tapper's* locale so it never clobbers
 /// the card; in a **private** chat the card itself becomes the builder in place. A
-/// gone/ended match turns the card into a "finished" notice; a transient feed
+/// gone/ended market turns the card into a "finished" notice; a transient feed
 /// error keeps the card and alerts the owner.
 pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let tapper_lang = cb_lang(ctx, cb);
@@ -536,8 +536,8 @@ async fn expire(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<(), tel
     answer(ctx, cb, "", false).await
 }
 
-/// Replace a group card with a "match finished" notice (no buttons) — used when
-/// a refresh can't find the match anymore (it's over / settling).
+/// Replace a group card with a "market finished" notice (no buttons) — used when
+/// a refresh can't find the market anymore (it's over / settling).
 async fn finish_card(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<(), telexide::Error> {
     let no_rows: &[tg::Row] = &[];
     let _ = tg::edit_with_buttons(

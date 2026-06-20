@@ -88,7 +88,7 @@ pub fn tz_picker_rows(current: Option<i64>, settings: bool) -> Vec<Row> {
 pub const MENU_CHECKIN: &str = "menu:checkin";
 pub const MENU_HOME: &str = "menu:home";
 pub const MENU_BALANCE: &str = "menu:balance";
-pub const MENU_MATCHES: &str = "menu:matches";
+pub const MENU_MARKETS: &str = "menu:markets";
 pub const MENU_RULE: &str = "menu:rule";
 pub const MENU_INVITE: &str = "menu:invite";
 /// Group-only home-page button: open the `/predict` builder (handled like the
@@ -135,7 +135,7 @@ pub fn menu_text(lang: Lang, name: &str) -> String {
     i18n::intro(lang, name)
 }
 
-/// The Xaliah main-menu keyboard: today's matches, the daily check-in button
+/// The Xaliah main-menu keyboard: today's markets, the daily check-in button
 /// (only when claimable), and the invite button. The home page shows the user's
 /// balance/fruit, so it deliberately carries **no** referral deep-link button —
 /// the `[Play]` URL button lives only in the `menu:invite` output, which has no
@@ -144,7 +144,7 @@ pub fn main_menu_rows(lang: Lang, checkin_available: bool, is_group: bool) -> Ve
     // One button per row (vertical stack), check-in on top only when claimable.
     // In a **group** the menu is a single shared message, so the per-user actions
     // ([Check assets], [Invite friends]) are hidden — only the shared check-in
-    // and today's-matches buttons show.
+    // and today's-markets buttons show.
     let mut rows: Vec<Row> = Vec::new();
     if checkin_available {
         rows.push(vec![(
@@ -159,8 +159,8 @@ pub fn main_menu_rows(lang: Lang, checkin_available: bool, is_group: bool) -> Ve
         )]);
     }
     rows.push(vec![(
-        i18n::btn_matches(lang).to_string(),
-        MENU_MATCHES.to_string(),
+        i18n::btn_markets(lang).to_string(),
+        MENU_MARKETS.to_string(),
     )]);
     if is_group {
         // Group-only: kick off a shared prediction (handled like `/predict`).
