@@ -90,14 +90,10 @@ impl Database {
             )",
             [],
         )?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS bet_games (
-                id         TEXT    NOT NULL PRIMARY KEY,
-                blob       TEXT    NOT NULL,
-                created_at INTEGER NOT NULL
-            )",
-            [],
-        )?;
+        // Self-host `/predict` games, normalized across games/game_options/
+        // game_stakes (schema owned by `games.rs`). A one-time migration folds any
+        // legacy JSON-blob `bet_games` rows in (and drops that table) below.
+        Self::create_game_tables(&conn)?;
         // Small key/value table for bot-wide flags (currently just the admin
         // `paused` kill-switch). Persisted so a pause survives restarts.
         conn.execute(
@@ -180,6 +176,11 @@ impl Database {
             [],
         );
 
+        // One-time: migrate legacy JSON-blob `/predict` games into the normalized
+        // tables created above, then drop the old `bet_games` table. No-op once
+        // migrated (the old table is gone) and on fresh DBs (it never existed).
+        Self::migrate_blob_games(&conn)?;
+
         // Prune buffer rows older than 24h. Pre-TTL rows have created_at=0 and
         // get cleared too, which is what we want — a restart drops all dangling
         // sell/buy offers and stale envelopes (their fruit/coin escrow stays
@@ -261,7 +262,9 @@ impl Database {
         conn.execute_batch(
             "DELETE FROM balance;
              DELETE FROM buffer;
-             DELETE FROM bet_games;
+             DELETE FROM games;
+             DELETE FROM game_options;
+             DELETE FROM game_stakes;
              DELETE FROM meta;
              DELETE FROM chats;
              DELETE FROM wagers;",
@@ -299,7 +302,7 @@ mod reset_tests {
                 .query_row(
                     "SELECT (SELECT COUNT(*) FROM balance)
                           + (SELECT COUNT(*) FROM buffer)
-                          + (SELECT COUNT(*) FROM bet_games)
+                          + (SELECT COUNT(*) FROM games)
                           + (SELECT COUNT(*) FROM meta)
                           + (SELECT COUNT(*) FROM chats)",
                     [],

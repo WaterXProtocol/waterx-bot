@@ -287,20 +287,27 @@ async fn handle_gamble(
     let outcome = rest;
     let (outputs, display, state, game_lang) = {
         let mut g = games.lock().await;
-        let Some(game) = g.get_mut(&key) else {
-            return answer(ctx, cb, i18n::game_invalid(lang), true).await;
+        let result = {
+            let Some(game) = g.get_mut(&key) else {
+                return answer(ctx, cb, i18n::game_invalid(lang), true).await;
+            };
+            if game.host != cb.from.id {
+                return answer(ctx, cb, i18n::not_host(lang), true).await;
+            }
+            if game.state != BetState::closed {
+                return answer(ctx, cb, i18n::not_closed_yet(lang), true).await;
+            }
+            let (outputs, display) = game.settle(outcome);
+            // A terminal state → `save_bet_game` drops the game's rows from the DB.
+            if let Err(err) = db.save_bet_game(game) {
+                eprintln!("save_bet_game(settle) error: {err}");
+            }
+            (outputs, display, game.state.clone(), game.lang)
         };
-        if game.host != cb.from.id {
-            return answer(ctx, cb, i18n::not_host(lang), true).await;
-        }
-        if game.state != BetState::closed {
-            return answer(ctx, cb, i18n::not_closed_yet(lang), true).await;
-        }
-        let (outputs, display) = game.settle(outcome);
-        if let Err(err) = db.save_bet_game(game) {
-            eprintln!("save_bet_game(settle) error: {err}");
-        }
-        (outputs, display, game.state.clone(), game.lang)
+        // Drop the settled game from the in-memory map too — the board message
+        // already shows the final result and carries no buttons.
+        g.remove(&key);
+        result
     };
     for (user, win) in &outputs {
         if *win > 0 {
