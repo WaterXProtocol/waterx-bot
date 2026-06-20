@@ -7,8 +7,17 @@ use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::database::OpenMarket;
 use crate::i18n::{self, Lang};
+use std::time::Duration;
 use telexide::model::{CallbackQuery, User};
 use telexide::prelude::*;
+
+/// Pace between `/broadcast` sends — ~15 msg/s, well under Telegram's ~30/s
+/// global cap, so live users' commands keep rate budget during a broadcast.
+const BROADCAST_PACE: Duration = Duration::from_millis(67);
+/// Max rate-limit (429) retries per recipient in `send_resilient`.
+const SEND_MAX_RETRIES: u32 = 5;
+/// Extra slack added to Telegram's reported `retry after N` before retrying.
+const RATE_LIMIT_SLACK_SECS: u64 = 1;
 
 /// Callback-data prefix for the button-driven settle flow (owner-only).
 pub const SETTLE_CB: &str = "stl:";
@@ -118,18 +127,17 @@ fn retry_after_secs(desc: &str) -> Option<u64> {
 /// Send `text` to `chat_id`, **retrying through rate limits** so a large fan-out
 /// (`/broadcast`, settle DMs) reaches every chat instead of silently dropping the
 /// ones that hit Telegram's ~30 msg/s cap. A 429 reports `retry after N` — we
-/// sleep that long (+1s slack) and try again, up to `MAX_RETRIES`. Any *other*
-/// error (the user blocked the bot, never opened a DM, deleted the account) is
-/// permanent, so we give up immediately and return false. Returns true once the
-/// message is delivered.
+/// sleep that long (plus `RATE_LIMIT_SLACK_SECS`) and try again, up to
+/// `SEND_MAX_RETRIES`. Any *other* error (the user blocked the bot, never opened
+/// a DM, deleted the account) is permanent, so we give up immediately and return
+/// false. Returns true once the message is delivered.
 async fn send_resilient(ctx: &Context, chat_id: i64, text: &str) -> bool {
-    const MAX_RETRIES: u32 = 5;
-    for _ in 0..=MAX_RETRIES {
+    for _ in 0..=SEND_MAX_RETRIES {
         match send_text(ctx, chat_id, text).await {
             Ok(_) => return true,
             Err(e) => match retry_after_secs(&e.0) {
                 Some(secs) => {
-                    tokio::time::sleep(std::time::Duration::from_secs(secs + 1)).await;
+                    tokio::time::sleep(Duration::from_secs(secs + RATE_LIMIT_SLACK_SECS)).await;
                 }
                 None => return false,
             },
@@ -766,9 +774,9 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
         if send_resilient(&ctx, id, body).await {
             delivered += 1;
         }
-        // ~15 msg/s — well below the 30/s cap, leaving plenty of headroom so
-        // live users' commands aren't starved of rate budget during a broadcast.
-        tokio::time::sleep(std::time::Duration::from_millis(67)).await;
+        // Leave headroom under the 30/s cap so live users' commands aren't
+        // starved of rate budget during a broadcast.
+        tokio::time::sleep(BROADCAST_PACE).await;
     }
     reply(
         &ctx,

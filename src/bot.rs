@@ -11,6 +11,14 @@ use telexide::{
 use tokio::sync::Mutex;
 use typemap_rev::TypeMapKey;
 
+/// Backoff after a failed getUpdates poll (network/HTTP/parse error) before
+/// retrying — `robust_poll` keeps the bot alive across transient outages.
+const POLL_RETRY_BACKOFF: Duration = Duration::from_secs(5);
+/// Startup getMe retry: initial backoff, doubled on each failure up to the cap,
+/// so a boot-time network blip doesn't crash-loop the process.
+const STARTUP_BACKOFF_START: Duration = Duration::from_secs(1);
+const STARTUP_BACKOFF_MAX: Duration = Duration::from_secs(30);
+
 pub struct DbKey;
 impl TypeMapKey for DbKey {
     type Value = Arc<Database>;
@@ -95,7 +103,7 @@ pub async fn run() -> anyhow::Result<()> {
     // already tolerates network loss the same way). A genuinely bad/revoked token
     // simply loops here, logging each attempt, rather than thrashing systemd.
     let me = {
-        let mut delay = Duration::from_secs(1);
+        let mut delay = STARTUP_BACKOFF_START;
         loop {
             match probe.get_me().await {
                 Ok(me) => break me,
@@ -105,7 +113,7 @@ pub async fn run() -> anyhow::Result<()> {
                         delay.as_secs()
                     );
                     tokio::time::sleep(delay).await;
-                    delay = (delay * 2).min(Duration::from_secs(30));
+                    delay = (delay * 2).min(STARTUP_BACKOFF_MAX);
                 }
             }
         }
@@ -241,7 +249,7 @@ async fn robust_poll(client: &telexide::client::Client) -> anyhow::Result<()> {
             Ok(v) => Some(v),
             Err(err) => {
                 eprintln!("getUpdates serialize error (sleeping 5s): {err}");
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                tokio::time::sleep(POLL_RETRY_BACKOFF).await;
                 continue;
             }
         };
@@ -249,13 +257,13 @@ async fn robust_poll(client: &telexide::client::Client) -> anyhow::Result<()> {
             Ok(r) => r,
             Err(err) => {
                 eprintln!("getUpdates http error (sleeping 5s): {err}");
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                tokio::time::sleep(POLL_RETRY_BACKOFF).await;
                 continue;
             }
         };
         if !resp.ok {
             eprintln!("getUpdates not-ok (sleeping 5s): {:?}", resp.description);
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(POLL_RETRY_BACKOFF).await;
             continue;
         }
         let items = match resp.result {
