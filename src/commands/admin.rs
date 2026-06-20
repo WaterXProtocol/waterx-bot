@@ -114,13 +114,21 @@ async fn run_settle(ctx: &Context, market_id: &str, winner: &str) -> (bool, Stri
     let (mut won, mut lost, mut paid) = (0u32, 0u32, 0i64);
     for st in &settlements {
         let blang = database.get_lang(st.user).ok().flatten().unwrap_or(Lang::En);
+        // Tell the bettor which match and side this result is for (side name in
+        // their own locale).
+        let side = match st.outcome.as_str() {
+            "teamA" => st.team_a.clone(),
+            "teamB" => st.team_b.clone(),
+            _ => i18n::draw_label(blang).to_string(),
+        };
+        let descriptor = format!("{} vs. {} / {}", st.team_a, st.team_b, side);
         let dm = if st.won {
             won += 1;
             paid += st.payout;
-            i18n::bet_won(blang, &fmt_coins(st.payout))
+            i18n::bet_won(blang, &descriptor, &fmt_coins(st.payout))
         } else {
             lost += 1;
-            i18n::bet_lost(blang).to_string()
+            i18n::bet_lost(blang, &descriptor)
         };
         if let Err(e) = send_text(ctx, st.user, dm).await {
             eprintln!("settle result DM failed (user {}): {e:?}", st.user);

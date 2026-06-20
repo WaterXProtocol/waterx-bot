@@ -126,7 +126,7 @@ impl BetGame {
             BetState::betting => "🟢",
             BetState::closed => "🔴",
             BetState::settled => "✅",
-            BetState::draw => "🤝",
+            BetState::draw => "↩️",
         }
     }
 
@@ -192,7 +192,7 @@ impl BetGame {
                 )]);
             }
             BetState::closed => {
-                // Settle: all outcome buttons on one row, draw on its own row.
+                // Settle: all outcome buttons on one row, void on its own row.
                 rows.push(
                     self.option_order
                         .iter()
@@ -200,7 +200,7 @@ impl BetGame {
                         .collect(),
                 );
                 rows.push(vec![(
-                    i18n::draw_label(self.lang).to_string(),
+                    i18n::void_label(self.lang).to_string(),
                     "gamble:$draw$".to_string(),
                 )]);
             }
@@ -262,7 +262,7 @@ impl BetGame {
             self.state = BetState::draw;
             return (
                 self.inputs.clone(),
-                i18n::result_header(self.lang, i18n::draw_label(self.lang)),
+                i18n::result_header(self.lang, i18n::void_label(self.lang)),
             );
         }
         let mut outputs = HashMap::new();
@@ -415,9 +415,9 @@ mod tests {
         let (out, display) = g.settle("$draw$");
         assert_eq!(out[&1], 10);
         assert_eq!(out[&2], 7);
-        assert!(display.contains("Draw"));
+        assert!(display.contains("Void"));
         assert_eq!(g.state, BetState::draw);
-        assert!(g.changes.is_empty()); // can't /reverse a draw
+        assert!(g.changes.is_empty()); // can't /reverse a void
         assert!(g.reverse().is_none());
     }
 

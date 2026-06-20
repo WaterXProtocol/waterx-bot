@@ -524,6 +524,16 @@ pub fn draw_label(l: Lang) -> &'static str {
         "Empate", "ड्रॉ", "تعادل")
 }
 
+/// A self-host `/predict` settled as **void** — the result can't be determined,
+/// so every stake is refunded (distinct from a sports `draw_label`).
+pub fn void_label(l: Lang) -> &'static str {
+    tr!(l;
+        "Void", "流局", "流局", "流局", "무효",
+        "Возврат", "Annulé", "Anulado", "Annulliert", "Hủy",
+        "Batal", "Walang bisa", "ยกเลิก", "Geannuleerd", "İptal",
+        "Anulado", "रद्द", "ملغى")
+}
+
 /// Section heading above the caller's open (unsettled) bets in `/status`.
 pub fn positions_title(l: Lang) -> &'static str {
     tr!(l;
@@ -1380,12 +1390,13 @@ pub fn bet_done(l: Lang) -> &'static str {
         "Aposta feita ✅", "दांव लगा ✅", "تم وضع الرهان ✅")
 }
 
-pub fn bet_lost(l: Lang) -> &'static str {
+pub fn bet_lost(l: Lang, m: &str) -> String {
     tr!(l;
-        "😔 Your bet didn't win this time.", "😔 這次下注沒中。", "😔 这次下注没中。", "😔 今回は外れたよ。", "😔 이번 베팅은 졌어.",
-        "😔 В этот раз ставка не сыграла.", "😔 Ton pari n'a pas gagné cette fois.", "😔 Tu apuesta no ganó esta vez.", "😔 Deine Wette hat diesmal nicht gewonnen.", "😔 Lần này cược của bạn không thắng.",
-        "😔 Taruhanmu kali ini kalah.", "😔 Hindi nanalo ang taya mo ngayon.", "😔 ครั้งนี้เดิมพันไม่ชนะ", "😔 Je weddenschap heeft deze keer niet gewonnen.", "😔 Bahsin bu sefer kazanmadı.",
-        "😔 Sua aposta não ganhou desta vez.", "😔 इस बार आपका दांव नहीं जीता।", "😔 لم يفز رهانك هذه المرة.")
+        "😔 {match}\nYour bet didn't win this time.", "😔 {match}\n這次下注沒中。", "😔 {match}\n这次下注没中。", "😔 {match}\n今回は外れたよ。", "😔 {match}\n이번 베팅은 졌어.",
+        "😔 {match}\nВ этот раз ставка не сыграла.", "😔 {match}\nTon pari n'a pas gagné cette fois.", "😔 {match}\nTu apuesta no ganó esta vez.", "😔 {match}\nDeine Wette hat diesmal nicht gewonnen.", "😔 {match}\nLần này cược của bạn không thắng.",
+        "😔 {match}\nTaruhanmu kali ini kalah.", "😔 {match}\nHindi nanalo ang taya mo ngayon.", "😔 {match}\nครั้งนี้เดิมพันไม่ชนะ", "😔 {match}\nJe weddenschap heeft deze keer niet gewonnen.", "😔 {match}\nBahsin bu sefer kazanmadı.",
+        "😔 {match}\nSua aposta não ganhou desta vez.", "😔 {match}\nइस बार आपका दांव नहीं जीता।", "😔 {match}\nلم يفز رهانك هذه المرة.")
+    .replace("{match}", m)
 }
 
 /// Stake-builder screen: the chosen side/odds, the running stake and potential
@@ -1521,12 +1532,13 @@ pub fn game_announce(l: Lang, name: &str, stake: &str, option: &str) -> String {
     .replace("{option}", option)
 }
 
-pub fn bet_won(l: Lang, payout: &str) -> String {
+pub fn bet_won(l: Lang, m: &str, payout: &str) -> String {
     tr!(l;
-        "🎉 Your bet won! +{payout} coins", "🎉 你的下注贏了！+{payout} 金幣", "🎉 你的下注赢了！+{payout} 金币", "🎉 賭けに勝ったよ！+{payout} コイン", "🎉 베팅에서 이겼어! +{payout} 코인",
-        "🎉 Ваша ставка выиграла! +{payout} монет", "🎉 Ton pari est gagné ! +{payout} pièces", "🎉 ¡Tu apuesta ganó! +{payout} monedas", "🎉 Deine Wette hat gewonnen! +{payout} Münzen", "🎉 Cược của bạn đã thắng! +{payout} xu",
-        "🎉 Taruhanmu menang! +{payout} koin", "🎉 Nanalo ang taya mo! +{payout} coins", "🎉 เดิมพันของคุณชนะ! +{payout} เหรียญ", "🎉 Je weddenschap is gewonnen! +{payout} munten", "🎉 Bahsin kazandı! +{payout} para",
-        "🎉 Sua aposta ganhou! +{payout} moedas", "🎉 आपका दांव जीत गया! +{payout} कॉइन", "🎉 فاز رهانك! +{payout} عملة")
+        "🎉 {match}\nYour bet won! +{payout} coins", "🎉 {match}\n你的下注贏了！+{payout} 金幣", "🎉 {match}\n你的下注赢了！+{payout} 金币", "🎉 {match}\n賭けに勝ったよ！+{payout} コイン", "🎉 {match}\n베팅에서 이겼어! +{payout} 코인",
+        "🎉 {match}\nВаша ставка выиграла! +{payout} монет", "🎉 {match}\nTon pari est gagné ! +{payout} pièces", "🎉 {match}\n¡Tu apuesta ganó! +{payout} monedas", "🎉 {match}\nDeine Wette hat gewonnen! +{payout} Münzen", "🎉 {match}\nCược của bạn đã thắng! +{payout} xu",
+        "🎉 {match}\nTaruhanmu menang! +{payout} koin", "🎉 {match}\nNanalo ang taya mo! +{payout} coins", "🎉 {match}\nเดิมพันของคุณชนะ! +{payout} เหรียญ", "🎉 {match}\nJe weddenschap is gewonnen! +{payout} munten", "🎉 {match}\nBahsin kazandı! +{payout} para",
+        "🎉 {match}\nSua aposta ganhou! +{payout} moedas", "🎉 {match}\nआपका दांव जीत गया! +{payout} कॉइन", "🎉 {match}\nفاز رهانك! +{payout} عملة")
+    .replace("{match}", m)
     .replace("{payout}", payout)
 }
 
@@ -1596,7 +1608,8 @@ mod tests {
                 bet_build(l, "A", "1.54", "5", "8"),
                 bet_confirm(l, "5", "A", "8"),
                 bet_placed(l, "10", "A", "1.54", "15"),
-                bet_won(l, "15"),
+                bet_won(l, "A vs. B / A", "15"),
+                bet_lost(l, "A vs. B / A"),
             ];
             for s in samples {
                 assert!(!s.contains('{'), "unfilled placeholder in {l:?}: {s}");

@@ -52,7 +52,7 @@ impl BetState {
             BetState::betting => i18n::state_betting(lang),
             BetState::closed => i18n::state_closed(lang),
             BetState::settled => i18n::state_settled(lang),
-            BetState::draw => i18n::draw_label(lang),
+            BetState::draw => i18n::void_label(lang),
         }
     }
 }

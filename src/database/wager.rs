@@ -33,6 +33,8 @@ impl Position {
 #[derive(Debug, Clone)]
 pub struct Settlement {
     pub user: i64,
+    pub team_a: String,
+    pub team_b: String,
     pub outcome: String,
     pub stake: i64,
     pub payout: i64,
@@ -163,21 +165,21 @@ impl Database {
         // from paying some winners while leaving others `open` (which a re-run
         // would then double-pay).
         let tx = conn.transaction()?;
-        let rows: Vec<(i64, i64, String, i64, f64)> = {
+        let rows: Vec<(i64, i64, String, String, String, i64, f64)> = {
             let mut stmt = tx.prepare(
-                "SELECT id, user, outcome, stake, odds_cents
+                "SELECT id, user, team_a, team_b, outcome, stake, odds_cents
                  FROM wagers WHERE market_id = ?1 AND status = 'open'",
             )?;
             let collected = stmt
                 .query_map(params![market_id], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
                 })?
                 .collect::<SqlResult<Vec<_>>>()?;
             collected
         };
 
         let mut out = Vec::with_capacity(rows.len());
-        for (id, user, outcome, stake, odds_cents) in rows {
+        for (id, user, team_a, team_b, outcome, stake, odds_cents) in rows {
             let won = outcome == winner;
             let payout = if won { decimal_payout(stake, odds_cents) } else { 0 };
             if payout > 0 {
@@ -196,6 +198,8 @@ impl Database {
             )?;
             out.push(Settlement {
                 user,
+                team_a,
+                team_b,
                 outcome,
                 stake,
                 payout,
