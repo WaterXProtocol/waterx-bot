@@ -110,16 +110,6 @@ pub fn referral_link(bot_username: &str, user_id: i64) -> String {
     format!("https://t.me/{bot_username}?start={user_id}")
 }
 
-/// A `t.me/c/<id>/<msg>` deep link to a specific message — only **supergroups**
-/// and channels (chat ids prefixed `-100`) have one, so a plain group / private
-/// chat returns `None`. Used to let a host jump straight to a prediction card to
-/// settle it (the link works for members of that chat).
-pub fn message_link(chat_id: i64, msg_id: i64) -> Option<String> {
-    let internal = chat_id.to_string();
-    let internal = internal.strip_prefix("-100")?;
-    Some(format!("https://t.me/c/{internal}/{msg_id}"))
-}
-
 /// Language-picker keyboard: every supported locale, two per row, labelled with
 /// its flag + endonym. `current` (the user's saved locale, if any) is `✅`-marked.
 /// `settings`: when opened from the `/settings` hub the pick emits `slang:`

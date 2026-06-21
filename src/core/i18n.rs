@@ -1343,6 +1343,53 @@ pub fn settle_list_title(l: Lang) -> &'static str {
         "⚙️ Previsões que você criou — toque para abrir e liquidar:", "⚙️ आपकी चल रही भविष्यवाणियाँ — खोलकर निपटाने के लिए टैप करें:", "⚙️ التوقّعات التي تديرها — انقر لفتحها وتسويتها:")
 }
 
+/// Title of the per-prediction outcome picker reached from the settle list.
+pub fn settle_pick_outcome(l: Lang) -> &'static str {
+    tr!(l;
+        "🏁 Who won? Pick the winning outcome:", "🏁 誰贏了？選擇結算的選項：", "🏁 谁赢了？选择结算的选项：", "🏁 結果は？勝った選択肢を選んでください：", "🏁 누가 이겼나요? 정산할 결과를 선택하세요:",
+        "🏁 Кто выиграл? Выберите победивший исход:", "🏁 Qui a gagné ? Choisis l'issue gagnante :", "🏁 ¿Quién ganó? Elige el resultado ganador:", "🏁 Wer hat gewonnen? Wähle das gewinnende Ergebnis:", "🏁 Ai thắng? Chọn kết quả thắng:",
+        "🏁 Siapa yang menang? Pilih hasil yang menang:", "🏁 Sino ang nanalo? Piliin ang nanalong resulta:", "🏁 ใครชนะ? เลือกผลที่ชนะ:", "🏁 Wie heeft gewonnen? Kies de winnende uitkomst:", "🏁 Kim kazandı? Kazanan sonucu seç:",
+        "🏁 Quem ganhou? Escolha o resultado vencedor:", "🏁 कौन जीता? जीतने वाला विकल्प चुनें:", "🏁 من فاز؟ اختر النتيجة الفائزة:")
+}
+
+/// First of two confirmations before settling a prediction (`{outcome}` = winner).
+pub fn settle_confirm1(l: Lang, outcome: &str) -> String {
+    tr!(l;
+        "Settle as “{outcome}”?\nWinners will be paid out.\n\n(confirm 1 of 2)", "確定結算為「{outcome}」？\n贏家將獲得派彩。\n\n（確認 1/2）", "确定结算为「{outcome}」？\n赢家将获得派彩。\n\n（确认 1/2）", "「{outcome}」で精算しますか？\n勝者に配当が支払われます。\n\n（確認 1/2）", "“{outcome}”(으)로 정산할까요?\n승자에게 지급됩니다.\n\n(확인 1/2)",
+        "Рассчитать как «{outcome}»?\nПобедителям будет выплачено.\n\n(подтверждение 1 из 2)", "Régler sur « {outcome} » ?\nLes gagnants seront payés.\n\n(confirmation 1 sur 2)", "¿Liquidar como «{outcome}»?\nSe pagará a los ganadores.\n\n(confirmación 1 de 2)", "Als „{outcome}“ abrechnen?\nGewinner werden ausgezahlt.\n\n(Bestätigung 1 von 2)", "Quyết toán là “{outcome}”?\nNgười thắng sẽ được trả thưởng.\n\n(xác nhận 1/2)",
+        "Selesaikan sebagai “{outcome}”?\nPemenang akan dibayar.\n\n(konfirmasi 1 dari 2)", "Ayusin bilang “{outcome}”?\nBabayaran ang mga nanalo.\n\n(kumpirmasyon 1 ng 2)", "ปิดผลเป็น “{outcome}” ไหม?\nผู้ชนะจะได้รับเงินรางวัล\n\n(ยืนยัน 1 จาก 2)", "Afrekenen als “{outcome}”?\nWinnaars worden uitbetaald.\n\n(bevestiging 1 van 2)", "“{outcome}” olarak sonuçlandırılsın mı?\nKazananlara ödeme yapılacak.\n\n(onay 1 / 2)",
+        "Liquidar como “{outcome}”?\nOs vencedores serão pagos.\n\n(confirmação 1 de 2)", "“{outcome}” के रूप में निपटाएं?\nविजेताओं को भुगतान किया जाएगा।\n\n(पुष्टि 1 / 2)", "التسوية كـ «{outcome}»؟\nسيتم الدفع للفائزين.\n\n(تأكيد 1 من 2)")
+    .replace("{outcome}", outcome)
+}
+
+/// Final confirmation before settling a prediction (`{outcome}` = winner).
+pub fn settle_confirm2(l: Lang, outcome: &str) -> String {
+    tr!(l;
+        "⚠️ Final check — this can't be undone.\nSettle as “{outcome}”?\n\n(confirm 2 of 2)", "⚠️ 最後確認 — 無法撤銷。\n結算為「{outcome}」？\n\n（確認 2/2）", "⚠️ 最后确认 — 无法撤销。\n结算为「{outcome}」？\n\n（确认 2/2）", "⚠️ 最終確認 — 取り消せません。\n「{outcome}」で精算しますか？\n\n（確認 2/2）", "⚠️ 최종 확인 — 되돌릴 수 없습니다.\n“{outcome}”(으)로 정산할까요?\n\n(확인 2/2)",
+        "⚠️ Последняя проверка — отменить нельзя.\nРассчитать как «{outcome}»?\n\n(подтверждение 2 из 2)", "⚠️ Dernière vérification — irréversible.\nRégler sur « {outcome} » ?\n\n(confirmation 2 sur 2)", "⚠️ Última comprobación — no se puede deshacer.\n¿Liquidar como «{outcome}»?\n\n(confirmación 2 de 2)", "⚠️ Letzte Prüfung — nicht rückgängig zu machen.\nAls „{outcome}“ abrechnen?\n\n(Bestätigung 2 von 2)", "⚠️ Kiểm tra cuối — không thể hoàn tác.\nQuyết toán là “{outcome}”?\n\n(xác nhận 2/2)",
+        "⚠️ Pemeriksaan akhir — tidak bisa dibatalkan.\nSelesaikan sebagai “{outcome}”?\n\n(konfirmasi 2 dari 2)", "⚠️ Huling tsek — hindi na mababawi.\nAyusin bilang “{outcome}”?\n\n(kumpirmasyon 2 ng 2)", "⚠️ ตรวจสอบครั้งสุดท้าย — ยกเลิกไม่ได้\nปิดผลเป็น “{outcome}” ไหม?\n\n(ยืนยัน 2 จาก 2)", "⚠️ Laatste check — kan niet ongedaan worden.\nAfrekenen als “{outcome}”?\n\n(bevestiging 2 van 2)", "⚠️ Son kontrol — geri alınamaz.\n“{outcome}” olarak sonuçlandırılsın mı?\n\n(onay 2 / 2)",
+        "⚠️ Verificação final — não pode ser desfeita.\nLiquidar como “{outcome}”?\n\n(confirmação 2 de 2)", "⚠️ अंतिम जाँच — यह वापस नहीं किया जा सकता।\n“{outcome}” के रूप में निपटाएं?\n\n(पुष्टि 2 / 2)", "⚠️ تحقّق أخير — لا يمكن التراجع.\nالتسوية كـ «{outcome}»؟\n\n(تأكيد 2 من 2)")
+    .replace("{outcome}", outcome)
+}
+
+/// Button: advance from the first confirmation to the final one.
+pub fn settle_btn_continue(l: Lang) -> &'static str {
+    tr!(l;
+        "✅ Continue", "✅ 繼續", "✅ 继续", "✅ 続ける", "✅ 계속",
+        "✅ Продолжить", "✅ Continuer", "✅ Continuar", "✅ Weiter", "✅ Tiếp tục",
+        "✅ Lanjut", "✅ Magpatuloy", "✅ ดำเนินการต่อ", "✅ Doorgaan", "✅ Devam",
+        "✅ Continuar", "✅ जारी रखें", "✅ متابعة")
+}
+
+/// Button: execute the settlement (final confirmation).
+pub fn settle_btn_settle(l: Lang) -> &'static str {
+    tr!(l;
+        "⚠️ Settle now", "⚠️ 立即結算", "⚠️ 立即结算", "⚠️ 今すぐ精算", "⚠️ 지금 정산",
+        "⚠️ Рассчитать", "⚠️ Régler maintenant", "⚠️ Liquidar ahora", "⚠️ Jetzt abrechnen", "⚠️ Quyết toán ngay",
+        "⚠️ Selesaikan sekarang", "⚠️ Ayusin na", "⚠️ ปิดผลเลย", "⚠️ Nu afrekenen", "⚠️ Şimdi sonuçlandır",
+        "⚠️ Liquidar agora", "⚠️ अभी निपटाएं", "⚠️ سوِّ الآن")
+}
+
 /// Copyable-link output (HTML `parse_mode`): the link in a `<code>` span renders
 /// monospace and is tap-to-copy on Telegram clients.
 pub fn invite_copy(l: Lang, link: &str) -> String {
