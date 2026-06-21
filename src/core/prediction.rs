@@ -98,6 +98,16 @@ impl Prediction {
         self.ends_at == 0 || self.ended(now)
     }
 
+    /// Whether nobody but the host has money staked — i.e. every positive stake
+    /// belongs to the host (or there are no stakes at all). When true, the host
+    /// may **force-settle early** even before the deadline: there's no other
+    /// bettor whose live pool an early close could harm.
+    pub fn only_host_staked(&self) -> bool {
+        self.inputs
+            .iter()
+            .all(|(&user, &amount)| amount == 0 || user == self.host)
+    }
+
     /// An option's current pari-mutuel payout, rendered in `fmt`. The natural form
     /// is the **decimal multiplier** `pool ÷ option-stake` (shown as `×2.50` — "your
     /// stake ×"); other formats convert via `cents = 100 / multiplier`. `×—` when
@@ -574,6 +584,17 @@ mod tests {
         assert!(out.is_empty());
         assert!(display.contains("but it seems nobody placed a bet"));
         assert_eq!(g.state, BetState::draw);
+    }
+
+    #[test]
+    fn only_host_staked_gates_early_settle() {
+        // host id = 7
+        let mut g = Prediction::new(7, Lang::En, "test", &["A", "B"]);
+        assert!(g.only_host_staked()); // no bets yet → trivially only the host
+        g.stake(7, "A", 10, "Host");
+        assert!(g.only_host_staked()); // only the host has money in
+        g.stake(2, "B", 5, "Bob");
+        assert!(!g.only_host_staked()); // someone else staked → can't force-settle
     }
 
     #[test]

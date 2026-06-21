@@ -317,7 +317,9 @@ pub async fn host_open_predictions(ctx: &Context, host: i64) -> Vec<HostPred> {
                 chat_id: c.parse().ok()?,
                 msg_id: m.parse().ok()?,
                 question: p.question().to_string(),
-                ready: p.can_close(now),
+                // 🔴 ready: deadline passed / none, OR the host is the only staker
+                // (so they may force-settle early).
+                ready: p.can_close(now) || p.only_host_staked(),
             })
         })
         .collect();

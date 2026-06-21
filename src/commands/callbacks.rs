@@ -955,8 +955,9 @@ async fn handle_predict_settle_cb(
                 if p.host != cb.from.id {
                     return answer(ctx, cb, i18n::not_host(lang), true).await;
                 }
-                // A future deadline means betting's still live — can't settle yet.
-                if !p.can_close(now) {
+                // A future deadline means betting's still live — can't settle yet,
+                // unless the host is the only one with money in (force-settle early).
+                if !p.can_close(now) && !p.only_host_staked() {
                     let when = crate::commands::util::fmt_local_time(p.ends_at, p.tz_offset)
                         .unwrap_or_default();
                     return answer(ctx, cb, &i18n::close_before_deadline(lang, &when), true).await;
@@ -1023,7 +1024,7 @@ async fn handle_predict_settle_cb(
                 if p.host != cb.from.id {
                     return answer(ctx, cb, i18n::not_host(lang), true).await;
                 }
-                if !p.can_close(now) {
+                if !p.can_close(now) && !p.only_host_staked() {
                     let when = crate::commands::util::fmt_local_time(p.ends_at, p.tz_offset)
                         .unwrap_or_default();
                     return answer(ctx, cb, &i18n::close_before_deadline(lang, &when), true).await;
