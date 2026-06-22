@@ -42,6 +42,48 @@ pub async fn answer(
     Ok(())
 }
 
+/// The forum topic `chat_id` is locked to (`/onlyreplyhere`), if any. Group
+/// chats only; `None` for private chats and unlocked groups. Used by the send
+/// helpers below to thread the bot's messages into the locked topic so it stays
+/// confined there even for non-reply sends (which otherwise land in "General").
+async fn locked_thread(ctx: &Context, chat_id: i64) -> Option<i64> {
+    if chat_id >= 0 {
+        return None; // private chats have no topics
+    }
+    crate::commands::util::db(ctx).reply_thread(chat_id).ok().flatten()
+}
+
+/// Attach `message_thread_id` to a `sendMessage` payload when `chat_id` is a
+/// group locked to a topic, so the message lands in that topic.
+async fn with_thread(ctx: &Context, chat_id: i64, mut payload: Value) -> Value {
+    if let Some(thread) = locked_thread(ctx, chat_id).await {
+        if let Value::Object(map) = &mut payload {
+            map.insert("message_thread_id".to_string(), json!(thread));
+        }
+    }
+    payload
+}
+
+/// Whether `user_id` is an administrator (or creator) of `chat_id`, via
+/// `getChatMember`. Used to gate group-admin commands like `/onlyreplyhere`.
+/// `false` on any API error or for a non-admin status.
+pub async fn is_chat_admin(ctx: &Context, chat_id: i64, user_id: i64) -> bool {
+    let payload = json!({ "chat_id": chat_id, "user_id": user_id });
+    let resp = ctx
+        .api
+        .post(APIEndpoint::GetChatMember, Some(payload))
+        .await
+        .ok();
+    let Some(resp) = resp else { return false };
+    let Ok(v) = Into::<telexide::Result<Value>>::into(resp) else {
+        return false;
+    };
+    matches!(
+        v.get("status").and_then(Value::as_str),
+        Some("creator") | Some("administrator")
+    )
+}
+
 fn build_keyboard(rows: &[Row]) -> Value {
     let json_rows: Vec<Value> = rows
         .iter()
@@ -74,11 +116,11 @@ pub async fn send_with_buttons(
     text: &str,
     rows: &[Row],
 ) -> Result<Message, CommandError> {
-    let payload = json!({
+    let payload = with_thread(ctx, chat_id, json!({
         "chat_id": chat_id,
         "text": text,
         "reply_markup": build_keyboard(rows),
-    });
+    })).await;
     let resp = ctx
         .api
         .post(APIEndpoint::SendMessage, Some(payload))
@@ -99,12 +141,12 @@ pub async fn send_with_buttons_reply(
     text: &str,
     rows: &[Row],
 ) -> Result<Message, CommandError> {
-    let payload = json!({
+    let payload = with_thread(ctx, chat_id, json!({
         "chat_id": chat_id,
         "text": text,
         "reply_markup": build_keyboard(rows),
         "reply_parameters": { "message_id": reply_to, "allow_sending_without_reply": true },
-    });
+    })).await;
     let resp = ctx
         .api
         .post(APIEndpoint::SendMessage, Some(payload))
@@ -157,11 +199,11 @@ pub async fn send_text_reply(
     reply_to: i64,
     text: &str,
 ) -> Result<(), CommandError> {
-    let payload = json!({
+    let payload = with_thread(ctx, chat_id, json!({
         "chat_id": chat_id,
         "text": text,
         "reply_parameters": { "message_id": reply_to, "allow_sending_without_reply": true },
-    });
+    })).await;
     let resp = ctx
         .api
         .post(APIEndpoint::SendMessage, Some(payload))
@@ -181,11 +223,11 @@ pub fn escape(s: &str) -> String {
 /// Send a plain message with `parse_mode: HTML` (used for the tap-to-copy
 /// `<code>` invite link). No inline keyboard.
 pub async fn send_html(ctx: &Context, chat_id: i64, text: &str) -> Result<(), CommandError> {
-    let payload = json!({
+    let payload = with_thread(ctx, chat_id, json!({
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
-    });
+    })).await;
     let resp = ctx
         .api
         .post(APIEndpoint::SendMessage, Some(payload))

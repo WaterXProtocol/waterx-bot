@@ -75,11 +75,20 @@ pub async fn send_text(
     chat_id: i64,
     text: impl Into<String>,
 ) -> Result<Message, CommandError> {
+    use telexide::api::APIEndpoint;
     let text = text.into();
-    Ok(ctx
-        .api
-        .send_message(SendMessage::new(chat_id.into(), text))
-        .await?)
+    // Posted via the raw endpoint (not telexide's typed `SendMessage`, which has
+    // no `message_thread_id` field) so a group locked to a topic via
+    // `/onlyreplyhere` gets its message threaded there rather than into "General".
+    let mut payload = serde_json::json!({ "chat_id": chat_id, "text": text });
+    if is_group_chat(chat_id) {
+        if let Some(thread) = db(ctx).reply_thread(chat_id).ok().flatten() {
+            payload["message_thread_id"] = serde_json::json!(thread);
+        }
+    }
+    let resp = ctx.api.post(APIEndpoint::SendMessage, Some(payload)).await?;
+    let msg: telexide::Result<Message> = resp.into();
+    Ok(msg?)
 }
 
 pub fn full_name(u: &User) -> String {
@@ -245,6 +254,20 @@ pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
         .unwrap_or(false)
 }
 
+/// `/onlyreplyhere`: when a group is locked to a forum topic, this returns `true`
+/// for any interaction that originates **outside** that topic — the bot should
+/// stay silent there. `false` for private chats, unlocked groups, and the locked
+/// topic itself. `thread` is the incoming message's `message_thread_id`.
+pub fn out_of_locked_topic(ctx: &Context, chat_id: i64, thread: Option<i64>) -> bool {
+    if !is_group_chat(chat_id) {
+        return false;
+    }
+    match db(ctx).reply_thread(chat_id).ok().flatten() {
+        Some(lock) => thread != Some(lock),
+        None => false,
+    }
+}
+
 /// Gate for the admin pause kill-switch. Returns `true` (and tells the caller
 /// the bot is paused) when the bot is paused and the actor is **not** the
 /// owner; command handlers should early-return when it does. The owner is
@@ -252,6 +275,12 @@ pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
 pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandError> {
     // Learn this chat (private or group) so `/broadcast` can reach it later.
     db(ctx).touch_chat(msg.chat.get_id()).ok();
+    // `/onlyreplyhere`: outside the locked topic the bot stays completely silent
+    // (no reply), so report "blocked" without sending anything. The lock commands
+    // themselves don't call this gate, so an admin can always re-lock/unlock.
+    if out_of_locked_topic(ctx, msg.chat.get_id(), msg.message_thread_id) {
+        return Ok(true);
+    }
     let uid = from_id(msg).unwrap_or(0);
     if is_owner(ctx, uid) {
         return Ok(false);

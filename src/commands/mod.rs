@@ -18,6 +18,8 @@ pub mod referral;
 pub mod rule;
 pub mod sell;
 pub mod send;
+pub mod onlyreplyhere;
+pub mod replyanywhere;
 pub mod start;
 pub mod timezone;
 
@@ -41,5 +43,7 @@ pub use rule::*;
 pub use markets::*;
 pub use sell::*;
 pub use send::*;
+pub use onlyreplyhere::*;
+pub use replyanywhere::*;
 pub use start::*;
 pub use timezone::*;
