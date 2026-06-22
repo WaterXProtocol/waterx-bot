@@ -992,7 +992,13 @@ async fn handle_predict_settle_cb(
                     return answer(ctx, cb, i18n::not_host(lang), true).await;
                 }
             }
-            if !predict::repost_card(ctx, key).await {
+            // From the (private) settle list we can only target the card's origin
+            // chat — the group `[♻️ Restore card]` button is the path that survives
+            // a chat-id migration (it reposts into the chat it was tapped in).
+            let Some(Ok(origin)) = key.split_once(':').map(|(c, _)| c.parse::<i64>()) else {
+                return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
+            };
+            if !predict::repost_card(ctx, key, origin).await {
                 return answer(ctx, cb, i18n::predict_post_failed(lang), true).await;
             }
             answer(ctx, cb, i18n::card_reposted(lang), false).await?;
@@ -1269,10 +1275,10 @@ async fn handle_menu_repost(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
         return Ok(());
     };
     let chat = message.chat.get_id();
-    let Some(key) = predict::host_prediction_in_chat(ctx, cb.from.id, chat).await else {
+    let Some(key) = predict::host_restorable_prediction(ctx, cb.from.id, chat).await else {
         return answer(ctx, cb, i18n::nothing_to_restore(lang), true).await;
     };
-    if predict::repost_card(ctx, &key).await {
+    if predict::repost_card(ctx, &key, chat).await {
         answer(ctx, cb, i18n::card_reposted(lang), false).await
     } else {
         answer(ctx, cb, i18n::predict_post_failed(lang), true).await

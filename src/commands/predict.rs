@@ -285,33 +285,34 @@ async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, minutes: i64
     true
 }
 
-/// Repost a still-open prediction's card to its origin chat — used when the
-/// original card was deleted from the chat. Renders a fresh card from the live
-/// state (so it looks identical), then re-points the game at the new message:
-/// `remove` → `rehome` → re-insert preserves any bet placed during the network
-/// gap (it moves the live `Prediction`, not a stale snapshot), and the DB row is
-/// swapped to the new key. The stale original is deleted (best-effort) and the
-/// fresh card re-pinned. `false` if the origin chat is unreachable (the bot was
-/// removed / lacks send rights) or the game vanished mid-repost.
-pub async fn repost_card(ctx: &Context, key: &str) -> bool {
-    let (chat_id, old_msg, text, buttons) = {
+/// Repost a still-open prediction's card into `target_chat` — the recovery for a
+/// card deleted from the chat, **or** orphaned when the group migrated to a
+/// supergroup (new chat id). Renders a fresh card from the live state (so it
+/// looks identical), then re-points the game at the new message: `remove` →
+/// `rehome` → re-insert preserves any bet placed during the network gap (it moves
+/// the live `Prediction`, not a stale snapshot), and the DB row is swapped to the
+/// new `target_chat:msg` key. The stale original is deleted (best-effort — a
+/// no-op if its chat migrated / it's already gone) and the fresh card re-pinned.
+/// `false` if `target_chat` is unreachable or the game vanished mid-repost.
+pub async fn repost_card(ctx: &Context, key: &str, target_chat: i64) -> bool {
+    let (old_chat, old_msg, text, buttons) = {
         let games = predictions(ctx);
         let g = games.lock().await;
         let Some(p) = g.get(key) else {
             return false;
         };
-        let Some((Ok(chat_id), Ok(old_msg))) =
+        let Some((Ok(old_chat), Ok(old_msg))) =
             key.split_once(':').map(|(c, m)| (c.parse::<i64>(), m.parse::<i64>()))
         else {
             return false;
         };
-        (chat_id, old_msg, p.get_text(), p.get_buttons())
+        (old_chat, old_msg, p.get_text(), p.get_buttons())
     };
     // Post the fresh card (network — lock released so bets aren't blocked).
-    let new_msg = match tg::send_with_buttons(ctx, chat_id, &text, &buttons).await {
+    let new_msg = match tg::send_with_buttons(ctx, target_chat, &text, &buttons).await {
         Ok(m) => m.message_id,
         Err(e) => {
-            eprintln!("repost card failed (chat {chat_id}): {e:?}");
+            eprintln!("repost card failed (chat {target_chat}): {e:?}");
             return false;
         }
     };
@@ -320,11 +321,11 @@ pub async fn repost_card(ctx: &Context, key: &str) -> bool {
         let mut g = games.lock().await;
         let Some(mut p) = g.remove(key) else {
             // Settled/voided in the gap — drop the just-posted orphan.
-            let _ = tg::delete_message(ctx, chat_id, new_msg).await;
+            let _ = tg::delete_message(ctx, target_chat, new_msg).await;
             return false;
         };
         let old_id = p.id.clone();
-        p.rehome(chat_id, new_msg);
+        p.rehome(target_chat, new_msg);
         let new_key = p.id.clone();
         if let Err(err) = db(ctx).delete_prediction(&old_id) {
             eprintln!("repost delete_prediction({old_id}) error: {err}");
@@ -335,24 +336,38 @@ pub async fn repost_card(ctx: &Context, key: &str) -> bool {
         g.insert(new_key, p);
     }
     // Remove the stale original card (best-effort; deletion also unpins it).
-    let _ = tg::delete_message(ctx, chat_id, old_msg).await;
-    if is_group_chat(chat_id) {
-        let _ = tg::pin_message(ctx, chat_id, new_msg).await;
+    let _ = tg::delete_message(ctx, old_chat, old_msg).await;
+    if is_group_chat(target_chat) {
+        let _ = tg::pin_message(ctx, target_chat, new_msg).await;
     }
     true
 }
 
-/// The key (`chat:msg`) of `host`'s most-recent open prediction whose card lives
-/// in `chat` — backs the in-group `[♻️ Restore card]` button, which reposts a
-/// card the host deleted from *this* group. `None` if they host none here.
-pub async fn host_prediction_in_chat(ctx: &Context, host: i64, chat: i64) -> Option<String> {
-    let prefix = format!("{chat}:");
+/// Pick the host's open prediction to restore into `current_chat` for the in-group
+/// `[♻️ Restore card]` button. Prefers one whose card already lives in this chat
+/// (the plain "deleted card" case); failing that — e.g. the group migrated to a
+/// supergroup and got a **new chat id**, orphaning the old `chat:msg` key — falls
+/// back to the host's **sole** open *group* prediction (only when unambiguous, so
+/// it can't yank a prediction out of a different active group). `None` when
+/// there's nothing safe to pick.
+pub async fn host_restorable_prediction(ctx: &Context, host: i64, current_chat: i64) -> Option<String> {
+    let msg_of = |id: &str| id.rsplit_once(':').and_then(|(_, m)| m.parse::<i64>().ok()).unwrap_or(0);
+    let chat_of = |id: &str| id.split_once(':').and_then(|(c, _)| c.parse::<i64>().ok());
     let games = predictions(ctx);
     let g = games.lock().await;
-    g.values()
-        .filter(|p| p.host == host && p.id.starts_with(&prefix))
-        .max_by_key(|p| p.id.rsplit_once(':').and_then(|(_, m)| m.parse::<i64>().ok()).unwrap_or(0))
-        .map(|p| p.id.clone())
+    let mine: Vec<&Prediction> = g.values().filter(|p| p.host == host).collect();
+    // Prefer a card already keyed to this chat (most recent).
+    let prefix = format!("{current_chat}:");
+    if let Some(p) = mine.iter().filter(|p| p.id.starts_with(&prefix)).max_by_key(|p| msg_of(&p.id)) {
+        return Some(p.id.clone());
+    }
+    // Migration fallback: exactly one open group-hosted prediction → restore it here.
+    let group_preds: Vec<&&Prediction> =
+        mine.iter().filter(|p| chat_of(&p.id).is_some_and(is_group_chat)).collect();
+    match group_preds.as_slice() {
+        [only] => Some(only.id.clone()),
+        _ => None,
+    }
 }
 
 /// One open prediction a user hosts, distilled for the home-menu "to settle"
