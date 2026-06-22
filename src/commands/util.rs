@@ -254,6 +254,18 @@ pub fn is_owner(ctx: &Context, user_id: i64) -> bool {
         .unwrap_or(false)
 }
 
+/// Pure decision behind [`out_of_locked_topic`]: given a group's `lock` (the
+/// topic it's pinned to, `None` = unlocked) and an incoming message's `thread`
+/// (`message_thread_id`), is the interaction outside the locked topic? An unlocked
+/// group is never blocked; a locked one blocks everything whose thread isn't
+/// exactly the lock — including the General topic (`thread = None`).
+fn topic_blocked(lock: Option<i64>, thread: Option<i64>) -> bool {
+    match lock {
+        Some(t) => thread != Some(t),
+        None => false,
+    }
+}
+
 /// `/onlyreplyhere`: when a group is locked to a forum topic, this returns `true`
 /// for any interaction that originates **outside** that topic — the bot should
 /// stay silent there. `false` for private chats, unlocked groups, and the locked
@@ -262,10 +274,7 @@ pub fn out_of_locked_topic(ctx: &Context, chat_id: i64, thread: Option<i64>) -> 
     if !is_group_chat(chat_id) {
         return false;
     }
-    match db(ctx).reply_thread(chat_id).ok().flatten() {
-        Some(lock) => thread != Some(lock),
-        None => false,
-    }
+    topic_blocked(db(ctx).reply_thread(chat_id).ok().flatten(), thread)
 }
 
 /// Gate for the admin pause kill-switch. Returns `true` (and tells the caller
@@ -421,6 +430,17 @@ pub fn format_odds(odds_cents: f64, fmt: crate::core::types::OddsFormat) -> Stri
 mod tests {
     use super::*;
     use crate::database::COIN;
+
+    #[test]
+    fn topic_blocked_truth_table() {
+        // Unlocked group: never blocked, whatever topic the message is in.
+        assert!(!topic_blocked(None, None));
+        assert!(!topic_blocked(None, Some(42)));
+        // Locked to topic 42: only topic 42 passes.
+        assert!(!topic_blocked(Some(42), Some(42))); // the locked topic → allowed
+        assert!(topic_blocked(Some(42), None)); // General (no thread) → blocked
+        assert!(topic_blocked(Some(42), Some(7))); // a different topic → blocked
+    }
 
     #[test]
     fn fmt_coins_formats_fixed_point() {

@@ -53,8 +53,13 @@ async fn locked_thread(ctx: &Context, chat_id: i64) -> Option<i64> {
     crate::commands::util::db(ctx).reply_thread(chat_id).ok().flatten()
 }
 
-/// Attach `message_thread_id` to a `sendMessage` payload when `chat_id` is a
-/// group locked to a topic, so the message lands in that topic.
+/// Attach `message_thread_id` to a **non-reply** `sendMessage` payload when
+/// `chat_id` is a group locked to a topic, so the message lands in that topic.
+///
+/// Reply sends (`send_*_reply`) deliberately do **not** use this: a reply already
+/// threads into its target's topic via `reply_parameters`, and forcing a
+/// `message_thread_id` that disagrees with the replied-to message (e.g. an old
+/// card still in "General") makes Telegram reject the send or thread it oddly.
 async fn with_thread(ctx: &Context, chat_id: i64, mut payload: Value) -> Value {
     if let Some(thread) = locked_thread(ctx, chat_id).await {
         if let Value::Object(map) = &mut payload {
@@ -141,12 +146,15 @@ pub async fn send_with_buttons_reply(
     text: &str,
     rows: &[Row],
 ) -> Result<Message, CommandError> {
-    let payload = with_thread(ctx, chat_id, json!({
+    // No `with_thread`: a reply threads into its target's topic via
+    // `reply_parameters` on its own — see `with_thread`'s doc for why forcing a
+    // `message_thread_id` here would conflict.
+    let payload = json!({
         "chat_id": chat_id,
         "text": text,
         "reply_markup": build_keyboard(rows),
         "reply_parameters": { "message_id": reply_to, "allow_sending_without_reply": true },
-    })).await;
+    });
     let resp = ctx
         .api
         .post(APIEndpoint::SendMessage, Some(payload))
@@ -199,11 +207,13 @@ pub async fn send_text_reply(
     reply_to: i64,
     text: &str,
 ) -> Result<(), CommandError> {
-    let payload = with_thread(ctx, chat_id, json!({
+    // No `with_thread`: the reply threads via `reply_parameters` (see that helper's
+    // doc) — forcing a possibly-conflicting `message_thread_id` would break it.
+    let payload = json!({
         "chat_id": chat_id,
         "text": text,
         "reply_parameters": { "message_id": reply_to, "allow_sending_without_reply": true },
-    })).await;
+    });
     let resp = ctx
         .api
         .post(APIEndpoint::SendMessage, Some(payload))
