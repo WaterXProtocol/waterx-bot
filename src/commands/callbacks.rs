@@ -115,6 +115,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_rule(&ctx, &cb).await
     } else if data == menu::MENU_PREDICT {
         handle_menu_predict(&ctx, &cb).await
+    } else if data == menu::MENU_REPOST {
+        handle_menu_repost(&ctx, &cb).await
     } else if data == menu::MENU_INVITE {
         handle_menu_invite(&ctx, &cb).await
     } else if data == menu::MENU_SETTLE {
@@ -977,12 +979,11 @@ async fn handle_predict_settle_cb(
             };
             let _ = tg::edit_with_buttons(ctx, mchat, mid, &title, &rows).await;
         }
-        // Repost the card: post a fresh copy to the origin chat, re-point the live
-        // prediction at the new message (preserving any bet placed meanwhile), and
-        // delete the stale original (best-effort — a no-op if already gone).
+        // Repost the card to its origin chat (shared `repost_card` helper), then
+        // refresh the settle list in place so its row callbacks carry the new msg id.
         "r" => {
             let key = tail;
-            let (chat_id, old_msg, text, buttons) = {
+            {
                 let g = predictions.lock().await;
                 let Some(p) = g.get(key) else {
                     return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
@@ -990,48 +991,10 @@ async fn handle_predict_settle_cb(
                 if p.host != cb.from.id {
                     return answer(ctx, cb, i18n::not_host(lang), true).await;
                 }
-                let Some((Ok(chat_id), Ok(old_msg))) =
-                    key.split_once(':').map(|(c, m)| (c.parse::<i64>(), m.parse::<i64>()))
-                else {
-                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-                };
-                (chat_id, old_msg, p.get_text(), p.get_buttons())
-            };
-            // Post the fresh card (network — lock released so bets aren't blocked).
-            let sent = match tg::send_with_buttons(ctx, chat_id, &text, &buttons).await {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("repost card failed (chat {chat_id}): {e:?}");
-                    return answer(ctx, cb, i18n::predict_post_failed(lang), true).await;
-                }
-            };
-            let new_msg = sent.message_id;
-            // Move the live entry to the new key — `remove` then re-insert grabs any
-            // bet placed in the gap (the live Prediction, not a stale snapshot).
-            {
-                let mut g = predictions.lock().await;
-                let Some(mut p) = g.remove(key) else {
-                    // Settled/voided in the gap — drop the just-posted orphan.
-                    let _ = tg::delete_message(ctx, chat_id, new_msg).await;
-                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-                };
-                let old_id = p.id.clone();
-                p.rehome(chat_id, new_msg);
-                let new_key = p.id.clone();
-                if let Err(err) = db.delete_prediction(&old_id) {
-                    eprintln!("repost delete_prediction({old_id}) error: {err}");
-                }
-                if let Err(err) = db.save_prediction(&p) {
-                    eprintln!("repost save_prediction error: {err}");
-                }
-                g.insert(new_key, p);
             }
-            // Remove the stale original card (best-effort; deletion also unpins it).
-            let _ = tg::delete_message(ctx, chat_id, old_msg).await;
-            if is_group_chat(chat_id) {
-                let _ = tg::pin_message(ctx, chat_id, new_msg).await;
+            if !predict::repost_card(ctx, key).await {
+                return answer(ctx, cb, i18n::predict_post_failed(lang), true).await;
             }
-            // Refresh the settle list in place so its row callbacks carry the new msg id.
             answer(ctx, cb, i18n::card_reposted(lang), false).await?;
             let preds = predict::host_open_predictions(ctx, cb.from.id).await;
             if preds.is_empty() {
@@ -1292,6 +1255,27 @@ async fn handle_menu_predict(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         answer(ctx, cb, i18n::predict_check_dm(lang), false).await
     } else {
         answer(ctx, cb, i18n::bet_dm_first(lang), true).await
+    }
+}
+
+/// `menu:repost` — the group-only `[♻️ Restore card]` button. Reposts the
+/// presser's prediction card **into this group** (the chat the button was tapped
+/// in is provably reachable — the bot just received this callback there), which
+/// is exactly the recovery for a card deleted from the chat. Picks the host's
+/// most-recent open prediction in this group; a toast if they host none here.
+async fn handle_menu_repost(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    let chat = message.chat.get_id();
+    let Some(key) = predict::host_prediction_in_chat(ctx, cb.from.id, chat).await else {
+        return answer(ctx, cb, i18n::nothing_to_restore(lang), true).await;
+    };
+    if predict::repost_card(ctx, &key).await {
+        answer(ctx, cb, i18n::card_reposted(lang), false).await
+    } else {
+        answer(ctx, cb, i18n::predict_post_failed(lang), true).await
     }
 }
 

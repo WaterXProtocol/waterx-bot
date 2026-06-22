@@ -285,6 +285,76 @@ async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, minutes: i64
     true
 }
 
+/// Repost a still-open prediction's card to its origin chat — used when the
+/// original card was deleted from the chat. Renders a fresh card from the live
+/// state (so it looks identical), then re-points the game at the new message:
+/// `remove` → `rehome` → re-insert preserves any bet placed during the network
+/// gap (it moves the live `Prediction`, not a stale snapshot), and the DB row is
+/// swapped to the new key. The stale original is deleted (best-effort) and the
+/// fresh card re-pinned. `false` if the origin chat is unreachable (the bot was
+/// removed / lacks send rights) or the game vanished mid-repost.
+pub async fn repost_card(ctx: &Context, key: &str) -> bool {
+    let (chat_id, old_msg, text, buttons) = {
+        let games = predictions(ctx);
+        let g = games.lock().await;
+        let Some(p) = g.get(key) else {
+            return false;
+        };
+        let Some((Ok(chat_id), Ok(old_msg))) =
+            key.split_once(':').map(|(c, m)| (c.parse::<i64>(), m.parse::<i64>()))
+        else {
+            return false;
+        };
+        (chat_id, old_msg, p.get_text(), p.get_buttons())
+    };
+    // Post the fresh card (network — lock released so bets aren't blocked).
+    let new_msg = match tg::send_with_buttons(ctx, chat_id, &text, &buttons).await {
+        Ok(m) => m.message_id,
+        Err(e) => {
+            eprintln!("repost card failed (chat {chat_id}): {e:?}");
+            return false;
+        }
+    };
+    {
+        let games = predictions(ctx);
+        let mut g = games.lock().await;
+        let Some(mut p) = g.remove(key) else {
+            // Settled/voided in the gap — drop the just-posted orphan.
+            let _ = tg::delete_message(ctx, chat_id, new_msg).await;
+            return false;
+        };
+        let old_id = p.id.clone();
+        p.rehome(chat_id, new_msg);
+        let new_key = p.id.clone();
+        if let Err(err) = db(ctx).delete_prediction(&old_id) {
+            eprintln!("repost delete_prediction({old_id}) error: {err}");
+        }
+        if let Err(err) = db(ctx).save_prediction(&p) {
+            eprintln!("repost save_prediction error: {err}");
+        }
+        g.insert(new_key, p);
+    }
+    // Remove the stale original card (best-effort; deletion also unpins it).
+    let _ = tg::delete_message(ctx, chat_id, old_msg).await;
+    if is_group_chat(chat_id) {
+        let _ = tg::pin_message(ctx, chat_id, new_msg).await;
+    }
+    true
+}
+
+/// The key (`chat:msg`) of `host`'s most-recent open prediction whose card lives
+/// in `chat` — backs the in-group `[♻️ Restore card]` button, which reposts a
+/// card the host deleted from *this* group. `None` if they host none here.
+pub async fn host_prediction_in_chat(ctx: &Context, host: i64, chat: i64) -> Option<String> {
+    let prefix = format!("{chat}:");
+    let games = predictions(ctx);
+    let g = games.lock().await;
+    g.values()
+        .filter(|p| p.host == host && p.id.starts_with(&prefix))
+        .max_by_key(|p| p.id.rsplit_once(':').and_then(|(_, m)| m.parse::<i64>().ok()).unwrap_or(0))
+        .map(|p| p.id.clone())
+}
+
 /// One open prediction a user hosts, distilled for the home-menu "to settle"
 /// reminder (`menu:settle`).
 pub struct HostPred {

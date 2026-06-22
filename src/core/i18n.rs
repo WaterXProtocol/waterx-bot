@@ -1261,6 +1261,25 @@ pub fn btn_predict(l: Lang) -> &'static str {
         "🎲 Criar previsão", "🎲 भविष्यवाणी बनाएं", "🎲 إنشاء توقّع")
 }
 
+/// Group home-page button: repost a prediction card the host deleted from the chat.
+pub fn btn_restore_card(l: Lang) -> &'static str {
+    tr!(l;
+        "♻️ Restore card", "♻️ 還原卡片", "♻️ 还原卡片", "♻️ カードを復元", "♻️ 카드 복원",
+        "♻️ Восстановить карточку", "♻️ Restaurer la carte", "♻️ Restaurar tarjeta", "♻️ Karte wiederherstellen", "♻️ Khôi phục thẻ",
+        "♻️ Pulihkan kartu", "♻️ Ibalik ang card", "♻️ กู้คืนการ์ด", "♻️ Kaart herstellen", "♻️ Kartı geri yükle",
+        "♻️ Restaurar cartão", "♻️ कार्ड बहाल करें", "♻️ استعادة البطاقة")
+}
+
+/// Toast when the host taps the in-group restore button but hosts no open
+/// prediction in this group (nothing to repost here).
+pub fn nothing_to_restore(l: Lang) -> &'static str {
+    tr!(l;
+        "You have no prediction card to restore in this group.", "你在這個群組沒有可還原的預測卡片。", "你在这个群组没有可还原的预测卡片。", "このグループに復元できる予測カードはありません。", "이 그룹에 복원할 예측 카드가 없습니다.",
+        "У вас нет карточки прогноза для восстановления в этой группе.", "Tu n'as aucune carte de prédiction à restaurer dans ce groupe.", "No tienes ninguna tarjeta de predicción para restaurar en este grupo.", "Du hast in dieser Gruppe keine Vorhersagekarte zum Wiederherstellen.", "Bạn không có thẻ dự đoán nào để khôi phục trong nhóm này.",
+        "Kamu tidak punya kartu prediksi untuk dipulihkan di grup ini.", "Wala kang prediction card na maibabalik sa grupong ito.", "คุณไม่มีการ์ดคำทำนายให้กู้คืนในกลุ่มนี้", "Je hebt geen voorspellingskaart om in deze groep te herstellen.", "Bu grupta geri yükleyecek bir tahmin kartın yok.",
+        "Você não tem nenhum cartão de previsão para restaurar neste grupo.", "इस समूह में बहाल करने के लिए आपके पास कोई भविष्यवाणी कार्ड नहीं है।", "ليس لديك بطاقة توقّع لاستعادتها في هذه المجموعة.")
+}
+
 pub fn btn_invite(l: Lang) -> &'static str {
     tr!(l;
         "🔗 Invite friends", "🔗 邀請好友", "🔗 邀请好友", "🔗 友達を招待", "🔗 친구 초대",

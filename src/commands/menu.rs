@@ -100,6 +100,9 @@ pub const MENU_SETTLE: &str = "menu:settle";
 /// Group-only home-page button: open the `/predict` builder (handled like the
 /// `/predict` command).
 pub const MENU_PREDICT: &str = "menu:predict";
+/// Group-only home-page button: repost the presser's prediction card into this
+/// group, for when its original card was deleted from the chat.
+pub const MENU_REPOST: &str = "menu:repost";
 /// Invite-format chooser (shown after `menu:invite`).
 pub const INVITE_LINK: &str = "inv:link";
 pub const INVITE_FWD: &str = "inv:fwd";
@@ -182,10 +185,15 @@ pub fn main_menu_rows(
         MENU_MARKETS.to_string(),
     )]);
     if is_group {
-        // Group-only: kick off a shared prediction (handled like `/predict`).
+        // Group-only: kick off a shared prediction (handled like `/predict`), and
+        // restore a prediction card that was deleted from this group.
         rows.push(vec![(
             i18n::btn_predict(lang).to_string(),
             MENU_PREDICT.to_string(),
+        )]);
+        rows.push(vec![(
+            i18n::btn_restore_card(lang).to_string(),
+            MENU_REPOST.to_string(),
         )]);
     } else {
         // Private-only: the rules brief and the personal invite chooser.
