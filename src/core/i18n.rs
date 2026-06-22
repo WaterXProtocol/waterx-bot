@@ -1343,6 +1343,37 @@ pub fn settle_list_title(l: Lang) -> &'static str {
         "⚙️ Previsões que você criou — toque para abrir e liquidar:", "⚙️ आपकी चल रही भविष्यवाणियाँ — खोलकर निपटाने के लिए टैप करें:", "⚙️ التوقّعات التي تديرها — انقر لفتحها وتسويتها:")
 }
 
+/// Button on the per-prediction settle screen that reposts a fresh copy of the
+/// card to the origin chat (for when the original was deleted from the chat).
+pub fn repost_card_btn(l: Lang) -> &'static str {
+    tr!(l;
+        "♻️ Repost card", "♻️ 重新發送卡片", "♻️ 重新发送卡片", "♻️ カードを再投稿", "♻️ 카드 다시 게시",
+        "♻️ Опубликовать заново", "♻️ Republier la carte", "♻️ Republicar tarjeta", "♻️ Karte erneut posten", "♻️ Đăng lại thẻ",
+        "♻️ Kirim ulang kartu", "♻️ I-repost ang card", "♻️ โพสต์การ์ดใหม่", "♻️ Kaart opnieuw plaatsen", "♻️ Kartı yeniden gönder",
+        "♻️ Repostar cartão", "♻️ कार्ड फिर से पोस्ट करें", "♻️ إعادة نشر البطاقة")
+}
+
+/// Toast confirming the prediction card was reposted to the origin chat.
+pub fn card_reposted(l: Lang) -> &'static str {
+    tr!(l;
+        "♻️ Card reposted.", "♻️ 已重新發送卡片。", "♻️ 已重新发送卡片。", "♻️ カードを再投稿しました。", "♻️ 카드를 다시 게시했습니다.",
+        "♻️ Карточка опубликована заново.", "♻️ Carte republiée.", "♻️ Tarjeta republicada.", "♻️ Karte erneut gepostet.", "♻️ Đã đăng lại thẻ.",
+        "♻️ Kartu dikirim ulang.", "♻️ Na-repost ang card.", "♻️ โพสต์การ์ดใหม่แล้ว", "♻️ Kaart opnieuw geplaatst.", "♻️ Kart yeniden gönderildi.",
+        "♻️ Cartão repostado.", "♻️ कार्ड फिर से पोस्ट किया गया।", "♻️ تمت إعادة نشر البطاقة.")
+}
+
+/// Screen shown when a host taps a prediction that isn't settleable yet (deadline
+/// still in the future); `{when}` = the deadline in the host's local time. Offers
+/// the repost option below.
+pub fn settle_not_ready(l: Lang, when: &str) -> String {
+    tr!(l;
+        "🟢 Still open until {when} — you can't settle this yet.\nIf the card was deleted from the chat, repost it below.", "🟢 仍開放至 {when} — 尚無法結算。\n若卡片已從聊天刪除，可在下方重新發送。", "🟢 仍开放至 {when} — 尚无法结算。\n若卡片已从聊天删除，可在下方重新发送。", "🟢 {when} まで受付中 — まだ精算できません。\nカードがチャットから削除された場合は、下から再投稿できます。", "🟢 {when}까지 진행 중 — 아직 정산할 수 없습니다.\n카드가 채팅에서 삭제됐다면 아래에서 다시 게시하세요.",
+        "🟢 Открыто до {when} — рассчитать ещё нельзя.\nЕсли карточку удалили из чата, опубликуйте её заново ниже.", "🟢 Ouvert jusqu'à {when} — pas encore réglable.\nSi la carte a été supprimée du chat, republie-la ci-dessous.", "🟢 Abierto hasta {when} — aún no puedes liquidarla.\nSi la tarjeta se eliminó del chat, repúblicala abajo.", "🟢 Offen bis {when} — noch nicht abrechenbar.\nWurde die Karte aus dem Chat gelöscht, poste sie unten erneut.", "🟢 Mở đến {when} — chưa thể quyết toán.\nNếu thẻ đã bị xóa khỏi cuộc trò chuyện, hãy đăng lại bên dưới.",
+        "🟢 Masih buka sampai {when} — belum bisa diselesaikan.\nJika kartu terhapus dari obrolan, kirim ulang di bawah.", "🟢 Bukas pa hanggang {when} — hindi mo pa ito maaayos.\nKung nabura ang card sa chat, i-repost ito sa ibaba.", "🟢 ยังเปิดถึง {when} — ยังปิดผลไม่ได้\nถ้าการ์ดถูกลบจากแชท สามารถโพสต์ใหม่ด้านล่าง", "🟢 Open tot {when} — nog niet af te rekenen.\nIs de kaart uit de chat verwijderd, plaats hem hieronder opnieuw.", "🟢 {when} kadar açık — henüz sonuçlandıramazsın.\nKart sohbetten silindiyse aşağıdan yeniden gönder.",
+        "🟢 Aberto até {when} — ainda não dá para liquidar.\nSe o cartão foi apagado do chat, reposte-o abaixo.", "🟢 {when} तक खुला — अभी निपटा नहीं सकते।\nअगर कार्ड चैट से हटा दिया गया है, तो उसे नीचे फिर से पोस्ट करें।", "🟢 مفتوح حتى {when} — لا يمكن التسوية بعد.\nإذا حُذفت البطاقة من المحادثة، فأعد نشرها بالأسفل.")
+    .replace("{when}", when)
+}
+
 /// Title of the per-prediction outcome picker reached from the settle list.
 pub fn settle_pick_outcome(l: Lang) -> &'static str {
     tr!(l;

@@ -132,6 +132,15 @@ impl Prediction {
         self.description = format!("{tail}\n{}", self.description);
     }
 
+    /// Re-point an existing prediction at a freshly posted card message (used when
+    /// the host reposts after the original card was deleted from the chat). Unlike
+    /// `set_id`, this is **idempotent** on `description`: it strips the existing
+    /// id-tail line first (`question()`), so re-homing can't prepend a second tail.
+    pub fn rehome(&mut self, chat_id: i64, msg_id: i64) {
+        self.description = self.question().to_string();
+        self.set_id(chat_id, msg_id);
+    }
+
     pub fn get_header(&self) -> String {
         format!("{}\n---{}\n", self.description, self.state.label(self.lang))
     }

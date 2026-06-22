@@ -944,10 +944,45 @@ async fn handle_predict_settle_cb(
     let now = chrono::Utc::now().timestamp();
     let (action, tail) = rest.split_once(':').unwrap_or((rest, ""));
     match action {
-        // Picked a prediction → show its outcome picker.
+        // Picked a prediction → its management screen: the outcome picker if it's
+        // settleable, otherwise a "still open" note. Both offer `[♻️ Repost card]`
+        // (re-posts a fresh copy if the original was deleted from the chat).
         "p" => {
+            let (title, rows) = {
+                let g = predictions.lock().await;
+                let Some(p) = g.get(tail) else {
+                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
+                };
+                if p.host != cb.from.id {
+                    return answer(ctx, cb, i18n::not_host(lang), true).await;
+                }
+                let key = tail;
+                let mut rows: Vec<tg::Row> = Vec::new();
+                // Settleable = deadline passed/none, or the host is the only staker
+                // (force-settle early); otherwise betting is still live.
+                let title = if p.can_close(now) || p.only_host_staked() {
+                    for (i, o) in p.option_order.iter().enumerate() {
+                        rows.push(vec![(o.clone(), format!("{PSTL}o:{key}:{i}"))]);
+                    }
+                    rows.push(vec![(i18n::void_label(lang).to_string(), format!("{PSTL}o:{key}:d"))]);
+                    i18n::settle_pick_outcome(lang).to_string()
+                } else {
+                    let when = crate::commands::util::fmt_local_time(p.ends_at, p.tz_offset)
+                        .unwrap_or_default();
+                    i18n::settle_not_ready(lang, &when)
+                };
+                rows.push(vec![(i18n::repost_card_btn(lang).to_string(), format!("{PSTL}r:{key}"))]);
+                rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_SETTLE.to_string())]);
+                (title, rows)
+            };
+            let _ = tg::edit_with_buttons(ctx, mchat, mid, &title, &rows).await;
+        }
+        // Repost the card: post a fresh copy to the origin chat, re-point the live
+        // prediction at the new message (preserving any bet placed meanwhile), and
+        // delete the stale original (best-effort — a no-op if already gone).
+        "r" => {
             let key = tail;
-            let rows = {
+            let (chat_id, old_msg, text, buttons) = {
                 let g = predictions.lock().await;
                 let Some(p) = g.get(key) else {
                     return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
@@ -955,24 +990,56 @@ async fn handle_predict_settle_cb(
                 if p.host != cb.from.id {
                     return answer(ctx, cb, i18n::not_host(lang), true).await;
                 }
-                // A future deadline means betting's still live — can't settle yet,
-                // unless the host is the only one with money in (force-settle early).
-                if !p.can_close(now) && !p.only_host_staked() {
-                    let when = crate::commands::util::fmt_local_time(p.ends_at, p.tz_offset)
-                        .unwrap_or_default();
-                    return answer(ctx, cb, &i18n::close_before_deadline(lang, &when), true).await;
-                }
-                let mut rows: Vec<tg::Row> = p
-                    .option_order
-                    .iter()
-                    .enumerate()
-                    .map(|(i, o)| vec![(o.clone(), format!("{PSTL}o:{key}:{i}"))])
-                    .collect();
-                rows.push(vec![(i18n::void_label(lang).to_string(), format!("{PSTL}o:{key}:d"))]);
-                rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_SETTLE.to_string())]);
-                rows
+                let Some((Ok(chat_id), Ok(old_msg))) =
+                    key.split_once(':').map(|(c, m)| (c.parse::<i64>(), m.parse::<i64>()))
+                else {
+                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
+                };
+                (chat_id, old_msg, p.get_text(), p.get_buttons())
             };
-            let _ = tg::edit_with_buttons(ctx, mchat, mid, i18n::settle_pick_outcome(lang), &rows).await;
+            // Post the fresh card (network — lock released so bets aren't blocked).
+            let sent = match tg::send_with_buttons(ctx, chat_id, &text, &buttons).await {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("repost card failed (chat {chat_id}): {e:?}");
+                    return answer(ctx, cb, i18n::predict_post_failed(lang), true).await;
+                }
+            };
+            let new_msg = sent.message_id;
+            // Move the live entry to the new key — `remove` then re-insert grabs any
+            // bet placed in the gap (the live Prediction, not a stale snapshot).
+            {
+                let mut g = predictions.lock().await;
+                let Some(mut p) = g.remove(key) else {
+                    // Settled/voided in the gap — drop the just-posted orphan.
+                    let _ = tg::delete_message(ctx, chat_id, new_msg).await;
+                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
+                };
+                let old_id = p.id.clone();
+                p.rehome(chat_id, new_msg);
+                let new_key = p.id.clone();
+                if let Err(err) = db.delete_prediction(&old_id) {
+                    eprintln!("repost delete_prediction({old_id}) error: {err}");
+                }
+                if let Err(err) = db.save_prediction(&p) {
+                    eprintln!("repost save_prediction error: {err}");
+                }
+                g.insert(new_key, p);
+            }
+            // Remove the stale original card (best-effort; deletion also unpins it).
+            let _ = tg::delete_message(ctx, chat_id, old_msg).await;
+            if is_group_chat(chat_id) {
+                let _ = tg::pin_message(ctx, chat_id, new_msg).await;
+            }
+            // Refresh the settle list in place so its row callbacks carry the new msg id.
+            answer(ctx, cb, i18n::card_reposted(lang), false).await?;
+            let preds = predict::host_open_predictions(ctx, cb.from.id).await;
+            if preds.is_empty() {
+                return handle_menu_home(ctx, cb).await;
+            }
+            let (body, rows) = settle_list_view(lang, &preds);
+            let _ = tg::edit_with_buttons(ctx, mchat, mid, &body, &rows).await;
+            return Ok(());
         }
         // Picked an outcome → confirm 1/2; or first confirm → confirm 2/2.
         "o" | "c" => {
