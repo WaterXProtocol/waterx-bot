@@ -48,6 +48,17 @@ pub async fn on_callback(ctx: Context, update: Update) {
     // Learn this chat so /broadcast can reach it later.
     if let Some(m) = &cb.message {
         let _ = db(&ctx).touch_chat(m.chat.get_id());
+        // `/onlyreplyhere`: ignore button presses outside the locked topic (silent
+        // ack, no edit) so the bot stays confined to its topic. This runs before the
+        // owner bypass below, so it gates **everyone including the owner** — an owner
+        // driving a button flow (`stl:`/`rst:`) from another topic gets a silent
+        // no-op. Their admin *commands* skip this (they don't call `paused_block`),
+        // and the picker those buttons live on is itself posted into the locked
+        // topic, so in practice the owner taps in-topic anyway.
+        if crate::commands::util::out_of_locked_topic(&ctx, m.chat.get_id(), m.message_thread_id) {
+            let _ = answer(&ctx, &cb, "", false).await;
+            return;
+        }
     }
     // Admin pause kill-switch: block every non-owner button press while paused.
     // Fail **closed** — if we can't read the flag, treat the bot as paused (a

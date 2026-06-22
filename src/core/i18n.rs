@@ -1288,6 +1288,51 @@ pub fn btn_invite(l: Lang) -> &'static str {
         "🔗 Convidar amigos", "🔗 दोस्तों को बुलाएं", "🔗 ادعُ أصدقاءك")
 }
 
+/// `/onlyreplyhere` confirmation: the bot is now confined to this topic.
+pub fn onlyreply_set(l: Lang) -> &'static str {
+    tr!(l;
+        "✅ Got it — I'll only reply in this topic from now on.", "✅ 好的，我之後只會在這個主題裡回覆。", "✅ 好的，我之后只会在这个话题里回复。", "✅ 了解しました。これからはこのトピックでのみ返信します。", "✅ 알겠어요. 이제부터 이 토픽에서만 답할게요.",
+        "✅ Понятно — теперь я отвечаю только в этой теме.", "✅ Compris — je ne répondrai plus que dans ce sujet.", "✅ Entendido: a partir de ahora solo responderé en este tema.", "✅ Verstanden – ich antworte ab jetzt nur in diesem Thema.", "✅ Đã hiểu — từ giờ tôi chỉ trả lời trong chủ đề này.",
+        "✅ Oke — mulai sekarang saya hanya membalas di topik ini.", "✅ Sige — mula ngayon sa topic na ito na lang ako sasagot.", "✅ รับทราบ — ต่อจากนี้ฉันจะตอบเฉพาะในหัวข้อนี้เท่านั้น", "✅ Begrepen — ik antwoord voortaan alleen in dit onderwerp.", "✅ Anlaşıldı — bundan sonra yalnızca bu konuda yanıt vereceğim.",
+        "✅ Entendi — a partir de agora só responderei neste tópico.", "✅ ठीक है — अब से मैं केवल इसी टॉपिक में जवाब दूंगा।", "✅ تمام — من الآن سأرد في هذا الموضوع فقط.")
+}
+
+/// `/replyanywhere` confirmation: the topic lock is cleared.
+pub fn onlyreply_cleared(l: Lang) -> &'static str {
+    tr!(l;
+        "✅ Done — I'll reply in any topic again.", "✅ 完成，我又可以在任何主題裡回覆了。", "✅ 完成，我又可以在任何话题里回复了。", "✅ 完了。またどのトピックでも返信します。", "✅ 완료. 이제 어떤 토픽에서도 다시 답할게요.",
+        "✅ Готово — я снова отвечаю в любой теме.", "✅ C'est fait — je réponds de nouveau dans tous les sujets.", "✅ Listo: volveré a responder en cualquier tema.", "✅ Erledigt – ich antworte wieder in jedem Thema.", "✅ Xong — tôi sẽ trả lời trong mọi chủ đề trở lại.",
+        "✅ Selesai — saya akan membalas di topik mana pun lagi.", "✅ Tapos na — sasagot na ulit ako sa kahit anong topic.", "✅ เรียบร้อย — ฉันจะตอบในทุกหัวข้ออีกครั้ง", "✅ Klaar — ik antwoord weer in elk onderwerp.", "✅ Tamam — yine her konuda yanıt vereceğim.",
+        "✅ Pronto — voltarei a responder em qualquer tópico.", "✅ हो गया — अब मैं फिर से किसी भी टॉपिक में जवाब दूंगा।", "✅ تم — سأرد في أي موضوع مرة أخرى.")
+}
+
+/// `/onlyreplyhere` used outside a forum topic — there's nothing to lock to.
+pub fn onlyreply_need_topic(l: Lang) -> &'static str {
+    tr!(l;
+        "Use this inside a topic, so I know where to stay.", "請在某個主題裡使用這個指令，我才知道要待在哪裡。", "请在某个话题里使用这个指令，我才知道要待在哪里。", "どのトピックに留まればいいか分かるよう、トピック内でこのコマンドを使ってください。", "어느 토픽에 머무를지 알 수 있도록 토픽 안에서 이 명령을 사용해 주세요.",
+        "Используйте это внутри темы, чтобы я знал, где оставаться.", "Utilisez ceci dans un sujet, pour que je sache où rester.", "Usa esto dentro de un tema para que sepa dónde quedarme.", "Verwende das innerhalb eines Themas, damit ich weiß, wo ich bleiben soll.", "Hãy dùng lệnh này trong một chủ đề để tôi biết nên ở đâu.",
+        "Gunakan ini di dalam sebuah topik, supaya saya tahu harus tinggal di mana.", "Gamitin ito sa loob ng isang topic para malaman ko kung saan ako mananatili.", "ใช้คำสั่งนี้ภายในหัวข้อ เพื่อให้ฉันรู้ว่าควรอยู่ที่ไหน", "Gebruik dit binnen een onderwerp, zodat ik weet waar ik moet blijven.", "Bunu bir konunun içinde kullan ki nerede kalacağımı bileyim.",
+        "Use isto dentro de um tópico, para eu saber onde ficar.", "इसे किसी टॉपिक के अंदर इस्तेमाल करें, ताकि मुझे पता चले कि कहाँ रहना है।", "استخدم هذا داخل موضوع حتى أعرف أين أبقى.")
+}
+
+/// A non-admin tried to change the topic lock.
+pub fn onlyreply_admin_only(l: Lang) -> &'static str {
+    tr!(l;
+        "Only group admins can change this.", "只有群組管理員可以更改這個設定。", "只有群组管理员可以更改这个设置。", "この設定を変更できるのはグループ管理者だけです。", "이 설정은 그룹 관리자만 바꿀 수 있어요.",
+        "Это могут менять только администраторы группы.", "Seuls les admins du groupe peuvent changer ceci.", "Solo los administradores del grupo pueden cambiar esto.", "Nur Gruppen-Admins können das ändern.", "Chỉ quản trị viên nhóm mới có thể thay đổi điều này.",
+        "Hanya admin grup yang bisa mengubah ini.", "Mga admin lang ng grupo ang puwedeng magbago nito.", "เฉพาะแอดมินกลุ่มเท่านั้นที่เปลี่ยนได้", "Alleen groepsbeheerders kunnen dit wijzigen.", "Bunu yalnızca grup yöneticileri değiştirebilir.",
+        "Apenas administradores do grupo podem alterar isto.", "इसे केवल ग्रुप एडमिन बदल सकते हैं।", "يمكن لمشرفي المجموعة فقط تغيير هذا.")
+}
+
+/// `/onlyreplyhere`/`/replyanywhere` used outside a group.
+pub fn onlyreply_group_only(l: Lang) -> &'static str {
+    tr!(l;
+        "This only works inside a group.", "這個指令只能在群組裡使用。", "这个指令只能在群组里使用。", "これはグループ内でのみ使えます。", "이건 그룹 안에서만 작동해요.",
+        "Это работает только в группе.", "Ceci ne fonctionne que dans un groupe.", "Esto solo funciona dentro de un grupo.", "Das funktioniert nur in einer Gruppe.", "Lệnh này chỉ hoạt động trong nhóm.",
+        "Ini hanya berfungsi di dalam grup.", "Gumagana lang ito sa loob ng grupo.", "ใช้ได้เฉพาะภายในกลุ่มเท่านั้น", "Dit werkt alleen binnen een groep.", "Bu yalnızca bir grup içinde çalışır.",
+        "Isto só funciona dentro de um grupo.", "यह केवल ग्रुप के अंदर काम करता है।", "هذا يعمل داخل المجموعة فقط.")
+}
+
 /// Forward-safe deep-link button on the home page (URL button → survives
 /// forwarding; a recipient who taps it joins via the sharer's referral link).
 pub fn btn_join(l: Lang) -> &'static str {

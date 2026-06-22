@@ -67,6 +67,43 @@ impl Database {
         Ok(v.filter(|id| *id > 0))
     }
 
+    /// Lock the bot to a single forum **topic** in `chat_id` (`/onlyreplyhere`):
+    /// store the topic's `message_thread_id`. Creates the chat row if new.
+    /// Outside this topic the bot ignores commands/buttons and stays silent.
+    pub fn set_reply_thread(&self, chat_id: i64, thread: i64) -> SqlResult<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO chats (chat, seen_at, reply_thread) VALUES (?1, ?2, ?3)
+             ON CONFLICT(chat) DO UPDATE SET reply_thread = excluded.reply_thread",
+            params![chat_id, current_unix_time(), thread],
+        )?;
+        Ok(())
+    }
+
+    /// Clear any topic lock on `chat_id` (`/replyanywhere`) — the bot replies in
+    /// any topic again. No-op if the chat was never locked.
+    pub fn clear_reply_thread(&self, chat_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE chats SET reply_thread = 0 WHERE chat = ?1",
+            params![chat_id],
+        )?;
+        Ok(())
+    }
+
+    /// The forum topic `chat_id` is locked to, if any (`None` = reply anywhere).
+    pub fn reply_thread(&self, chat_id: i64) -> SqlResult<Option<i64>> {
+        let conn = self.conn.lock();
+        let v: Option<i64> = conn
+            .query_row(
+                "SELECT reply_thread FROM chats WHERE chat = ?1",
+                params![chat_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(v.filter(|t| *t > 0))
+    }
+
     /// Every chat id the bot has seen — private DMs and groups alike.
     pub fn all_chat_ids(&self) -> SqlResult<Vec<i64>> {
         let conn = self.conn.lock();

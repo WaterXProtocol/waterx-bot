@@ -129,10 +129,11 @@ impl Database {
         // private DMs (positive ids) and groups/channels (negative ids).
         conn.execute(
             "CREATE TABLE IF NOT EXISTS chats (
-                chat     INTEGER NOT NULL PRIMARY KEY,
-                seen_at  INTEGER NOT NULL DEFAULT 0,
-                added_by INTEGER NOT NULL DEFAULT 0,
-                owner    INTEGER NOT NULL DEFAULT 0
+                chat         INTEGER NOT NULL PRIMARY KEY,
+                seen_at      INTEGER NOT NULL DEFAULT 0,
+                added_by     INTEGER NOT NULL DEFAULT 0,
+                owner        INTEGER NOT NULL DEFAULT 0,
+                reply_thread INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
@@ -145,6 +146,12 @@ impl Database {
         // adder, for older DBs.
         let _ = conn.execute(
             "ALTER TABLE chats ADD COLUMN owner INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // `reply_thread` (the forum topic the bot is locked to via /onlyreplyhere;
+        // 0 = reply anywhere), for older DBs.
+        let _ = conn.execute(
+            "ALTER TABLE chats ADD COLUMN reply_thread INTEGER NOT NULL DEFAULT 0",
             [],
         );
         // `co_referrer` (the group owner, when distinct from the adder) — a
