@@ -46,7 +46,7 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
                 &ctx,
                 chat_id,
                 &menu::menu_text(lang, &full_name(&user)),
-                &menu::main_menu_rows(lang, available, is_group_chat(chat_id), pending),
+                &menu::main_menu_rows(lang, available, is_group_chat(chat_id), pending, mini_app_url(&ctx).as_deref()),
             )
             .await?;
         }

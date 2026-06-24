@@ -195,6 +195,24 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
 
+    // Mini App: point the chat menu button (next to the message input in every
+    // private chat) at the configured Web App URL. Default scope = all private
+    // chats. Skipped entirely when `MINI_APP_URL` is unset, so nothing changes
+    // for a bot without a mini app. Best-effort: a failure here is logged, not fatal.
+    if let Some(url) = &cfg.mini_app_url {
+        let payload = serde_json::json!({
+            "menu_button": { "type": "web_app", "text": "Open app", "web_app": { "url": url } }
+        });
+        match client.api_client.post(APIEndpoint::SetChatMenuButton, Some(payload)).await {
+            Ok(resp) => {
+                if let Err(err) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
+                    eprintln!("setChatMenuButton error (continuing): {err}");
+                }
+            }
+            Err(err) => eprintln!("setChatMenuButton http error (continuing): {err}"),
+        }
+    }
+
     eprintln!(
         "waterx-bot ready: @{bot_username} (id {bot_id}), {} mode",
         if cfg.dev { "dev" } else { "production" }

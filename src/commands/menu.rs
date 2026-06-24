@@ -154,6 +154,7 @@ pub fn main_menu_rows(
     checkin_available: bool,
     is_group: bool,
     pending_settle: usize,
+    mini_app_url: Option<&str>,
 ) -> Vec<Row> {
     // One button per row (vertical stack), check-in on top only when claimable.
     // In a **group** the menu is a single shared message, so the per-user actions
@@ -202,6 +203,15 @@ pub fn main_menu_rows(
             i18n::btn_invite(lang).to_string(),
             MENU_INVITE.to_string(),
         )]);
+        // Private-only: open the Telegram Mini App, when one is configured. Web App
+        // inline buttons only work in private chats, hence the `!is_group` arm. The
+        // `webapp:` prefix is decoded into a `web_app` button by `tg::build_keyboard`.
+        if let Some(url) = mini_app_url {
+            rows.push(vec![(
+                i18n::btn_open_app(lang).to_string(),
+                format!("webapp:{url}"),
+            )]);
+        }
     }
     rows
 }
