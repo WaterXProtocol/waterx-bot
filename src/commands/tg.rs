@@ -374,6 +374,28 @@ pub async fn unpin_message(ctx: &Context, chat_id: i64, message_id: i64) -> Resu
 /// `sendPhoto` ourselves via `reqwest` (already a dependency), which also lets us
 /// attach a proper `reply_markup` keyboard (telexide's button struct serialises
 /// `null` optional fields, which Telegram rejects — see this module's header).
+/// Render `data` into a black-on-white PNG QR code (with quiet zone) as raw
+/// bytes, sized to **at least** `size`×`size` px. Replaces the old
+/// `qrcode_generator::to_png_to_vec` — the `qrcode` crate renders to an
+/// `image::ImageBuffer`, which we then PNG-encode in memory via `write_to`.
+pub fn qr_png(data: &str, size: u32) -> anyhow::Result<Vec<u8>> {
+    use image::{ImageFormat, Luma};
+    use qrcode::{EcLevel, QrCode};
+    use std::io::Cursor;
+
+    // Medium error-correction + quiet zone matches the old `QrCodeEcc::Medium`
+    // output. `Luma<u8>` defaults to dark = black (0), light = white (255).
+    let code = QrCode::with_error_correction_level(data.as_bytes(), EcLevel::M)?;
+    let image = code
+        .render::<Luma<u8>>()
+        .min_dimensions(size, size)
+        .quiet_zone(true)
+        .build();
+    let mut buf = Cursor::new(Vec::new());
+    image.write_to(&mut buf, ImageFormat::Png)?;
+    Ok(buf.into_inner())
+}
+
 pub async fn send_photo_bytes(
     token: &str,
     chat_id: i64,
@@ -452,12 +474,7 @@ async fn send_photo_form(
 mod qr_tests {
     #[test]
     fn qr_produces_valid_png() {
-        let png = qrcode_generator::to_png_to_vec(
-            "https://t.me/foo?start=123",
-            qrcode_generator::QrCodeEcc::Medium,
-            512,
-        )
-        .expect("qr gen");
+        let png = super::qr_png("https://t.me/foo?start=123", 512).expect("qr gen");
         assert!(png.len() > 100);
         assert_eq!(&png[1..4], b"PNG");
     }

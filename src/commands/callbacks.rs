@@ -1181,7 +1181,7 @@ async fn handle_invite_qr(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
         false
     };
     if !sent {
-        match qrcode_generator::to_png_to_vec(&link, qrcode_generator::QrCodeEcc::Medium, 512) {
+        match tg::qr_png(&link, 512) {
             Ok(png) => match tg::send_photo_bytes(&token, chat_id, png, &text, rows).await {
                 Ok(Some(file_id)) => {
                     qr_cache().lock().insert(cb.from.id, file_id);
