@@ -1,6 +1,7 @@
 mod buffer;
 mod chats;
 mod dashboard;
+mod event;
 mod fruit;
 mod predictions;
 mod meta;
@@ -95,6 +96,11 @@ impl Database {
         // game_stakes (schema owned by `games.rs`). A one-time migration folds any
         // legacy JSON-blob `bet_games` rows in (and drops that table) below.
         Self::create_game_tables(&conn)?;
+        // Unified Polymarket-style market schema (events/markets/positions) — the
+        // share-trading model that supersedes both `wagers` and the game tables.
+        // Created alongside the old tables; the old ones are drained + dropped at
+        // cutover by `/migrate`. Schema owned by `event.rs`.
+        Self::create_event_tables(&conn)?;
         // Small key/value table for bot-wide flags (currently just the admin
         // `paused` kill-switch). Persisted so a pause survives restarts.
         conn.execute(
