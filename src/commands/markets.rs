@@ -159,10 +159,9 @@ pub(crate) async fn fetch_one(
 }
 
 /// Like [`fetch_one`] but keyed by the match **slug** (what a sourced event
-/// stores as its `source_ref`) — used by the sell flow (Phase 3c-2b) to re-price
-/// a held position. `pub` (not `pub(crate)`) so the checkpoint before its first
-/// caller lands is warning-free.
-pub async fn fetch_one_by_slug(
+/// stores as its `source_ref`) — used by the sell flow to re-price a held
+/// position at the current odds.
+pub(crate) async fn fetch_one_by_slug(
     lang: Lang,
     slug: &str,
 ) -> Result<Option<MarketInfo>, reqwest::Error> {

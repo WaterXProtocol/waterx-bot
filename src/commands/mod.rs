@@ -17,6 +17,7 @@ pub mod markets;
 pub mod referral;
 pub mod rule;
 pub mod sell;
+pub mod selling;
 pub mod send;
 pub mod onlyreplyhere;
 pub mod replyanywhere;

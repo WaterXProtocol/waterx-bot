@@ -1756,6 +1756,37 @@ pub fn bet_announce(l: Lang, name: &str, stake: &str, side: &str, odds: &str) ->
     .replace("{odds}", odds)
 }
 
+pub fn btn_sell(l: Lang) -> &'static str {
+    tr!(l;
+        "💸 Sell", "💸 出售", "💸 出售", "💸 売却", "💸 판매",
+        "💸 Продать", "💸 Vendre", "💸 Vender", "💸 Verkaufen", "💸 Bán",
+        "💸 Jual", "💸 Ibenta", "💸 ขาย", "💸 Verkopen", "💸 Sat",
+        "💸 Vender", "💸 बेचें", "💸 بيع")
+}
+
+pub fn sell_build(l: Lang, outcome: &str, held: &str, selling: &str, proceeds: &str) -> String {
+    tr!(l;
+        "💸 Sell {outcome}\nHeld {held} · selling {selling} → ≈ {proceeds} 🪙\nTap to add:", "💸 出售 {outcome}\n持有 {held} · 賣出 {selling} → ≈ {proceeds} 🪙\n點擊加量：", "💸 出售 {outcome}\n持有 {held} · 卖出 {selling} → ≈ {proceeds} 🪙\n点击加量：", "💸 {outcome} を売却\n保有 {held} · 売却 {selling} → ≈ {proceeds} 🪙\nタップで追加：", "💸 {outcome} 판매\n보유 {held} · 판매 {selling} → ≈ {proceeds} 🪙\n탭하여 추가:",
+        "💸 Продать {outcome}\nЕсть {held} · продаём {selling} → ≈ {proceeds} 🪙\nНажмите, чтобы добавить:", "💸 Vendre {outcome}\nDétenu {held} · vente {selling} → ≈ {proceeds} 🪙\nAppuyez pour ajouter :", "💸 Vender {outcome}\nTienes {held} · vendiendo {selling} → ≈ {proceeds} 🪙\nToca para añadir:", "💸 {outcome} verkaufen\nBestand {held} · Verkauf {selling} → ≈ {proceeds} 🪙\nZum Hinzufügen tippen:", "💸 Bán {outcome}\nĐang giữ {held} · bán {selling} → ≈ {proceeds} 🪙\nChạm để thêm:",
+        "💸 Jual {outcome}\nDimiliki {held} · menjual {selling} → ≈ {proceeds} 🪙\nKetuk untuk menambah:", "💸 Ibenta ang {outcome}\nHawak {held} · ibinebenta {selling} → ≈ {proceeds} 🪙\nI-tap para magdagdag:", "💸 ขาย {outcome}\nถือ {held} · ขาย {selling} → ≈ {proceeds} 🪙\nแตะเพื่อเพิ่ม:", "💸 {outcome} verkopen\nIn bezit {held} · verkoop {selling} → ≈ {proceeds} 🪙\nTik om toe te voegen:", "💸 {outcome} sat\nElde {held} · satılıyor {selling} → ≈ {proceeds} 🪙\nEklemek için dokun:",
+        "💸 Vender {outcome}\nEm carteira {held} · vendendo {selling} → ≈ {proceeds} 🪙\nToque para adicionar:", "💸 {outcome} बेचें\nधारित {held} · बेच रहे {selling} → ≈ {proceeds} 🪙\nजोड़ने के लिए टैप करें:", "💸 بيع {outcome}\nلديك {held} · تبيع {selling} → ≈ {proceeds} 🪙\nانقر للإضافة:")
+    .replace("{outcome}", outcome)
+    .replace("{held}", held)
+    .replace("{selling}", selling)
+    .replace("{proceeds}", proceeds)
+}
+
+pub fn sold(l: Lang, shares: &str, outcome: &str, proceeds: &str) -> String {
+    tr!(l;
+        "✅ Sold {shares} {outcome} for {proceeds} 🪙", "✅ 已賣出 {shares} {outcome}，得 {proceeds} 🪙", "✅ 已卖出 {shares} {outcome}，得 {proceeds} 🪙", "✅ {outcome} を {shares} 売却し {proceeds} 🪙 を獲得", "✅ {outcome} {shares} 판매, {proceeds} 🪙 획득",
+        "✅ Продано {shares} {outcome} за {proceeds} 🪙", "✅ Vendu {shares} {outcome} pour {proceeds} 🪙", "✅ Vendiste {shares} {outcome} por {proceeds} 🪙", "✅ {shares} {outcome} für {proceeds} 🪙 verkauft", "✅ Đã bán {shares} {outcome} được {proceeds} 🪙",
+        "✅ Terjual {shares} {outcome} seharga {proceeds} 🪙", "✅ Naibenta {shares} {outcome} sa {proceeds} 🪙", "✅ ขาย {shares} {outcome} ได้ {proceeds} 🪙", "✅ {shares} {outcome} verkocht voor {proceeds} 🪙", "✅ {shares} {outcome} {proceeds} 🪙 karşılığında satıldı",
+        "✅ Vendeu {shares} {outcome} por {proceeds} 🪙", "✅ {shares} {outcome} {proceeds} 🪙 में बेचा", "✅ تم بيع {shares} {outcome} مقابل {proceeds} 🪙")
+    .replace("{shares}", shares)
+    .replace("{outcome}", outcome)
+    .replace("{proceeds}", proceeds)
+}
+
 /// Self-host (`/predict`) DM stake builder — no odds (pari-mutuel).
 pub fn prediction_build(l: Lang, option: &str, stake: &str) -> String {
     tr!(l;

@@ -3,7 +3,7 @@ use crate::commands::util::{
     SORRY_FRUITS,
 };
 use crate::database::COIN;
-use crate::commands::{admin, assets, betting, markets, menu, predict, referral, tg};
+use crate::commands::{admin, assets, betting, markets, menu, predict, referral, selling, tg};
 use crate::commands::tg::answer;
 use crate::database::OfferOutcome;
 use crate::core::i18n::{self, Lang};
@@ -148,6 +148,12 @@ pub async fn on_callback(ctx: Context, update: Update) {
         betting::handle_size_place(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(betting::SIZE) {
         betting::handle_size(&ctx, &cb, rest).await
+    } else if data == selling::SELL_PICK {
+        selling::handle_sell_pick(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(selling::SELL_PLACE) {
+        selling::handle_sell_place(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(selling::SELL_BUILD) {
+        selling::handle_sell_build(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(admin::SETTLE_CB) {
         admin::handle_settle_cb(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(admin::RESET_CB) {
@@ -1219,7 +1225,12 @@ async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     answer(ctx, cb, "", false).await?;
     let show_balance = !is_group_chat(message.chat.get_id());
     let text = assets::assets_text(ctx, lang, &cb.from, show_balance).await;
-    let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
+    let mut rows = Vec::new();
+    // Offer [💸 Sell] when the caller holds open positions (this view is private).
+    if db(ctx).user_positions(cb.from.id).map(|v| !v.is_empty()).unwrap_or(false) {
+        rows.push(vec![(i18n::btn_sell(lang).to_string(), selling::SELL_PICK.to_string())]);
+    }
+    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
     let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
     Ok(())
 }
