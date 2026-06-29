@@ -16,6 +16,23 @@ pub const B_MEDIUM: i64 = 50;
 pub const FEE_BPS_DEFAULT: i64 = 200;
 pub const FEE_BPS_MAX: i64 = 1_000;
 
+/// Minimum pooled seed (whole coins) for a funding stage to open into trading.
+/// Below this the event **voids** and refunds every LP — it keeps `b ≥ 1` and the
+/// LMSR solvent even for a fully one-sided opening (worst-case subsidy
+/// `b·ln(1/PRICE_FLOOR)`).
+pub const MIN_SEED: i64 = 10;
+
+/// Result of an `add_liquidity` attempt against a funding-stage event.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FundOutcome {
+    /// Contributed `total` micro-coins to the pool.
+    Funded { total: i64 },
+    /// Not enough balance, or a zero / malformed allocation. Nothing written.
+    Rejected,
+    /// Event missing, not an AMM event, or its funding window is closed.
+    Unavailable,
+}
+
 /// Result of an AMM buy/sell attempt against the ledger.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TradeOutcome {
@@ -165,6 +182,126 @@ fn add_position(
     Ok(())
 }
 
+/// Credit `amount` micro-coins to `user`, creating the balance row if absent.
+fn credit(tx: &Transaction, user: i64, amount: i64) -> SqlResult<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
+        params![user],
+    )?;
+    tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, user])?;
+    Ok(())
+}
+
+/// The event's per-outcome funding-stage allocation (micro-coins), ordered by `idx`.
+fn load_funded(tx: &Transaction, event_id: i64) -> SqlResult<Vec<i64>> {
+    let mut stmt = tx.prepare("SELECT funded FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+    let v = stmt.query_map(params![event_id], |r| r.get(0))?.collect::<SqlResult<Vec<i64>>>()?;
+    Ok(v)
+}
+
+/// Refund each LP their full contribution and delete the `liquidity` rows — the
+/// path for an under-seeded / never-traded funding stage. Returns coins refunded.
+fn refund_liquidity(tx: &Transaction, event_id: i64) -> SqlResult<i64> {
+    let lps: Vec<(i64, i64)> = {
+        let mut stmt = tx.prepare("SELECT user, contributed FROM liquidity WHERE event_id = ?1")?;
+        let v = stmt
+            .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        v
+    };
+    let mut total = 0i64;
+    for (user, amount) in &lps {
+        if *amount > 0 {
+            credit(tx, *user, *amount)?;
+            total += amount;
+        }
+    }
+    tx.execute("DELETE FROM liquidity WHERE event_id = ?1", params![event_id])?;
+    Ok(total)
+}
+
+/// Split `residual` micro-coins among the event's LPs pro-rata by contribution
+/// (largest-remainder, exact) and delete the `liquidity` rows. Falls back to the
+/// `creator` when there are no LP rows (defensive — every real AMM event seeds at
+/// least the host's row).
+fn distribute_residual(
+    tx: &Transaction,
+    event_id: i64,
+    creator: i64,
+    residual: i64,
+) -> SqlResult<()> {
+    let lps: Vec<(i64, i64)> = {
+        let mut stmt = tx.prepare("SELECT user, contributed FROM liquidity WHERE event_id = ?1")?;
+        let v = stmt
+            .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        v
+    };
+    if residual > 0 {
+        if lps.is_empty() {
+            credit(tx, creator, residual)?;
+        } else {
+            let contributions: Vec<i64> = lps.iter().map(|(_, c)| *c).collect();
+            let split = crate::core::lmsr_fund::pro_rata(&contributions, residual);
+            for ((user, _), amount) in lps.iter().zip(split.iter()) {
+                if *amount > 0 {
+                    credit(tx, *user, *amount)?;
+                }
+            }
+        }
+    }
+    tx.execute("DELETE FROM liquidity WHERE event_id = ?1", params![event_id])?;
+    Ok(())
+}
+
+/// Lazily finalize a funding-stage event whose window has closed (`now ≥ open_at`):
+/// if the pooled seed clears [`MIN_SEED`], compute the opening `b`/`q⁰` from the
+/// per-outcome funding tally and flip `funding → open`; otherwise **void** it and
+/// refund every LP. No-op if the event isn't a funding-stage AMM event, or the
+/// window is still open. Runs inside the caller's transaction.
+fn maybe_open_funding(tx: &Transaction, event_id: i64, now: i64) -> SqlResult<()> {
+    let Some((state, pool, open_at)) = tx
+        .query_row(
+            "SELECT state, pool, open_at FROM events WHERE id = ?1 AND kind = 'amm'",
+            params![event_id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+        )
+        .optional()?
+    else {
+        return Ok(());
+    };
+    if state != "funding" || now < open_at {
+        return Ok(());
+    }
+    // Under-seeded → void + refund LPs (no trading happened, so no positions).
+    if pool < MIN_SEED.saturating_mul(COIN) {
+        refund_liquidity(tx, event_id)?;
+        tx.execute(
+            "UPDATE events SET state = 'void', pool = 0, resolved_at = ?1 WHERE id = ?2",
+            params![now, event_id],
+        )?;
+        return Ok(());
+    }
+    // Discover the opening: prices from the funding tally, b from the pooled seed.
+    let funded = load_funded(tx, event_id)?;
+    let prices = crate::core::lmsr_fund::opening_prices(&funded);
+    let seed_whole = pool as f64 / COIN as f64;
+    let b = (crate::core::lmsr_fund::seed_to_b(seed_whole, &prices).floor() as i64).max(1);
+    let q0 = crate::core::lmsr_fund::opening_q(&prices, b as f64);
+    for (idx, qi) in q0.iter().enumerate() {
+        let q_shares = (qi * SHARE as f64).round() as i64;
+        tx.execute(
+            "UPDATE markets SET q_shares = ?1 WHERE event_id = ?2 AND idx = ?3",
+            params![q_shares, event_id, idx as i64],
+        )?;
+    }
+    tx.execute(
+        "UPDATE events SET state = 'open', b_param = ?1 WHERE id = ?2",
+        params![b, event_id],
+    )?;
+    Ok(())
+}
+
 impl Database {
     /// Create the unified Polymarket-style market schema, shared by both betting
     /// surfaces (it supersedes the old `wagers` table *and* the
@@ -293,8 +430,122 @@ impl Database {
                 params![event_id, idx as i64, name],
             )?;
         }
+        // The host is the sole LP (their seed == the pool), so resolution / void /
+        // reset distribute the residual back to them through the same `liquidity`
+        // path multi-LP funding uses.
+        tx.execute(
+            "INSERT INTO liquidity (event_id, user, contributed) VALUES (?1, ?2, ?3)",
+            params![event_id, host, escrow],
+        )?;
         tx.commit()?;
         Ok(Some(event_id))
+    }
+
+    /// Open a host AMM event in the **funding stage**: insert the event
+    /// (`state='funding'`, `pool=0`, `b_param=0`) + its markets (`funded=0`) and set
+    /// `open_at` (when the funding window closes → trading opens, lazily). Charges
+    /// nothing — liquidity arrives via [`add_liquidity`]; the opening prices + `b`
+    /// are discovered from the pooled allocation when funding closes
+    /// ([`maybe_open_funding`]). Returns the new event id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_funding_event(
+        &self,
+        host: i64,
+        title: &str,
+        lang: &str,
+        odds_fmt: &str,
+        tz_offset: Option<i64>,
+        ends_at: i64,
+        options: &[String],
+        fee_bps: i64,
+        open_at: i64,
+        now: i64,
+    ) -> SqlResult<i64> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO events
+                (kind, title, creator, lang, odds_fmt, tz_offset, ends_at, state,
+                 b_param, fee_bps, pool, open_at, created_at)
+             VALUES ('amm', ?1, ?2, ?3, ?4, ?5, ?6, 'funding', 0, ?7, 0, ?8, ?9)",
+            params![title, host, lang, odds_fmt, tz_offset, ends_at, fee_bps, open_at, now],
+        )?;
+        let event_id = tx.last_insert_rowid();
+        for (idx, name) in options.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO markets (event_id, idx, name, q_shares, funded) VALUES (?1, ?2, ?3, 0, 0)",
+                params![event_id, idx as i64, name],
+            )?;
+        }
+        tx.commit()?;
+        Ok(event_id)
+    }
+
+    /// Provide liquidity to a funding-stage event: `alloc[idx]` micro-coins toward
+    /// each outcome (uneven is the point — the allocation sets the opening price).
+    /// Atomically debits the LP `Σ alloc`, tallies it into `markets.funded` (price
+    /// discovery), their `liquidity` row (pool share), and `events.pool` (seed).
+    /// Rejected if the window has closed, the alloc is empty/malformed, or the LP
+    /// can't afford it. One transaction.
+    pub fn add_liquidity(&self, event_id: i64, user: i64, alloc: &[i64], now: i64) -> SqlResult<FundOutcome> {
+        let total: i64 = alloc.iter().map(|&a| a.max(0)).sum();
+        if total <= 0 || alloc.iter().any(|&a| a < 0) {
+            return Ok(FundOutcome::Rejected);
+        }
+        self.ensure_row(user)?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        // Window must still be open: a funding event, not yet past open_at.
+        let Some((state, open_at, k)) = tx
+            .query_row(
+                "SELECT state, open_at, (SELECT COUNT(*) FROM markets WHERE event_id = e.id)
+                 FROM events e WHERE id = ?1 AND kind = 'amm'",
+                params![event_id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+            )
+            .optional()?
+        else {
+            return Ok(FundOutcome::Unavailable);
+        };
+        if state != "funding" || now >= open_at || alloc.len() as i64 != k {
+            return Ok(FundOutcome::Unavailable);
+        }
+        let debited = tx.execute(
+            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
+            params![total, user],
+        )?;
+        if debited != 1 {
+            return Ok(FundOutcome::Rejected); // insufficient funds → rollback
+        }
+        for (idx, &a) in alloc.iter().enumerate() {
+            if a > 0 {
+                tx.execute(
+                    "UPDATE markets SET funded = funded + ?1 WHERE event_id = ?2 AND idx = ?3",
+                    params![a, event_id, idx as i64],
+                )?;
+            }
+        }
+        tx.execute(
+            "INSERT INTO liquidity (event_id, user, contributed) VALUES (?1, ?2, ?3)
+             ON CONFLICT(event_id, user) DO UPDATE SET contributed = contributed + excluded.contributed",
+            params![event_id, user, total],
+        )?;
+        tx.execute("UPDATE events SET pool = pool + ?1 WHERE id = ?2", params![total, event_id])?;
+        tx.commit()?;
+        Ok(FundOutcome::Funded { total })
+    }
+
+    /// Lazily finalize a funding stage whose window has closed, in its **own
+    /// committed transaction**, so a following trade (or anything) sees the
+    /// opened-or-voided state. Kept separate from the trade tx because a trade that
+    /// then finds the event voided early-returns and would otherwise roll the
+    /// finalize back. No-op unless the event is a funding-stage AMM past `open_at`.
+    fn finalize_funding_if_due(&self, event_id: i64) -> SqlResult<()> {
+        let now = super::current_unix_time();
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        maybe_open_funding(&tx, event_id, now)?;
+        tx.commit()
     }
 
     /// Buy YES shares of outcome `idx` in an AMM event by spending `spend`
@@ -305,6 +556,7 @@ impl Database {
         if spend <= 0 {
             return Ok(TradeOutcome::Rejected);
         }
+        self.finalize_funding_if_due(event_id)?;
         self.ensure_row(user)?;
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
@@ -350,6 +602,7 @@ impl Database {
         if shares <= 0 {
             return Ok(TradeOutcome::Rejected);
         }
+        self.finalize_funding_if_due(event_id)?;
         self.ensure_row(user)?;
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
@@ -581,24 +834,55 @@ impl Database {
     /// event to `resolved`. Payouts happen later via [`Database::claim`] /
     /// [`Database::settle_all_sourced`].
     pub fn resolve_event(&self, event_id: i64, winning_idx: i64, now: i64) -> SqlResult<bool> {
-        let conn = self.conn.lock();
-        let n = conn.execute(
-            "UPDATE events SET state = 'resolved', winning_market = ?1, resolved_at = ?2
-             WHERE id = ?3 AND state = 'open'",
-            params![winning_idx, now, event_id],
-        )?;
-        Ok(n == 1)
+        let flipped = {
+            let conn = self.conn.lock();
+            conn.execute(
+                "UPDATE events SET state = 'resolved', winning_market = ?1, resolved_at = ?2
+                 WHERE id = ?3 AND state = 'open'",
+                params![winning_idx, now, event_id],
+            )? == 1
+        };
+        if flipped {
+            self.settle_if_no_positions(event_id)?;
+        }
+        Ok(flipped)
     }
 
-    /// Void an open event (no clear winner / 50-50). Settlement then refunds every
-    /// holder's cost basis. Returns `true` if it flipped an open event to `void`.
+    /// Void an open **or funding-stage** event (no clear winner, or funding that
+    /// won't open). Settlement refunds every trader's cost basis and every LP's
+    /// pooled liquidity. Returns `true` if it flipped the event to `void`.
     pub fn void_event(&self, event_id: i64, now: i64) -> SqlResult<bool> {
-        let conn = self.conn.lock();
-        let n = conn.execute(
-            "UPDATE events SET state = 'void', resolved_at = ?1 WHERE id = ?2 AND state = 'open'",
-            params![now, event_id],
-        )?;
-        Ok(n == 1)
+        let flipped = {
+            let conn = self.conn.lock();
+            conn.execute(
+                "UPDATE events SET state = 'void', resolved_at = ?1
+                 WHERE id = ?2 AND state IN ('open', 'funding')",
+                params![now, event_id],
+            )? == 1
+        };
+        if flipped {
+            self.settle_if_no_positions(event_id)?;
+        }
+        Ok(flipped)
+    }
+
+    /// After a resolve/void, eagerly settle **iff the event has no positions** — so
+    /// an AMM event that never traded (a funding-stage void, or an opened market
+    /// nobody touched) still returns its pooled liquidity to the LPs without waiting
+    /// for a `/claim` that will never come. Events with positions stay lazy.
+    fn settle_if_no_positions(&self, event_id: i64) -> SqlResult<()> {
+        let has_positions = {
+            let conn = self.conn.lock();
+            conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM positions WHERE event_id = ?1)",
+                params![event_id],
+                |r| r.get::<_, i64>(0),
+            )? == 1
+        };
+        if !has_positions {
+            self.settle_event(event_id, None)?;
+        }
+        Ok(())
     }
 
     /// Settle the positions of one resolved/void event — for one user
@@ -688,23 +972,16 @@ impl Database {
         if amm {
             tx.execute("UPDATE events SET pool = ?1 WHERE id = ?2", params![pool, event_id])?;
         }
-        // When the last position is gone, finalise: AMM residual (seed + fees −
-        // payouts) returns to the host, and the event closes.
+        // When the last position is gone, finalise: the AMM residual (seed + fees −
+        // payouts) returns to the LPs pro-rata by contribution, and the event closes.
         let remaining: i64 = tx.query_row(
             "SELECT COUNT(*) FROM positions WHERE event_id = ?1",
             params![event_id],
             |r| r.get(0),
         )?;
         if remaining == 0 {
-            if amm && pool > 0 {
-                tx.execute(
-                    "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
-                    params![creator],
-                )?;
-                tx.execute(
-                    "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-                    params![pool, creator],
-                )?;
+            if amm {
+                distribute_residual(&tx, event_id, creator, pool)?;
                 tx.execute("UPDATE events SET pool = 0 WHERE id = ?1", params![event_id])?;
             }
             tx.execute("UPDATE events SET state = 'closed' WHERE id = ?1", params![event_id])?;
@@ -758,29 +1035,19 @@ impl Database {
     }
 
     /// Dev `/reset` (Markets) — refund every committed coin and wipe the whole
-    /// trading engine (`events`/`markets`/`positions`) in one transaction. Each
-    /// position holder gets their `cost` basis back; each AMM host gets the escrow
-    /// still sitting in the `pool` (`pool − Σ that event's position costs`, which is
-    /// exactly the seed they funded). **Conserves supply** — every coin committed
-    /// to the engine returns to a balance, nothing is stranded or minted. Returns
+    /// trading engine (`events`/`markets`/`positions`/`liquidity`) in one
+    /// transaction. Each trader gets their position `cost` basis back; each LP gets
+    /// their `liquidity.contributed` back (this covers both multi-LP funding pools
+    /// and the single-host seed, which is itself a `liquidity` row). Together those
+    /// equal the whole `pool`, so it **conserves supply** — every committed coin
+    /// returns to a balance, nothing stranded or minted. Returns
     /// `(events_cleared, micro_coins_refunded)`.
     pub fn reset_events(&self) -> SqlResult<(i64, i64)> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         let events_cleared: i64 = tx.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))?;
         let mut refunded = 0i64;
-        let credit = |tx: &rusqlite::Transaction, user: i64, amount: i64| -> SqlResult<()> {
-            tx.execute(
-                "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
-                params![user],
-            )?;
-            tx.execute(
-                "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-                params![amount, user],
-            )?;
-            Ok(())
-        };
-        // (1) Every holder's cost basis back to their balance.
+        // (1) Every trader's position cost basis back to their balance.
         let holders: Vec<(i64, i64)> = {
             let mut stmt =
                 tx.prepare("SELECT user, COALESCE(SUM(cost), 0) FROM positions GROUP BY user")?;
@@ -789,32 +1056,24 @@ impl Database {
                 .collect::<SqlResult<Vec<_>>>()?;
             v
         };
-        for (user, cost) in &holders {
-            if *cost > 0 {
-                credit(&tx, *user, *cost)?;
-                refunded += cost;
-            }
-        }
-        // (2) Each AMM host's remaining escrow (pool minus its traders' costs).
-        let hosts: Vec<(i64, i64)> = {
-            let mut stmt = tx.prepare(
-                "SELECT e.creator,
-                        e.pool - COALESCE((SELECT SUM(p.cost) FROM positions p WHERE p.event_id = e.id), 0)
-                 FROM events e WHERE e.kind = 'amm'",
-            )?;
+        // (2) Every LP's pooled contribution back to their balance.
+        let lps: Vec<(i64, i64)> = {
+            let mut stmt = tx
+                .prepare("SELECT user, COALESCE(SUM(contributed), 0) FROM liquidity GROUP BY user")?;
             let v = stmt
                 .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .collect::<SqlResult<Vec<_>>>()?;
             v
         };
-        for (host, residual) in &hosts {
-            if *residual > 0 {
-                credit(&tx, *host, *residual)?;
-                refunded += residual;
+        for (user, amount) in holders.iter().chain(lps.iter()) {
+            if *amount > 0 {
+                credit(&tx, *user, *amount)?;
+                refunded += amount;
             }
         }
         tx.execute("DELETE FROM positions", [])?;
         tx.execute("DELETE FROM markets", [])?;
+        tx.execute("DELETE FROM liquidity", [])?;
         tx.execute("DELETE FROM events", [])?;
         tx.commit()?;
         Ok((events_cleared, refunded))
@@ -1543,6 +1802,12 @@ mod tests {
                 [30 * COIN],
             )
             .unwrap();
+            // The host is the AMM event's LP — their 70-coin seed sits in `liquidity`.
+            conn.execute(
+                "INSERT INTO liquidity (event_id, user, contributed) VALUES (1, 99, ?1)",
+                [70 * COIN],
+            )
+            .unwrap();
             conn.execute(
                 "INSERT INTO events (id, kind, state, pool) VALUES (2, 'sourced', 'open', 0)",
                 [],
@@ -1557,7 +1822,7 @@ mod tests {
 
         let (cleared, refunded) = db.reset_events().unwrap();
         assert_eq!(cleared, 2, "both events counted");
-        // trader10 cost 30 + host99 escrow 70 (pool−30) + trader11 cost 20 = 120.
+        // trader10 cost 30 + host99 LP contribution 70 + trader11 cost 20 = 120.
         assert_eq!(refunded, 120 * COIN, "every committed coin returned (conserved)");
         assert_eq!(db.get_user_info(10).unwrap().balance, 30 * COIN);
         assert_eq!(db.get_user_info(99).unwrap().balance, 70 * COIN);
@@ -1569,5 +1834,97 @@ mod tests {
         let p: i64 =
             db.conn.lock().query_row("SELECT COUNT(*) FROM positions", [], |r| r.get(0)).unwrap();
         assert_eq!(p, 0);
+    }
+
+    fn bal_sum(db: &Database) -> i64 {
+        db.conn
+            .lock()
+            .query_row("SELECT COALESCE(SUM(balance), 0) FROM balance", [], |r| r.get(0))
+            .unwrap()
+    }
+    fn pool_sum(db: &Database) -> i64 {
+        db.conn.lock().query_row("SELECT COALESCE(SUM(pool), 0) FROM events", [], |r| r.get(0)).unwrap()
+    }
+
+    // `open_at = 1000` is far below the real wall clock, so the first trade's
+    // `current_unix_time()` finalizes the funding stage; `add_liquidity` is called
+    // with an explicit `now` < 1000 so its own window check still sees it open.
+    const PAST_OPEN_AT: i64 = 1000;
+
+    #[test]
+    fn funding_lifecycle_conserves_balance_plus_pool() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 100 * COIN).unwrap(); // LP A (host)
+        db.force_change(2, 100 * COIN).unwrap(); // LP B
+        db.force_change(3, 100 * COIN).unwrap(); // trader
+        let supply = bal_sum(&db);
+        let opts = vec!["A".to_string(), "B".to_string()];
+        let ev = db
+            .create_funding_event(1, "Q?", "en", "", None, 0, &opts, 200, PAST_OPEN_AT, 0)
+            .unwrap();
+
+        // LP A funds 80/20, LP B funds 0/50 → opening tally A:80 B:70.
+        assert_eq!(
+            db.add_liquidity(ev, 1, &[80 * COIN, 20 * COIN], 0).unwrap(),
+            FundOutcome::Funded { total: 100 * COIN }
+        );
+        assert_eq!(
+            db.add_liquidity(ev, 2, &[0, 50 * COIN], 0).unwrap(),
+            FundOutcome::Funded { total: 50 * COIN }
+        );
+        // Past the window → further funding rejected.
+        assert_eq!(db.add_liquidity(ev, 2, &[5 * COIN, 0], 2000).unwrap(), FundOutcome::Unavailable);
+        // Coins moved into the pool; balance + pool is conserved.
+        assert_eq!(pool_sum(&db), 150 * COIN);
+        assert_eq!(bal_sum(&db) + pool_sum(&db), supply);
+
+        // First trade lazily finalizes the funding stage into trading.
+        assert!(matches!(db.amm_buy(ev, 0, 3, 10 * COIN).unwrap(), TradeOutcome::Filled { .. }));
+        assert_eq!(state_of(&db, ev), "open", "funding finalized into trading");
+        assert_eq!(bal_sum(&db) + pool_sum(&db), supply, "the trade conserves balance + pool");
+
+        // Host resolves A; trader claims → pool fully distributed, supply restored.
+        assert!(db.resolve_event(ev, 0, 2_000_000_000).unwrap());
+        let _ = db.claim(3).unwrap();
+        assert_eq!(pool_sum(&db), 0, "residual fully distributed to LPs");
+        assert_eq!(bal_sum(&db), supply, "AMM minted / burned nothing end to end");
+    }
+
+    #[test]
+    fn underseeded_funding_voids_and_refunds_lps() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 100 * COIN).unwrap();
+        db.force_change(3, 100 * COIN).unwrap();
+        let supply = bal_sum(&db);
+        let opts = vec!["A".to_string(), "B".to_string()];
+        let ev = db
+            .create_funding_event(1, "Q?", "en", "", None, 0, &opts, 200, PAST_OPEN_AT, 0)
+            .unwrap();
+        // Only 4 coins funded (< MIN_SEED = 10) → must void + refund on finalize.
+        db.add_liquidity(ev, 1, &[3 * COIN, COIN], 0).unwrap();
+        assert_eq!(db.amm_buy(ev, 0, 3, 10 * COIN).unwrap(), TradeOutcome::Unavailable);
+        assert_eq!(state_of(&db, ev), "void");
+        assert_eq!(db.get_user_info(1).unwrap().balance, 100 * COIN, "LP fully refunded");
+        assert_eq!(db.get_user_info(3).unwrap().balance, 100 * COIN, "trader untouched");
+        assert_eq!(bal_sum(&db), supply, "no coins lost");
+    }
+
+    #[test]
+    fn voiding_funding_event_refunds_lps_pro_rata() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 100 * COIN).unwrap();
+        db.force_change(2, 100 * COIN).unwrap();
+        let supply = bal_sum(&db);
+        let opts = vec!["A".to_string(), "B".to_string()];
+        // Window far in the future — the event is voided before it ever opens.
+        let ev = db
+            .create_funding_event(1, "Q?", "en", "", None, 0, &opts, 200, 9_999_999_999, 0)
+            .unwrap();
+        db.add_liquidity(ev, 1, &[30 * COIN, 10 * COIN], 0).unwrap();
+        db.add_liquidity(ev, 2, &[0, 20 * COIN], 0).unwrap();
+        assert!(db.void_event(ev, 1).unwrap());
+        assert_eq!(db.get_user_info(1).unwrap().balance, 100 * COIN);
+        assert_eq!(db.get_user_info(2).unwrap().balance, 100 * COIN);
+        assert_eq!(bal_sum(&db), supply, "every LP refunded, conserved");
     }
 }
