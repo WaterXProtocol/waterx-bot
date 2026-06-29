@@ -555,4 +555,12 @@ mod reset_tests {
         db.force_change(1, 0).unwrap();
         assert!(db.set_referrer_if_new(2, 1).unwrap());
     }
+
+    #[test]
+    fn schema_version_defaults_zero_and_persists() {
+        let db = Database::new(":memory:", 1).unwrap();
+        assert_eq!(db.schema_version().unwrap(), 0, "never migrated");
+        db.set_schema_version(1).unwrap();
+        assert_eq!(db.schema_version().unwrap(), 1, "stamped → /migrate re-run no-ops");
+    }
 }

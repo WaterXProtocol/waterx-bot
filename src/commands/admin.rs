@@ -803,6 +803,59 @@ pub async fn handle_reset_cb(
     answer(ctx, cb, "", false).await
 }
 
+/// Target schema version stamped by `/migrate`.
+const MIGRATE_VERSION: i64 = 1;
+
+/// `/migrate` (owner) — one-time cutover wash to the Polymarket share-trading
+/// schema. **Version-guarded** (idempotent): a re-run after a successful
+/// migration is a no-op. It refunds every unsettled *legacy* bet (open match
+/// wagers + self-host prediction stakes) back to balances, snapshots balances to
+/// a rollback file (aborting if it can't be written — never proceed without a
+/// backup), then stamps the schema version. The `balance` table (lang / timezone
+/// / referrals / check-in) **and** the new events/markets/positions tables are
+/// left untouched — only the legacy bet data is drained. Prod-capable (unlike the
+/// dev-only `/reset`).
+#[command(description = "(owner) one-time cutover wash to the new schema")]
+pub async fn migrate(ctx: Context, message: Message) -> CommandResult {
+    if owner_guard(&ctx, &message).is_none() {
+        return Ok(());
+    }
+    let database = db(&ctx);
+    let ver = database.schema_version().unwrap_or(0);
+    if ver >= MIGRATE_VERSION {
+        reply(&ctx, &message, format!("✅ Already migrated (schema v{ver}). Nothing to do.")).await?;
+        return Ok(());
+    }
+    // (1) Snapshot balances FIRST — never proceed without a rollback file.
+    let snapshot = match backup_balances(&ctx) {
+        Ok(file) => file,
+        Err(e) => {
+            reply(&ctx, &message, format!("⚠️ Backup failed — migration aborted, nothing changed ({e})")).await?;
+            return Ok(());
+        }
+    };
+    // (2) Refund all unsettled legacy funds back into balances.
+    let (w_n, w_ref) = database.reset_wagers().unwrap_or((0, 0));
+    let (p_n, p_ref) = database.reset_predictions().unwrap_or((0, 0));
+    predictions(&ctx).lock().await.clear();
+    // (3) Stamp the version so a re-run is a no-op.
+    let _ = database.set_schema_version(MIGRATE_VERSION);
+    let refunded = w_ref.saturating_add(p_ref);
+    reply(
+        &ctx,
+        &message,
+        format!(
+            "✅ Migrated to schema v{MIGRATE_VERSION}.\n\
+             🎟️ {w_n} open match bet(s) + 🎲 {p_n} prediction(s) refunded = {} returned to balances.\n\
+             💾 Balances snapshotted to {snapshot} (rollback via /load {snapshot}).\n\
+             Legacy bet data drained; the balance table (lang / timezone / referrals) is preserved.",
+            fmt_coins(refunded)
+        ),
+    )
+    .await?;
+    Ok(())
+}
+
 /// Snapshot every non-zero coin balance to a timestamped `balances-*.json` file in
 /// the working directory (next to the SQLite DB), returning the filename. The
 /// safety net for the `[Everything]` wipe — restored via `/load`. `Err(String)` on
