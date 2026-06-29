@@ -448,10 +448,10 @@ pub async fn handle_reset_cb(
     answer(ctx, cb, "", false).await
 }
 
-/// Snapshot every non-zero coin balance to a timestamped `balances-*.json` file in
-/// the working directory (next to the SQLite DB), returning the filename. The
-/// safety net for the `[Everything]` wipe — restored via `/load`. `Err(String)` on
-/// a DB or filesystem failure so the caller can abort the wipe.
+/// Snapshot every account with coins or fruit (`export_balances`) to a timestamped
+/// `balances-*.json` file in the working directory, returning the filename. Shared
+/// by `/backup` and the `[Everything]` reset's safety net — restored via `/load`.
+/// `Err(String)` on a DB or filesystem failure so a reset caller can abort the wipe.
 fn backup_balances(ctx: &Context) -> Result<String, String> {
     let rows = db(ctx).export_balances().map_err(|e| e.to_string())?;
     let json = serde_json::to_string(&rows).map_err(|e| e.to_string())?;
@@ -485,9 +485,9 @@ fn list_backup_files() -> Vec<String> {
     files
 }
 
-/// `/load` — owner-only. With no argument, list the `balances-*.json` backups (the
-/// snapshots written by an `[Everything]` reset). With a filename, restore those
-/// balances (upsert each user's coin balance from the file).
+/// `/load` — owner-only. With no argument, list the `balances-*.json` backups
+/// (written by `/backup` or an `[Everything]` reset). With a filename, restore
+/// it — upsert each user's coin balance **and** fruit from the file.
 #[command(description = "owner: list/restore balance backups")]
 pub async fn load(ctx: Context, message: Message) -> CommandResult {
     if owner_guard(&ctx, &message).is_none() {
@@ -521,16 +521,51 @@ pub async fn load(ctx: Context, message: Message) -> CommandResult {
             return Ok(());
         }
     };
-    let rows: Vec<(i64, i64)> = match serde_json::from_str(&content) {
-        Ok(r) => r,
-        Err(e) => {
-            reply(&ctx, &message, format!("⚠️ Bad backup file ({name}): {e}")).await?;
-            return Ok(());
-        }
-    };
+    // New snapshots are `[user, micro_coins, fruit]`; fall back to the old
+    // balance-only `[user, micro_coins]` shape so pre-fruit backups still restore
+    // (their fruit defaults to empty).
+    let rows: Vec<(i64, i64, String)> =
+        match serde_json::from_str::<Vec<(i64, i64, String)>>(&content) {
+            Ok(r) => r,
+            Err(_) => match serde_json::from_str::<Vec<(i64, i64)>>(&content) {
+                Ok(old) => old.into_iter().map(|(u, b)| (u, b, String::new())).collect(),
+                Err(e) => {
+                    reply(&ctx, &message, format!("⚠️ Bad backup file ({name}): {e}")).await?;
+                    return Ok(());
+                }
+            },
+        };
     match db(&ctx).import_balances(&rows) {
-        Ok(n) => reply(&ctx, &message, format!("✅ Restored {n} balance(s) from {name}")).await?,
+        Ok(n) => {
+            reply(&ctx, &message, format!("✅ Restored {n} account(s) (balances + fruit) from {name}"))
+                .await?
+        }
         Err(e) => reply(&ctx, &message, format!("⚠️ Restore failed: {e}")).await?,
+    }
+    Ok(())
+}
+
+/// `/backup` — owner-only. Snapshot every user's coins **and** fruit to a
+/// timestamped `balances-*.json` file in the working directory, **without** wiping
+/// anything (unlike the `[Everything]` reset). Restore later with `/load <file>`.
+#[command(description = "owner: snapshot balances + fruit to a file")]
+pub async fn backup(ctx: Context, message: Message) -> CommandResult {
+    if owner_guard(&ctx, &message).is_none() {
+        return Ok(());
+    }
+    let n = db(&ctx).export_balances().map(|v| v.len()).unwrap_or(0);
+    match backup_balances(&ctx) {
+        Ok(file) => {
+            reply(
+                &ctx,
+                &message,
+                format!("💾 Backed up {n} account(s) (balances + fruit) → {file}\nRestore with: /load {file}"),
+            )
+            .await?;
+        }
+        Err(e) => {
+            reply(&ctx, &message, format!("⚠️ Backup failed: {e}")).await?;
+        }
     }
     Ok(())
 }

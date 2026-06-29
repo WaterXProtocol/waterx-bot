@@ -299,28 +299,32 @@ impl Database {
         Ok(deleted == 1)
     }
 
-    /// Snapshot every **non-zero** coin balance as `(user, micro_coins)` — the
-    /// backup an `[Everything]` reset writes to disk and `/load` restores.
-    pub fn export_balances(&self) -> SqlResult<Vec<(i64, i64)>> {
+    /// Snapshot every user with coins **or** fruit as `(user, micro_coins, fruit)`
+    /// — what `/backup` (and the `[Everything]` reset) writes to disk and `/load`
+    /// restores. A user holding only fruit (zero coins) is still captured.
+    pub fn export_balances(&self) -> SqlResult<Vec<(i64, i64, String)>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare("SELECT user, balance FROM balance WHERE balance > 0")?;
+        let mut stmt = conn.prepare(
+            "SELECT user, balance, COALESCE(fruit, '') FROM balance \
+             WHERE balance > 0 OR (fruit IS NOT NULL AND fruit != '')",
+        )?;
         let v = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<SqlResult<Vec<_>>>()?;
         Ok(v)
     }
 
-    /// Restore coin balances from a `/load` backup: upsert each user's `balance`
-    /// (creating the row if needed), leaving every other column untouched, in one
-    /// transaction. Returns the number of balances written.
-    pub fn import_balances(&self, rows: &[(i64, i64)]) -> SqlResult<usize> {
+    /// Restore coins + fruit from a `/load` backup: upsert each user's `balance`
+    /// **and** `fruit` (creating the row if needed), leaving every other column
+    /// untouched, in one transaction. Returns the number of accounts written.
+    pub fn import_balances(&self, rows: &[(i64, i64, String)]) -> SqlResult<usize> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        for (user, balance) in rows {
+        for (user, balance, fruit) in rows {
             tx.execute(
-                "INSERT INTO balance (user, balance) VALUES (?1, ?2)
-                 ON CONFLICT(user) DO UPDATE SET balance = excluded.balance",
-                params![user, balance],
+                "INSERT INTO balance (user, balance, fruit) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(user) DO UPDATE SET balance = excluded.balance, fruit = excluded.fruit",
+                params![user, balance, fruit],
             )?;
         }
         tx.commit()?;
@@ -375,24 +379,29 @@ mod reset_tests {
     }
 
     #[test]
-    fn export_then_import_round_trips_balances() {
+    fn export_then_import_round_trips_balances_and_fruit() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(10, 50 * COIN).unwrap();
         db.force_change(20, 7 * COIN).unwrap();
-        db.force_change(30, 0).unwrap(); // zero balance → not exported
+        db.force_change(30, 0).unwrap(); // zero coins…
+        db.conn.lock().execute("UPDATE balance SET fruit = '🍎🍌' WHERE user = 30", []).unwrap(); // …but holds fruit
+        db.force_change(40, 0).unwrap(); // zero coins + no fruit → not exported
 
         let snapshot = db.export_balances().unwrap();
-        assert_eq!(snapshot.len(), 2); // only the two non-zero balances
-        assert!(snapshot.contains(&(10, 50 * COIN)));
-        assert!(snapshot.contains(&(20, 7 * COIN)));
+        assert_eq!(snapshot.len(), 3); // 10, 20 (coins) + 30 (fruit-only); 40 excluded
+        assert!(snapshot.contains(&(10, 50 * COIN, String::new())));
+        assert!(snapshot.contains(&(30, 0, "🍎🍌".to_string())));
 
         // Wipe, then restore from the snapshot.
         db.reset_all().unwrap();
         assert!(!db.user_exists(10).unwrap());
         let n = db.import_balances(&snapshot).unwrap();
-        assert_eq!(n, 2);
+        assert_eq!(n, 3);
         assert_eq!(db.get_user_info(10).unwrap().balance, 50 * COIN);
         assert_eq!(db.get_user_info(20).unwrap().balance, 7 * COIN);
+        let u30 = db.get_user_info(30).unwrap();
+        assert_eq!(u30.balance, 0);
+        assert_eq!(u30.fruit, "🍎🍌"); // fruit restored
     }
 
     #[test]
