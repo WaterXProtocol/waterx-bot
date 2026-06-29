@@ -158,6 +158,17 @@ pub(crate) async fn fetch_one(
         .find(|m| m.market_id == market_id))
 }
 
+/// Like [`fetch_one`] but keyed by the match **slug** (what a sourced event
+/// stores as its `source_ref`) — used by the sell flow (Phase 3c-2b) to re-price
+/// a held position. `pub` (not `pub(crate)`) so the checkpoint before its first
+/// caller lands is warning-free.
+pub async fn fetch_one_by_slug(
+    lang: Lang,
+    slug: &str,
+) -> Result<Option<MarketInfo>, reqwest::Error> {
+    Ok(fetch_markets(lang).await?.into_iter().find(|m| m.slug == slug))
+}
+
 /// True when a match should appear in the brief: live, or kicking off within 24h.
 fn within_window(m: &MarketInfo, now: i64) -> bool {
     m.live || m.starts_at.is_some_and(|t| t >= now && t <= now + 86_400)

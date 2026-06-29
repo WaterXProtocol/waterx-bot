@@ -11,7 +11,7 @@ mod wager;
 
 pub use buffer::OfferOutcome;
 pub use dashboard::Dashboard;
-pub use event::{ClaimKind, Payout, PositionView, TradeOutcome};
+pub use event::{ClaimKind, Payout, PositionView, SellContext, TradeOutcome};
 pub use user::UserRow;
 pub use wager::{decimal_payout, OpenMarket, Position, Settlement};
 

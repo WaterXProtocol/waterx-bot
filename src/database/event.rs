@@ -44,15 +44,33 @@ pub struct Payout {
     pub kind: ClaimKind,
 }
 
-/// A user's open share holding, for the `/assets` / `/bets` positions view.
+/// A user's open share holding, for the `/assets` / `/bets` positions view (the
+/// `event_id`/`market_idx` let the sell flow address the exact holding).
 #[derive(Debug, Clone)]
 pub struct PositionView {
+    pub event_id: i64,
+    pub market_idx: i64,
     pub event_title: String,
     pub outcome: String,
     /// Micro-shares held (== potential payout in micro-coins on a win).
     pub shares: i64,
     /// Micro-coin cost basis.
     pub cost: i64,
+}
+
+/// Everything the sell flow needs to price + execute a sell of one holding:
+/// `kind` selects the price source (sourced → Gamma by `source_ref` slug; amm →
+/// LMSR over `q_shares` with `b_param`), `held` caps the sell amount.
+#[derive(Debug, Clone)]
+pub struct SellContext {
+    pub kind: String,
+    pub source_ref: String,
+    pub b_param: i64,
+    pub fee_bps: i64,
+    pub q_shares: Vec<i64>,
+    pub held: i64,
+    pub outcome: String,
+    pub title: String,
 }
 
 /// Display precedence when a user held several outcomes in one event: a win
@@ -700,7 +718,7 @@ impl Database {
     pub fn user_positions(&self, user: i64) -> SqlResult<Vec<PositionView>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT e.title, m.name, p.shares, p.cost
+            "SELECT p.event_id, p.market_idx, e.title, m.name, p.shares, p.cost
              FROM positions p
              JOIN events e ON e.id = p.event_id
              JOIN markets m ON m.event_id = p.event_id AND m.idx = p.market_idx
@@ -710,14 +728,107 @@ impl Database {
         let v = stmt
             .query_map(params![user], |r| {
                 Ok(PositionView {
-                    event_title: r.get(0)?,
-                    outcome: r.get(1)?,
-                    shares: r.get(2)?,
-                    cost: r.get(3)?,
+                    event_id: r.get(0)?,
+                    market_idx: r.get(1)?,
+                    event_title: r.get(2)?,
+                    outcome: r.get(3)?,
+                    shares: r.get(4)?,
+                    cost: r.get(5)?,
                 })
             })?
             .collect::<SqlResult<Vec<_>>>()?;
         Ok(v)
+    }
+
+    /// Context for selling one open holding (`None` if the event isn't open or the
+    /// user holds nothing there). The handler prices the proceeds from this:
+    /// sourced via Gamma (`source_ref`), amm via [`Database::amm_sell_quote`].
+    pub fn sell_context(&self, event_id: i64, idx: i64, user: i64) -> SqlResult<Option<SellContext>> {
+        let conn = self.conn.lock();
+        let ev = conn
+            .query_row(
+                "SELECT kind, COALESCE(source_ref, ''), COALESCE(b_param, 0), fee_bps, title
+                 FROM events WHERE id = ?1 AND state = 'open'",
+                params![event_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((kind, source_ref, b_param, fee_bps, title)) = ev else {
+            return Ok(None);
+        };
+        let held: i64 = conn
+            .query_row(
+                "SELECT shares FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
+                params![event_id, idx, user],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        if held <= 0 {
+            return Ok(None);
+        }
+        let outcome: String = conn
+            .query_row(
+                "SELECT name FROM markets WHERE event_id = ?1 AND idx = ?2",
+                params![event_id, idx],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or_default();
+        let q_shares = {
+            let mut stmt =
+                conn.prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+            let v = stmt
+                .query_map(params![event_id], |r| r.get(0))?
+                .collect::<SqlResult<Vec<i64>>>()?;
+            v
+        };
+        Ok(Some(SellContext { kind, source_ref, b_param, fee_bps, q_shares, held, outcome, title }))
+    }
+
+    /// Read-only proceeds quote for selling `shares` micro-shares of an AMM
+    /// outcome (LMSR refund, floored, minus the host fee) — for the sell builder's
+    /// live preview. Mirrors [`Database::amm_sell`]'s math without mutating.
+    pub fn amm_sell_quote(&self, event_id: i64, idx: i64, shares: i64) -> SqlResult<Option<i64>> {
+        if shares <= 0 {
+            return Ok(None);
+        }
+        let conn = self.conn.lock();
+        let row = conn
+            .query_row(
+                "SELECT b_param, fee_bps FROM events WHERE id = ?1 AND kind = 'amm' AND state = 'open'",
+                params![event_id],
+                |r| Ok((r.get::<_, Option<i64>>(0)?.unwrap_or(0), r.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        let Some((b, fee_bps)) = row else {
+            return Ok(None);
+        };
+        let q = {
+            let mut stmt =
+                conn.prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+            let v = stmt
+                .query_map(params![event_id], |r| r.get(0))?
+                .collect::<SqlResult<Vec<i64>>>()?;
+            v
+        };
+        if idx < 0 || idx as usize >= q.len() {
+            return Ok(None);
+        }
+        let q_whole: Vec<f64> = q.iter().map(|x| *x as f64 / SHARE as f64).collect();
+        let refund = (lmsr::refund_to_sell(&q_whole, b as f64, idx as usize, shares as f64 / SHARE as f64)
+            * COIN as f64)
+            .floor()
+            .max(0.0) as i64;
+        Ok(Some(refund - mul_bps(refund, fee_bps)))
     }
 }
 
@@ -1076,6 +1187,8 @@ mod tests {
         db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap(); // 20 shares of A
         let v = db.user_positions(2).unwrap();
         assert_eq!(v.len(), 1);
+        assert_eq!(v[0].event_id, ev);
+        assert_eq!(v[0].market_idx, 0);
         assert_eq!(v[0].outcome, "A");
         assert_eq!(v[0].shares, 20 * SHARE);
         assert_eq!(v[0].cost, 10 * COIN);
@@ -1083,5 +1196,30 @@ mod tests {
         // (collected via /claim instead).
         db.resolve_event(ev, 0, 200).unwrap();
         assert!(db.user_positions(2).unwrap().is_empty());
+    }
+
+    #[test]
+    fn sell_context_and_amm_quote() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 1000 * COIN).unwrap();
+        db.force_change(2, 1000 * COIN).unwrap();
+        // Sourced context.
+        let src = sourced(&db);
+        db.sourced_buy(src, 0, 2, 10 * COIN, 50.0).unwrap(); // 20 shares of A
+        let c = db.sell_context(src, 0, 2).unwrap().unwrap();
+        assert_eq!(c.kind, "sourced");
+        assert_eq!(c.held, 20 * SHARE);
+        assert_eq!(c.outcome, "A");
+        assert!(db.sell_context(src, 1, 2).unwrap().is_none(), "nothing held on idx 1");
+        // AMM read-only sell quote can't exceed the spend (no rounding profit).
+        let amm = db
+            .create_amm_event(1, "Q", "", "", None, 0, &opts(&["A", "B"]), 50, 200, 100)
+            .unwrap()
+            .unwrap();
+        let TradeOutcome::Filled { shares, .. } = db.amm_buy(amm, 0, 2, 50 * COIN).unwrap() else {
+            panic!()
+        };
+        let q = db.amm_sell_quote(amm, 0, shares).unwrap().unwrap();
+        assert!(q > 0 && q <= 50 * COIN);
     }
 }
