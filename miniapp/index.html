@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>WaterX</title>
+  <!-- Telegram Mini App SDK: exposes window.Telegram.WebApp (theme, initData,
+       viewport, haptics, MainButton, …). Must be loaded from telegram.org. -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      /* Fall back to Telegram theme variables, with sane defaults. */
+      --bg: var(--tg-theme-bg-color, #17212b);
+      --text: var(--tg-theme-text-color, #fff);
+      --hint: var(--tg-theme-hint-color, #8a9aa9);
+      --card: var(--tg-theme-secondary-bg-color, #232e3c);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 16px;
+      font: 16px/1.45 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    h1 { font-size: 20px; margin: 4px 0 2px; }
+    .hint { color: var(--hint); font-size: 14px; margin: 0 0 16px; }
+    .card { background: var(--card); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+    .match { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+    .teams { font-weight: 600; }
+    .live { color: #ff5c5c; font-weight: 700; margin-right: 4px; }
+    .odds { color: var(--hint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .kick { color: var(--hint); font-size: 13px; margin-top: 2px; }
+    .empty { color: var(--hint); text-align: center; padding: 24px 0; }
+  </style>
+</head>
+<body>
+  <h1 id="greeting">WaterX</h1>
+  <p class="hint" id="subtitle">Today's markets</p>
+  <div id="markets"><p class="empty">Loading…</p></div>
+
+  <script>
+    // --- Telegram bootstrap -------------------------------------------------
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      const u = tg.initDataUnsafe && tg.initDataUnsafe.user;
+      if (u && u.first_name) {
+        document.getElementById("greeting").textContent = "Hi " + u.first_name + " 👋";
+      }
+    }
+
+    // Chinese clients get Chinese team names from the feed; everyone else "en".
+    function apiLocale() {
+      const code = ((tg && tg.initDataUnsafe && tg.initDataUnsafe.user
+        && tg.initDataUnsafe.user.language_code) || "en").toLowerCase();
+      return code.startsWith("zh") ? "zh" : "en";
+    }
+
+    function fmtKick(unixSecs) {
+      if (!unixSecs) return "";
+      return new Date(unixSecs * 1000).toLocaleString(undefined,
+        { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    function esc(s) {
+      return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    }
+    // Decimal odds from a YES price in cents (65¢ → 1.54), matching /markets.
+    function dec(cents) { return cents > 0 ? (100 / cents).toFixed(2) : "—"; }
+    function side(sides, key) {
+      const s = (sides || []).find(x => x.key === key);
+      return s && s.oddsCents > 0 ? s.oddsCents : 0;
+    }
+
+    // --- Load the same public feed the /markets command uses ----------------
+    // NOTE: read-only. Anything that moves the coin ledger must go through the
+    // bot, which has to verify Telegram's signed initData server-side first —
+    // a Mini App's client code must never be trusted to mutate balances.
+    async function loadMarkets() {
+      const box = document.getElementById("markets");
+      try {
+        const res = await fetch("https://api.waterx.app/predict/browse?locale=" + apiLocale());
+        const json = await res.json();
+        const items = (json.data && json.data.items) || [];
+        const rows = items.filter(it => {
+          const d = it.market && it.market.display;
+          return d && d.kind === "sport" && d.teamA && d.teamB && it.nextRound;
+        }).slice(0, 20);
+        if (!rows.length) { box.innerHTML = '<p class="empty">No markets right now.</p>'; return; }
+        box.innerHTML = rows.map(it => {
+          const d = it.market.display, r = it.nextRound;
+          const a = dec(side(r.sides, "teamA")), b = dec(side(r.sides, "teamB"));
+          const live = r.phase === "live" ? '<span class="live">🔴</span>' : "";
+          return `<div class="card">
+            <div class="match">
+              <span class="teams">${live}${esc(d.teamA.name)} vs ${esc(d.teamB.name)}</span>
+              <span class="odds">${a} / ${b}</span>
+            </div>
+            <div class="kick">${fmtKick(r.startsAt)}</div>
+          </div>`;
+        }).join("");
+      } catch (e) {
+        box.innerHTML = '<p class="empty">Could not load markets.</p>';
+      }
+    }
+
+    loadMarkets();
+  </script>
+</body>
+</html>

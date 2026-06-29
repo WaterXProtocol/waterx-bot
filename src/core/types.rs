@@ -5,6 +5,11 @@ pub struct BotConfig {
     pub token: String,
     pub owner: i64,
     pub dev: bool,
+    /// Optional Telegram Mini App URL (`MINI_APP_URL`). When set, the bot wires it
+    /// to the chat menu button and a home-menu button; when unset, both are
+    /// skipped (the bot runs exactly as before). Must be an `https://` URL Telegram
+    /// can open as a Web App.
+    pub mini_app_url: Option<String>,
 }
 
 impl BotConfig {
@@ -29,7 +34,13 @@ impl BotConfig {
             .ok()
             .map(|s| !matches!(s.as_str(), "false" | "FALSE" | "False" | "0"))
             .unwrap_or(true);
-        Ok(Self { token, owner, dev })
+        // Optional Mini App URL — trimmed, and only kept when it's a non-empty
+        // https:// link (Telegram rejects anything else for a Web App).
+        let mini_app_url = env::var("MINI_APP_URL").ok().and_then(|s| {
+            let s = s.trim().to_string();
+            s.starts_with("https://").then_some(s)
+        });
+        Ok(Self { token, owner, dev, mini_app_url })
     }
 }
 

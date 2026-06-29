@@ -1288,6 +1288,15 @@ pub fn btn_invite(l: Lang) -> &'static str {
         "🔗 Convidar amigos", "🔗 दोस्तों को बुलाएं", "🔗 ادعُ أصدقاءك")
 }
 
+/// Home-page button (private chats only) that opens the Telegram Mini App.
+pub fn btn_open_app(l: Lang) -> &'static str {
+    tr!(l;
+        "🚀 Open app", "🚀 開啟應用", "🚀 打开应用", "🚀 アプリを開く", "🚀 앱 열기",
+        "🚀 Открыть приложение", "🚀 Ouvrir l'app", "🚀 Abrir la app", "🚀 App öffnen", "🚀 Mở ứng dụng",
+        "🚀 Buka aplikasi", "🚀 Buksan ang app", "🚀 เปิดแอป", "🚀 App openen", "🚀 Uygulamayı aç",
+        "🚀 Abrir o app", "🚀 ऐप खोलें", "🚀 افتح التطبيق")
+}
+
 /// `/onlyreplyhere` confirmation: the bot is now confined to this topic.
 pub fn onlyreply_set(l: Lang) -> &'static str {
     tr!(l;

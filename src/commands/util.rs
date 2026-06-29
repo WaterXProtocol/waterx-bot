@@ -226,6 +226,16 @@ pub fn bot_token(ctx: &Context) -> String {
         .unwrap_or_default()
 }
 
+/// The configured Mini App URL (`MINI_APP_URL`), if any. `None` disables every
+/// mini-app surface (menu button + home button). Copied out so the non-`Send`
+/// read guard never crosses an `.await`.
+pub fn mini_app_url(ctx: &Context) -> Option<String> {
+    ctx.data
+        .read()
+        .get::<ConfigKey>()
+        .and_then(|cfg| cfg.mini_app_url.clone())
+}
+
 /// The configured `BOT_OWNER` id (0 if config is somehow missing).
 pub fn owner_id(ctx: &Context) -> i64 {
     ctx.data

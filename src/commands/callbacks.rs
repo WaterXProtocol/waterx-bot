@@ -1,6 +1,6 @@
 use crate::commands::util::{
-    board_header, bot_token, db, fmt_coins, full_name, is_group_chat, predictions, to_micro,
-    SORRY_FRUITS,
+    board_header, bot_token, db, fmt_coins, full_name, is_group_chat, mini_app_url, predictions,
+    to_micro, SORRY_FRUITS,
 };
 use crate::database::COIN;
 use crate::commands::{admin, assets, betting, markets, menu, predict, referral, tg};
@@ -603,7 +603,7 @@ async fn handle_set_lang(
                 chat,
                 message.message_id,
                 &menu::menu_text(lang, &full_name(&cb.from)),
-                &menu::main_menu_rows(lang, available, in_group, 0),
+                &menu::main_menu_rows(lang, available, in_group, 0, mini_app_url(ctx).as_deref()),
             )
             .await;
         } else {
@@ -640,7 +640,7 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
             chat,
             message.message_id,
             &menu::menu_text(lang, &full_name(&cb.from)),
-            &menu::main_menu_rows(lang, available, in_group, pending),
+            &menu::main_menu_rows(lang, available, in_group, pending, mini_app_url(ctx).as_deref()),
         )
         .await;
     }
@@ -808,7 +808,7 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
                         message.chat.get_id(),
                         message.message_id,
                         &menu::menu_text(lang, &full_name(&cb.from)),
-                        &menu::main_menu_rows(lang, false, false, pending),
+                        &menu::main_menu_rows(lang, false, false, pending, mini_app_url(ctx).as_deref()),
                     )
                     .await;
                 }
@@ -867,7 +867,7 @@ async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
         chat,
         message.message_id,
         &menu::menu_text(lang, &full_name(&cb.from)),
-        &menu::main_menu_rows(lang, available, in_group, pending),
+        &menu::main_menu_rows(lang, available, in_group, pending, mini_app_url(ctx).as_deref()),
     )
     .await;
     Ok(())

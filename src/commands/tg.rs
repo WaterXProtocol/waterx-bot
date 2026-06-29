@@ -96,10 +96,13 @@ fn build_keyboard(rows: &[Row]) -> Value {
             let cells: Vec<Value> = row
                 .iter()
                 .map(|(label, data)| {
-                    // A `data` that looks like a link becomes a URL button;
-                    // anything else is a callback button. (Telegram strips the
-                    // whole inline keyboard on forward regardless of kind.)
-                    if data.starts_with("https://")
+                    // `webapp:<https url>` becomes a Telegram **Web App** button
+                    // (opens the Mini App in-client); a plain link becomes a URL
+                    // button; anything else is a callback button. (Telegram strips
+                    // the whole inline keyboard on forward regardless of kind.)
+                    if let Some(url) = data.strip_prefix("webapp:") {
+                        json!({ "text": label, "web_app": { "url": url } })
+                    } else if data.starts_with("https://")
                         || data.starts_with("http://")
                         || data.starts_with("tg://")
                     {
