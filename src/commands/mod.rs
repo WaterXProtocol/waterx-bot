@@ -12,6 +12,7 @@ pub mod checkin;
 pub mod callbacks;
 pub mod feedback;
 pub mod predict;
+pub mod predmarket;
 pub mod settings;
 pub mod markets;
 pub mod referral;

@@ -1787,6 +1787,40 @@ pub fn sold(l: Lang, shares: &str, outcome: &str, proceeds: &str) -> String {
     .replace("{proceeds}", proceeds)
 }
 
+pub fn predict_ask_fee(l: Lang) -> &'static str {
+    tr!(l;
+        "💸 Pick your trading fee — you earn it on every trade (max 10%):", "💸 選擇你的交易手續費 — 每筆交易你都能賺取（上限 10%）：", "💸 选择你的交易手续费 — 每笔交易你都能赚取（上限 10%）：", "💸 取引手数料を選択 — すべての取引で獲得できます（最大10%）：", "💸 거래 수수료 선택 — 모든 거래에서 받습니다 (최대 10%):",
+        "💸 Выберите торговую комиссию — вы получаете её с каждой сделки (макс. 10%):", "💸 Choisissez vos frais — vous les gagnez sur chaque échange (max 10 %) :", "💸 Elige tu comisión — la ganas en cada operación (máx. 10%):", "💸 Wähle deine Handelsgebühr — du verdienst sie bei jedem Trade (max. 10%):", "💸 Chọn phí giao dịch — bạn kiếm được phí này mỗi giao dịch (tối đa 10%):",
+        "💸 Pilih biaya transaksi — Anda mendapatkannya tiap transaksi (maks 10%):", "💸 Piliin ang iyong bayarin — kikita mo ito sa bawat transaksyon (max 10%):", "💸 เลือกค่าธรรมเนียม — คุณได้รับทุกการเทรด (สูงสุด 10%):", "💸 Kies je handelskosten — je verdient ze bij elke trade (max 10%):", "💸 İşlem ücretini seç — her işlemde kazanırsın (en fazla %10):",
+        "💸 Escolha sua taxa — você ganha em cada negociação (máx. 10%):", "💸 अपना ट्रेडिंग शुल्क चुनें — हर ट्रेड पर आप कमाते हैं (अधिकतम 10%):", "💸 اختر رسوم التداول — تكسبها مع كل صفقة (بحد أقصى 10%):")
+}
+
+pub fn pm_resolved(l: Lang, winner: &str) -> String {
+    tr!(l;
+        "✅ Resolved: {winner}\nClaim your winnings with /claim", "✅ 已結算：{winner}\n用 /claim 領取獎金", "✅ 已结算：{winner}\n用 /claim 领取奖金", "✅ 確定：{winner}\n/claim で獲得分を受け取り", "✅ 확정: {winner}\n/claim 으로 수령하세요",
+        "✅ Итог: {winner}\nЗаберите выигрыш через /claim", "✅ Résolu : {winner}\nRécupérez vos gains avec /claim", "✅ Resuelto: {winner}\nReclama tus ganancias con /claim", "✅ Aufgelöst: {winner}\nGewinne mit /claim abholen", "✅ Đã chốt: {winner}\nNhận tiền thắng bằng /claim",
+        "✅ Selesai: {winner}\nKlaim kemenangan dengan /claim", "✅ Nalutas: {winner}\nKunin ang panalo gamit ang /claim", "✅ ตัดสินแล้ว: {winner}\nรับเงินรางวัลด้วย /claim", "✅ Beslist: {winner}\nClaim je winst met /claim", "✅ Sonuçlandı: {winner}\nKazancını /claim ile al",
+        "✅ Resolvido: {winner}\nResgate seus ganhos com /claim", "✅ परिणाम: {winner}\n/claim से जीत लें", "✅ تم الحسم: {winner}\nاحصل على أرباحك عبر /claim")
+    .replace("{winner}", winner)
+}
+
+pub fn pm_voided(l: Lang) -> &'static str {
+    tr!(l;
+        "↩️ Voided — claim your refund with /claim", "↩️ 已作廢 — 用 /claim 領回退款", "↩️ 已作废 — 用 /claim 领回退款", "↩️ 無効 — /claim で返金を受け取り", "↩️ 무효 — /claim 으로 환불 받기",
+        "↩️ Отменено — заберите возврат через /claim", "↩️ Annulé — récupérez votre remboursement avec /claim", "↩️ Anulado — reclama tu reembolso con /claim", "↩️ Annulliert — Rückerstattung mit /claim abholen", "↩️ Đã hủy — nhận hoàn tiền bằng /claim",
+        "↩️ Dibatalkan — klaim pengembalian dengan /claim", "↩️ Pinawalang-bisa — kunin ang refund gamit ang /claim", "↩️ ยกเลิก — รับเงินคืนด้วย /claim", "↩️ Geannuleerd — claim je terugbetaling met /claim", "↩️ İptal — iadeni /claim ile al",
+        "↩️ Anulado — resgate seu reembolso com /claim", "↩️ रद्द — /claim से रिफंड लें", "↩️ أُلغيت — استرجع أموالك عبر /claim")
+}
+
+pub fn predict_need_coins(l: Lang, coins: &str) -> String {
+    tr!(l;
+        "⚠️ You need {coins} 🪙 to seed this prediction's liquidity.", "⚠️ 你需要 {coins} 🪙 來提供這個預測的流動性。", "⚠️ 你需要 {coins} 🪙 来提供这个预测的流动性。", "⚠️ この予測の流動性提供に {coins} 🪙 が必要です。", "⚠️ 이 예측의 유동성 공급에 {coins} 🪙 가 필요합니다.",
+        "⚠️ Нужно {coins} 🪙, чтобы обеспечить ликвидность этого прогноза.", "⚠️ Il vous faut {coins} 🪙 pour amorcer la liquidité de cette prédiction.", "⚠️ Necesitas {coins} 🪙 para aportar liquidez a esta predicción.", "⚠️ Du brauchst {coins} 🪙, um die Liquidität dieser Prognose zu stellen.", "⚠️ Bạn cần {coins} 🪙 để cấp thanh khoản cho dự đoán này.",
+        "⚠️ Anda butuh {coins} 🪙 untuk menyediakan likuiditas prediksi ini.", "⚠️ Kailangan mo ng {coins} 🪙 para pondohan ang prediksyon na ito.", "⚠️ คุณต้องมี {coins} 🪙 เพื่อเติมสภาพคล่องให้การทำนายนี้", "⚠️ Je hebt {coins} 🪙 nodig om deze voorspelling van liquiditeit te voorzien.", "⚠️ Bu tahmine likidite sağlamak için {coins} 🪙 gerekir.",
+        "⚠️ Você precisa de {coins} 🪙 para dar liquidez a esta previsão.", "⚠️ इस भविष्यवाणी की लिक्विडिटी के लिए आपको {coins} 🪙 चाहिए।", "⚠️ تحتاج {coins} 🪙 لتوفير السيولة لهذا التوقع.")
+    .replace("{coins}", coins)
+}
+
 /// Self-host (`/predict`) DM stake builder — no odds (pari-mutuel).
 pub fn prediction_build(l: Lang, option: &str, stake: &str) -> String {
     tr!(l;

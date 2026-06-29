@@ -3,7 +3,9 @@ use crate::commands::util::{
     SORRY_FRUITS,
 };
 use crate::database::COIN;
-use crate::commands::{admin, assets, betting, markets, menu, predict, referral, selling, tg};
+use crate::commands::{
+    admin, assets, betting, markets, menu, predict, predmarket, referral, selling, tg,
+};
 use crate::commands::tg::answer;
 use crate::database::OfferOutcome;
 use crate::core::i18n::{self, Lang};
@@ -154,6 +156,22 @@ pub async fn on_callback(ctx: Context, update: Update) {
         selling::handle_sell_place(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(selling::SELL_BUILD) {
         selling::handle_sell_build(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predict::PREDICT_FEE) {
+        predict::handle_predict_fee(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_PLACE) {
+        predmarket::handle_place(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_SIZE) {
+        predmarket::handle_size(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_BUY) {
+        predmarket::handle_buy(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_RESOLVE) {
+        predmarket::handle_resolve(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_WIN) {
+        predmarket::handle_win(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_VOID) {
+        predmarket::handle_void(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_BACK) {
+        predmarket::handle_back(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(admin::SETTLE_CB) {
         admin::handle_settle_cb(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(admin::RESET_CB) {

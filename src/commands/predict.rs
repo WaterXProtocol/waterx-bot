@@ -8,13 +8,19 @@
 //! step (`gend:<minutes>`), which finalizes and posts the card.
 
 use crate::bot::Convo;
+use crate::commands::predmarket;
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
+use crate::core::lmsr;
 use crate::core::prediction::Prediction;
 use crate::core::i18n::{self, Lang};
+use crate::database::{B_MEDIUM, FEE_BPS_MAX};
 use telexide::model::{CallbackQuery, UpdateContent, User};
 use telexide::prelude::*;
+
+/// Trading-fee picker prefix (`pmfee:<bps>`), routed in `callbacks::on_callback`.
+pub const PREDICT_FEE: &str = "pmfee:";
 
 /// Callback prefix for the builder's end-time presets: `gend:<minutes>` (0 = no
 /// deadline). Routed in `callbacks::on_callback`.
@@ -40,6 +46,9 @@ pub struct PredictDraft {
     /// Set when the host tapped `[⌨️ Custom]`: their next DM text is parsed as a
     /// custom duration instead of being ignored.
     pub awaiting_custom: bool,
+    /// Deadline (unix secs; 0 = none) chosen at the end-time step — set just
+    /// before the fee picker, then consumed by `finalize`.
+    pub ends_at: Option<i64>,
 }
 
 fn now() -> i64 {
@@ -64,6 +73,7 @@ pub(crate) async fn open_draft(ctx: &Context, host: &User, origin_chat: i64) -> 
                     description: None,
                     options: None,
                     awaiting_custom: false,
+                    ends_at: None,
                 }),
             );
             true
@@ -160,17 +170,11 @@ pub async fn on_message(ctx: Context, update: Update) {
         let _ = send_text(&ctx, user.id, i18n::predict_bad_duration(lang)).await;
         return;
     };
-    // Valid — take ownership of the draft and post the card.
-    let Some(Convo::Predict(draft)) = guard.remove(&user.id) else {
-        return;
-    };
+    // Valid — store the deadline and advance to the fee picker.
+    draft.ends_at = Some(now().saturating_add(minutes.saturating_mul(60)));
+    draft.awaiting_custom = false;
     drop(guard);
-    let msg = if finalize(&ctx, user.id, draft, minutes).await {
-        i18n::predict_created(lang)
-    } else {
-        i18n::predict_post_failed(lang)
-    };
-    let _ = send_text(&ctx, user.id, msg).await;
+    let _ = tg::send_with_buttons(&ctx, user.id, i18n::predict_ask_fee(lang), &fee_rows(lang)).await;
 }
 
 /// Options: one per line when multi-line, else whitespace-separated. Trimmed,
@@ -242,47 +246,77 @@ fn parse_duration(text: &str) -> Option<i64> {
     Some(total.min(MAX_PREDICT_MINUTES))
 }
 
-/// Build, post, persist, and register the prediction card from a completed
-/// draft (`minutes` from now; ≤0 = no deadline). Returns `false` only when the
-/// card post bounced (the bot was kicked from the origin chat). Shared by the
-/// end-time button and the custom-duration text path.
-async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, minutes: i64) -> bool {
+/// Outcome of finalizing a `/predict` draft into a posted AMM event.
+enum Finalized {
+    /// Card posted; the event is live.
+    Posted,
+    /// The host can't fund the LMSR seed escrow (this many whole coins). Nothing
+    /// was charged or posted.
+    Unaffordable(i64),
+    /// The card post or event creation failed.
+    Failed,
+}
+
+/// Create the host AMM event from a completed draft and post its board. A
+/// placeholder card is posted **before** the host is charged the escrow, so an
+/// unaffordable or failed creation never leaves an orphaned charge. The event is
+/// pinned to the host's locale/odds-format/timezone (a shared board can't
+/// localize per viewer); the board re-renders on every bet from the DB.
+async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, fee_bps: i64) -> Finalized {
     let (Some(description), Some(options)) = (draft.description, draft.options) else {
-        return true; // incomplete (shouldn't happen) — nothing to post
+        return Finalized::Failed;
     };
     let lang = draft.lang;
-    let ends_at = if minutes <= 0 { 0 } else { now().saturating_add(minutes.saturating_mul(60)) };
-    let opt_refs: Vec<&str> = options.iter().map(String::as_str).collect();
-    let mut prediction = Prediction::new(host_id, lang, &description, &opt_refs);
-    prediction.ends_at = ends_at;
-    // Pin the board to the host's odds format and timezone (shared message —
-    // like its locale): the deadline renders in the host's local time.
-    prediction.odds_fmt = db(ctx).get_odds_fmt(host_id).unwrap_or_default();
-    prediction.tz_offset = db(ctx).get_tz(host_id).ok().flatten().unwrap_or(0);
+    let ends_at = draft.ends_at.unwrap_or(0);
+    let fmt = db(ctx).get_odds_fmt(host_id).unwrap_or_default();
+    let tz = db(ctx).get_tz(host_id).ok().flatten();
 
-    let sent =
-        match tg::send_with_buttons(ctx, draft.origin_chat, &prediction.get_text(), &prediction.get_buttons()).await {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("predict card post failed (chat {}): {e:?}", draft.origin_chat);
-                return false;
-            }
-        };
-    prediction.set_id(sent.chat.get_id(), sent.message_id);
-    let key = format!("{}:{}", sent.chat.get_id(), sent.message_id);
-    // Re-render so the id tail shows (best-effort).
-    let _ = tg::edit_with_buttons(ctx, sent.chat.get_id(), sent.message_id, &prediction.get_text(), &prediction.get_buttons()).await;
-    // Pin the fresh card in the group so members can find it at the top (best-effort —
-    // needs the bot's `can_pin_messages` right; unpinned again when it settles). Only
-    // groups: a DM `/predict` card has no shared audience to surface it to.
-    if is_group_chat(sent.chat.get_id()) {
-        let _ = tg::pin_message(ctx, sent.chat.get_id(), sent.message_id).await;
+    // Placeholder first, so a card slot exists before any escrow is debited.
+    let no_rows: Vec<tg::Row> = Vec::new();
+    let sent = match tg::send_with_buttons(ctx, draft.origin_chat, &format!("🎲 {description}"), &no_rows).await
+    {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("predict placeholder post failed (chat {}): {e:?}", draft.origin_chat);
+            return Finalized::Failed;
+        }
+    };
+    let (chat, msg) = (sent.chat.get_id(), sent.message_id);
+
+    let event_id = match db(ctx).create_amm_event(
+        host_id,
+        &description,
+        lang.store_code(),
+        fmt.store_code(),
+        tz,
+        ends_at,
+        &options,
+        B_MEDIUM,
+        fee_bps,
+        now(),
+    ) {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            let _ = tg::delete_message(ctx, chat, msg).await;
+            let escrow = lmsr::seed_escrow(B_MEDIUM as f64, options.len()).ceil() as i64;
+            return Finalized::Unaffordable(escrow);
+        }
+        Err(e) => {
+            eprintln!("create_amm_event error: {e}");
+            let _ = tg::delete_message(ctx, chat, msg).await;
+            return Finalized::Failed;
+        }
+    };
+
+    let _ = db(ctx).set_event_card(event_id, chat, msg);
+    if let Ok(Some(board)) = db(ctx).amm_board(event_id) {
+        let (text, rows) = predmarket::first_board(&board);
+        let _ = tg::edit_with_buttons(ctx, chat, msg, &text, &rows).await;
     }
-    if let Err(err) = db(ctx).save_prediction(&prediction) {
-        eprintln!("save_prediction error (continuing in-memory only): {err}");
+    if is_group_chat(chat) {
+        let _ = tg::pin_message(ctx, chat, msg).await;
     }
-    predictions(ctx).lock().await.insert(key, prediction);
-    true
+    Finalized::Posted
 }
 
 /// Repost a still-open prediction's card into `target_chat` — the recovery for a
@@ -436,25 +470,71 @@ pub async fn handle_predict_endtime(
         return answer(ctx, cb, "", false).await;
     }
 
-    // `minutes` comes from the (forgeable) `gend:<n>` callback; `finalize`
-    // saturates so a crafted huge value can't wrap.
+    // `minutes` comes from the (forgeable) `gend:<n>` callback; saturating math
+    // below means a crafted huge value can't wrap.
     let Ok(minutes) = rest.parse::<i64>() else {
         return answer(ctx, cb, "", false).await;
     };
+    // Store the deadline on the draft and advance to the fee picker (don't
+    // finalize yet — the fee step does that).
+    let lang = {
+        let convos_map = convos(ctx);
+        let mut g = convos_map.lock().await;
+        let Some(Convo::Predict(draft)) = g.get_mut(&cb.from.id) else {
+            return answer(ctx, cb, "", false).await;
+        };
+        draft.ends_at =
+            Some(if minutes <= 0 { 0 } else { now().saturating_add(minutes.saturating_mul(60)) });
+        draft.lang
+    };
+    if let Some(m) = &cb.message {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            m.chat.get_id(),
+            m.message_id,
+            i18n::predict_ask_fee(lang),
+            &fee_rows(lang),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `pmfee:<bps>` — the host picked their trading fee: finalize the draft into an
+/// AMM event and post its board (confirming in the builder DM, or "need N coins"
+/// when the host can't fund the LMSR escrow).
+pub async fn handle_predict_fee(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    rest: &str,
+) -> Result<(), telexide::Error> {
+    let Ok(bps) = rest.parse::<i64>() else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let fee_bps = bps.clamp(0, FEE_BPS_MAX);
     // Consume the draft (so a double-tap can't post twice).
     let Some(Convo::Predict(draft)) = convos(ctx).lock().await.remove(&cb.from.id) else {
-        return answer(ctx, cb, "", false).await; // expired / already finalized / wrong flow
+        return answer(ctx, cb, "", false).await;
     };
     let lang = draft.lang;
-    if finalize(ctx, cb.from.id, draft, minutes).await {
-        // Confirm in the builder DM (edit the end-time message in place).
-        if let Some(m) = &cb.message {
-            let _ = tg::edit_text_only(ctx, m.chat.get_id(), m.message_id, i18n::predict_created(lang)).await;
-        }
-        answer(ctx, cb, "", false).await
-    } else {
-        answer(ctx, cb, i18n::predict_post_failed(lang), true).await
+    let msg = match finalize(ctx, cb.from.id, draft, fee_bps).await {
+        Finalized::Posted => i18n::predict_created(lang).to_string(),
+        Finalized::Unaffordable(c) => i18n::predict_need_coins(lang, &c.to_string()),
+        Finalized::Failed => i18n::predict_post_failed(lang).to_string(),
+    };
+    if let Some(m) = &cb.message {
+        let _ = tg::edit_text_only(ctx, m.chat.get_id(), m.message_id, &msg).await;
     }
+    answer(ctx, cb, "", false).await
+}
+
+/// Trading-fee picker: 2% / 5% / 10% presets (callback `pmfee:<bps>`).
+fn fee_rows(_lang: Lang) -> Vec<tg::Row> {
+    vec![vec![
+        ("2%".to_string(), format!("{PREDICT_FEE}200")),
+        ("5%".to_string(), format!("{PREDICT_FEE}500")),
+        ("10%".to_string(), format!("{PREDICT_FEE}1000")),
+    ]]
 }
 
 #[cfg(test)]
