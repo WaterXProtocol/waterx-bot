@@ -33,30 +33,6 @@ impl BotConfig {
     }
 }
 
-use crate::core::i18n::{self, Lang};
-
-#[allow(non_camel_case_types)]
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum BetState {
-    betting,
-    closed,
-    settled,
-    draw,
-}
-
-impl BetState {
-    /// Localized status label shown on the shared prediction board (rendered in
-    /// the host's language; see [`crate::core::prediction::Prediction`]).
-    pub fn label(&self, lang: Lang) -> &'static str {
-        match self {
-            BetState::betting => i18n::state_betting(lang),
-            BetState::closed => i18n::state_closed(lang),
-            BetState::settled => i18n::state_settled(lang),
-            BetState::draw => i18n::void_label(lang),
-        }
-    }
-}
-
 /// User-selectable display format for odds (a 65¢ YES price shown in each):
 /// `Decimal` → 1.54, `American` → -185, `Percent` → 65%, `Price` → 65¢. Persisted
 /// per user in `balance.odds_fmt` (a stable store code); `Decimal` is the default

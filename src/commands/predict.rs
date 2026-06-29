@@ -13,7 +13,6 @@ use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::core::lmsr;
-use crate::core::prediction::Prediction;
 use crate::core::i18n::{self, Lang};
 use crate::database::{B_MEDIUM, FEE_BPS_MAX};
 use telexide::model::{CallbackQuery, UpdateContent, User};
@@ -319,135 +318,8 @@ async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, fee_bps: i64
     Finalized::Posted
 }
 
-/// Repost a still-open prediction's card into `target_chat` — the recovery for a
-/// card deleted from the chat, **or** orphaned when the group migrated to a
-/// supergroup (new chat id). Renders a fresh card from the live state (so it
-/// looks identical), then re-points the game at the new message: `remove` →
-/// `rehome` → re-insert preserves any bet placed during the network gap (it moves
-/// the live `Prediction`, not a stale snapshot), and the DB row is swapped to the
-/// new `target_chat:msg` key. The stale original is deleted (best-effort — a
-/// no-op if its chat migrated / it's already gone) and the fresh card re-pinned.
-/// `false` if `target_chat` is unreachable or the game vanished mid-repost.
-pub async fn repost_card(ctx: &Context, key: &str, target_chat: i64) -> bool {
-    let (old_chat, old_msg, text, buttons) = {
-        let games = predictions(ctx);
-        let g = games.lock().await;
-        let Some(p) = g.get(key) else {
-            return false;
-        };
-        let Some((Ok(old_chat), Ok(old_msg))) =
-            key.split_once(':').map(|(c, m)| (c.parse::<i64>(), m.parse::<i64>()))
-        else {
-            return false;
-        };
-        (old_chat, old_msg, p.get_text(), p.get_buttons())
-    };
-    // Post the fresh card (network — lock released so bets aren't blocked).
-    let new_msg = match tg::send_with_buttons(ctx, target_chat, &text, &buttons).await {
-        Ok(m) => m.message_id,
-        Err(e) => {
-            eprintln!("repost card failed (chat {target_chat}): {e:?}");
-            return false;
-        }
-    };
-    {
-        let games = predictions(ctx);
-        let mut g = games.lock().await;
-        let Some(mut p) = g.remove(key) else {
-            // Settled/voided in the gap — drop the just-posted orphan.
-            let _ = tg::delete_message(ctx, target_chat, new_msg).await;
-            return false;
-        };
-        let old_id = p.id.clone();
-        p.rehome(target_chat, new_msg);
-        let new_key = p.id.clone();
-        if let Err(err) = db(ctx).delete_prediction(&old_id) {
-            eprintln!("repost delete_prediction({old_id}) error: {err}");
-        }
-        if let Err(err) = db(ctx).save_prediction(&p) {
-            eprintln!("repost save_prediction error: {err}");
-        }
-        g.insert(new_key, p);
-    }
-    // Remove the stale original card (best-effort; deletion also unpins it).
-    let _ = tg::delete_message(ctx, old_chat, old_msg).await;
-    if is_group_chat(target_chat) {
-        let _ = tg::pin_message(ctx, target_chat, new_msg).await;
-    }
-    true
-}
-
-/// Pick the host's open prediction to restore into `current_chat` for the in-group
-/// `[♻️ Restore card]` button. Prefers one whose card already lives in this chat
-/// (the plain "deleted card" case); failing that — e.g. the group migrated to a
-/// supergroup and got a **new chat id**, orphaning the old `chat:msg` key — falls
-/// back to the host's **sole** open *group* prediction (only when unambiguous, so
-/// it can't yank a prediction out of a different active group). `None` when
-/// there's nothing safe to pick.
-pub async fn host_restorable_prediction(ctx: &Context, host: i64, current_chat: i64) -> Option<String> {
-    let msg_of = |id: &str| id.rsplit_once(':').and_then(|(_, m)| m.parse::<i64>().ok()).unwrap_or(0);
-    let chat_of = |id: &str| id.split_once(':').and_then(|(c, _)| c.parse::<i64>().ok());
-    let games = predictions(ctx);
-    let g = games.lock().await;
-    let mine: Vec<&Prediction> = g.values().filter(|p| p.host == host).collect();
-    // Prefer a card already keyed to this chat (most recent).
-    let prefix = format!("{current_chat}:");
-    if let Some(p) = mine.iter().filter(|p| p.id.starts_with(&prefix)).max_by_key(|p| msg_of(&p.id)) {
-        return Some(p.id.clone());
-    }
-    // Migration fallback: exactly one open group-hosted prediction → restore it here.
-    let group_preds: Vec<&&Prediction> =
-        mine.iter().filter(|p| chat_of(&p.id).is_some_and(is_group_chat)).collect();
-    match group_preds.as_slice() {
-        [only] => Some(only.id.clone()),
-        _ => None,
-    }
-}
-
-/// One open prediction a user hosts, distilled for the home-menu "to settle"
-/// reminder (`menu:settle`).
-pub struct HostPred {
-    pub chat_id: i64,
-    pub msg_id: i64,
-    pub question: String,
-    /// Past its deadline (or never had one) → the host can close & settle it now.
-    pub ready: bool,
-}
-
-/// Number of open predictions `host` is running — drives the home-menu badge. The
-/// in-memory map holds only **open** games (settled/draw are dropped on settle),
-/// so every entry for this host is unsettled.
-pub async fn pending_settle_count(ctx: &Context, host: i64) -> usize {
-    predictions(ctx).lock().await.values().filter(|p| p.host == host).count()
-}
-
-/// Open predictions `host` is running, settle-ready first then by creation order.
-/// Backs the `menu:settle` list.
-pub async fn host_open_predictions(ctx: &Context, host: i64) -> Vec<HostPred> {
-    let now = now();
-    let games = predictions(ctx);
-    let map = games.lock().await;
-    let mut v: Vec<HostPred> = map
-        .values()
-        .filter(|p| p.host == host)
-        .filter_map(|p| {
-            let (c, m) = p.id.split_once(':')?;
-            Some(HostPred {
-                chat_id: c.parse().ok()?,
-                msg_id: m.parse().ok()?,
-                question: p.question().to_string(),
-                // 🔴 ready: deadline passed / none, OR the host is the only staker
-                // (so they may force-settle early).
-                ready: p.can_close(now) || p.only_host_staked(),
-            })
-        })
-        .collect();
-    v.sort_by(|a, b| b.ready.cmp(&a.ready).then(a.msg_id.cmp(&b.msg_id)));
-    v
-}
-
-/// `gend:<minutes>` — the builder's end-time pick: finalize the draft into a
-/// `Prediction`, post the card to the origin chat, register it, and confirm in the DM.
+/// `gend:<minutes>` — the builder's end-time pick: stores the deadline and shows
+/// the trading-fee picker (`finalize` then creates the AMM event).
 pub async fn handle_predict_endtime(
     ctx: &Context,
     cb: &CallbackQuery,

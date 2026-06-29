@@ -1,8 +1,6 @@
 use crate::commands::util::*;
-use crate::database::COIN;
 use crate::core::i18n;
 use crate::core::i18n::Lang;
-use crate::core::types::BetState;
 use telexide::model::User;
 use telexide::prelude::*;
 
@@ -84,47 +82,6 @@ pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> S
                 fmt_coins(p.shares),
             ));
         }
-    }
-
-    // Stakes locked in still-open self-host (`/predict`) predictions. The stake was
-    // debited at bet time, so these coins are committed positions — not yet
-    // reconciled into the balance (settled/draw predictions already are, so skip them).
-    // Game stakes are stored in whole coins; render via fmt_coins(× COIN).
-    let mut prediction_lines = String::new();
-    {
-        let predictions = predictions(ctx);
-        let guard = predictions.lock().await;
-        for g in guard.values() {
-            if !matches!(g.state, BetState::betting | BetState::closed) {
-                continue;
-            }
-            let staked: Vec<(&String, i64)> = g
-                .option_order
-                .iter()
-                .filter_map(|opt| {
-                    g.options
-                        .get(opt)
-                        .and_then(|d| d.detail.get(&user.id).copied())
-                        .filter(|&s| s > 0)
-                        .map(|s| (opt, s))
-                })
-                .collect();
-            if staked.is_empty() {
-                continue;
-            }
-            // Description is "<id-tail>\n<host's text>"; show the host's text.
-            let desc = g
-                .description
-                .split_once('\n')
-                .map_or(g.description.as_str(), |(_, rest)| rest);
-            prediction_lines.push_str(&format!("\n🎲 {desc}"));
-            for (opt, stake) in staked {
-                prediction_lines.push_str(&format!("\n  {} · 🪙{}", opt, fmt_coins(stake * COIN)));
-            }
-        }
-    }
-    if !prediction_lines.is_empty() {
-        body.push_str(&format!("\n\n{}{}", i18n::predictions_title(lang), prediction_lines));
     }
 
     body

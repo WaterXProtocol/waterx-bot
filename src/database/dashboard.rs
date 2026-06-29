@@ -72,8 +72,6 @@ impl Database {
 mod tests {
     use super::super::COIN;
     use super::*;
-    use crate::core::prediction::Prediction;
-    use crate::core::i18n::Lang;
 
     #[test]
     fn counts_users_chats_and_supply() {
@@ -107,30 +105,22 @@ mod tests {
 
     #[test]
     fn aggregates_open_predict_games_from_db() {
+        // Dashboard reads COUNT(*) + SUM(total) over `games`, which only ever holds
+        // live games (terminal ones are dropped). Seed two live games directly; a
+        // settled game would simply never be inserted.
         let db = Database::new(":memory:", 1).unwrap();
-        // Two live games (one betting, one closed) plus a settled one that's been
-        // dropped from storage — the settled one must NOT be counted.
-        let mut a = Prediction::new(1, Lang::En, "a", &["X", "Y"]);
-        a.set_id(1, 1);
-        a.stake(10, "X", 4, "Ann");
-        a.stake(11, "Y", 6, "Bob"); // total 10
-        db.save_prediction(&a).unwrap();
-
-        let mut b = Prediction::new(2, Lang::En, "b", &["X", "Y"]);
-        b.set_id(2, 2);
-        b.stake(12, "X", 5, "Cy"); // total 5
-        b.close();
-        db.save_prediction(&b).unwrap();
-
-        let mut done = Prediction::new(3, Lang::En, "c", &["X", "Y"]);
-        done.set_id(3, 3);
-        done.stake(13, "X", 9, "Di");
-        done.close();
-        let _ = done.settle("X");
-        db.save_prediction(&done).unwrap(); // terminal → dropped, not stored
+        {
+            let conn = db.conn.lock();
+            conn.execute(
+                "INSERT INTO games (id, host, state, total)
+                 VALUES ('1:1', 1, 'betting', 10), ('2:2', 2, 'closed', 5)",
+                [],
+            )
+            .unwrap();
+        }
 
         let s = db.dashboard().unwrap();
         assert_eq!(s.open_predictions, 2);
-        assert_eq!(s.open_game_stake, 15 * COIN); // (4+6) + 5, in micro-coins
+        assert_eq!(s.open_game_stake, 15 * COIN); // (10 + 5) whole coins → micro
     }
 }

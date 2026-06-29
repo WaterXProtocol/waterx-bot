@@ -416,7 +416,6 @@ pub async fn handle_reset_cb(
                 }
                 match database.reset_predictions() {
                     Ok((n, refunded)) => {
-                        predictions(ctx).lock().await.clear();
                         lines.push(format!("🎲 Returned {} from {n} prediction(s)", fmt_coins(refunded)));
                     }
                     Err(e) => {
@@ -431,7 +430,6 @@ pub async fn handle_reset_cb(
                         // (3) …then wipe everything.
                         match database.reset_all() {
                             Ok(()) => {
-                                predictions(ctx).lock().await.clear();
                                 lines.push(format!(
                                     "💾 Backup saved: {file} (restore with /load {file})\n🗑️ Everything wiped — kick + re-add the bot to re-record the group adder, then members re-refer."
                                 ));
@@ -462,7 +460,6 @@ pub async fn handle_reset_cb(
                 if flags & RESET_PREDICTIONS != 0 {
                     match database.reset_predictions() {
                         Ok((n, refunded)) => {
-                            predictions(ctx).lock().await.clear();
                             lines.push(format!("🎲 Predictions cleared — {n} prediction(s), refunded {}", fmt_coins(refunded)))
                         }
                         Err(e) => {
@@ -515,7 +512,6 @@ pub async fn migrate(ctx: Context, message: Message) -> CommandResult {
     // (2) Refund all unsettled legacy funds back into balances.
     let (w_n, w_ref) = database.reset_wagers().unwrap_or((0, 0));
     let (p_n, p_ref) = database.reset_predictions().unwrap_or((0, 0));
-    predictions(&ctx).lock().await.clear();
     // (3) Stamp the version so a re-run is a no-op.
     let _ = database.set_schema_version(MIGRATE_VERSION);
     let refunded = w_ref.saturating_add(p_ref);

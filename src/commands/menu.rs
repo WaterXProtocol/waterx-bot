@@ -94,15 +94,9 @@ pub const MENU_BALANCE: &str = "menu:balance";
 pub const MENU_MARKETS: &str = "menu:markets";
 pub const MENU_RULE: &str = "menu:rule";
 pub const MENU_INVITE: &str = "menu:invite";
-/// Private-only home-page button (shown only when the host has open predictions):
-/// list the predictions they're running so they can jump in and settle them.
-pub const MENU_SETTLE: &str = "menu:settle";
 /// Group-only home-page button: open the `/predict` builder (handled like the
 /// `/predict` command).
 pub const MENU_PREDICT: &str = "menu:predict";
-/// Group-only home-page button: repost the presser's prediction card into this
-/// group, for when its original card was deleted from the chat.
-pub const MENU_REPOST: &str = "menu:repost";
 /// Invite-format chooser (shown after `menu:invite`).
 pub const INVITE_LINK: &str = "inv:link";
 pub const INVITE_FWD: &str = "inv:fwd";
@@ -149,12 +143,7 @@ pub fn menu_text(lang: Lang, name: &str) -> String {
 /// balance/fruit, so it deliberately carries **no** referral deep-link button —
 /// the `[Play]` URL button lives only in the `menu:invite` output, which has no
 /// private info and is meant to be shared.
-pub fn main_menu_rows(
-    lang: Lang,
-    checkin_available: bool,
-    is_group: bool,
-    pending_settle: usize,
-) -> Vec<Row> {
+pub fn main_menu_rows(lang: Lang, checkin_available: bool, is_group: bool) -> Vec<Row> {
     // One button per row (vertical stack), check-in on top only when claimable.
     // In a **group** the menu is a single shared message, so the per-user actions
     // ([Check assets], [Invite friends]) are hidden — only the shared check-in
@@ -164,14 +153,6 @@ pub fn main_menu_rows(
         rows.push(vec![(
             i18n::btn_checkin(lang).to_string(),
             MENU_CHECKIN.to_string(),
-        )]);
-    }
-    // Private-only nudge: predictions this host still has to settle. Hidden in a
-    // group (the menu there is shared — this is a per-user to-do).
-    if !is_group && pending_settle > 0 {
-        rows.push(vec![(
-            i18n::btn_settle_pending(lang, pending_settle),
-            MENU_SETTLE.to_string(),
         )]);
     }
     if !is_group {
@@ -190,10 +171,6 @@ pub fn main_menu_rows(
         rows.push(vec![(
             i18n::btn_predict(lang).to_string(),
             MENU_PREDICT.to_string(),
-        )]);
-        rows.push(vec![(
-            i18n::btn_restore_card(lang).to_string(),
-            MENU_REPOST.to_string(),
         )]);
     } else {
         // Private-only: the rules brief and the personal invite chooser.

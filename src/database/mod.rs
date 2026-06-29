@@ -216,11 +216,6 @@ impl Database {
             [],
         );
 
-        // One-time: migrate legacy JSON-blob `/predict` games into the normalized
-        // tables created above, then drop the old `bet_games` table. No-op once
-        // migrated (the old table is gone) and on fresh DBs (it never existed).
-        Self::migrate_blob_games(&conn)?;
-
         // Prune buffer rows older than 24h. Pre-TTL rows have created_at=0 and
         // get cleared too, which is what we want — a restart drops all dangling
         // sell/buy offers and stale envelopes (their fruit/coin escrow stays
@@ -338,9 +333,9 @@ impl Database {
 
     /// Selective `/reset` — refund + clear all self-host **predictions**: credit
     /// every prediction stake (whole coins → micro) back to its bettor, then wipe the
-    /// `games`/`game_options`/`game_stakes` tables in one transaction. The caller
-    /// must also clear the in-memory `PredictionsKey` map. Returns
-    /// `(predictions_cleared, micro_coins_refunded)`.
+    /// `games`/`game_options`/`game_stakes` tables in one transaction. Returns
+    /// `(predictions_cleared, micro_coins_refunded)`. **Legacy** — only `/migrate`
+    /// calls it now, to drain stakes left in the old tables on the prod cutover.
     pub fn reset_predictions(&self) -> SqlResult<(i64, i64)> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
@@ -482,21 +477,30 @@ mod reset_tests {
 
     #[test]
     fn reset_predictions_refunds_stakes_and_clears() {
+        // `/migrate` drains the legacy game tables via reset_predictions; the
+        // Prediction codec is gone, so seed the rows directly.
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(10, 0).unwrap();
         db.force_change(20, 0).unwrap();
-        let mut g = crate::core::prediction::Prediction::new(1, crate::core::i18n::Lang::En, "q", &["A", "B"]);
-        g.set_id(5, 5);
-        g.stake(10, "A", 4, "Ann");
-        g.stake(20, "B", 6, "Bob");
-        db.save_prediction(&g).unwrap();
+        {
+            let conn = db.conn.lock();
+            conn.execute("INSERT INTO games (id, host) VALUES ('5:5', 1)", []).unwrap();
+            conn.execute(
+                "INSERT INTO game_stakes (game_id, option_name, user, amount)
+                 VALUES ('5:5', 'A', 10, 4), ('5:5', 'B', 20, 6)",
+                [],
+            )
+            .unwrap();
+        }
 
         let (predictions_cleared, refunded) = db.reset_predictions().unwrap();
         assert_eq!(predictions_cleared, 1);
         assert_eq!(refunded, 10 * COIN); // (4 + 6) whole coins → micro
         assert_eq!(db.get_user_info(10).unwrap().balance, 4 * COIN);
         assert_eq!(db.get_user_info(20).unwrap().balance, 6 * COIN);
-        assert!(db.load_all_predictions().unwrap().is_empty());
+        let left: i64 =
+            db.conn.lock().query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 0);
     }
 
     #[test]

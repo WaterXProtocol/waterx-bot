@@ -1,15 +1,13 @@
 use crate::commands::util::{
-    board_header, bot_token, db, fmt_coins, full_name, is_group_chat, predictions, to_micro,
+    bot_token, db, fmt_coins, full_name, is_group_chat,
     SORRY_FRUITS,
 };
-use crate::database::COIN;
 use crate::commands::{
     admin, assets, betting, markets, menu, predict, predmarket, referral, selling, tg,
 };
 use crate::commands::tg::answer;
 use crate::database::OfferOutcome;
 use crate::core::i18n::{self, Lang};
-use crate::core::types::BetState;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use telexide::model::{CallbackQuery, ChatMember, UpdateContent};
@@ -84,12 +82,6 @@ pub async fn on_callback(ctx: Context, update: Update) {
     }
     let result = if let Some(rest) = data.strip_prefix("envelope:") {
         handle_envelope(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix("gamble:") {
-        handle_gamble(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix("gsz:") {
-        handle_prediction_size(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix("gsp:") {
-        handle_prediction_place(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix("bx:") {
         handle_board_dismiss(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(predict::PREDICT_END) {
@@ -128,14 +120,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_rule(&ctx, &cb).await
     } else if data == menu::MENU_PREDICT {
         handle_menu_predict(&ctx, &cb).await
-    } else if data == menu::MENU_REPOST {
-        handle_menu_repost(&ctx, &cb).await
     } else if data == menu::MENU_INVITE {
         handle_menu_invite(&ctx, &cb).await
-    } else if data == menu::MENU_SETTLE {
-        handle_menu_settle(&ctx, &cb).await
-    } else if let Some(rest) = data.strip_prefix(PSTL) {
-        handle_predict_settle_cb(&ctx, &cb, rest).await
     } else if data == menu::INVITE_LINK {
         handle_invite_link(&ctx, &cb).await
     } else if data == menu::INVITE_FWD {
@@ -250,326 +236,6 @@ async fn handle_envelope(
     answer(ctx, cb, i18n::grabbed_it(lang), false).await
 }
 
-async fn handle_gamble(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
-    let chat_id = message.chat.get_id();
-    let msg_id = message.message_id;
-    let key = format!("{chat_id}:{msg_id}");
-    // Tapper's locale for the private toast; the shared board uses the host's
-    // `prediction.lang`.
-    let lang = cb_lang(ctx, cb);
-    let predictions = predictions(ctx);
-    let db = db(ctx);
-
-    // close: gamble:  (host only)
-    if rest.is_empty() {
-        let (text, rows) = {
-            let mut g = predictions.lock().await;
-            let Some(prediction) = g.get_mut(&key) else {
-                return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-            };
-            if prediction.host != cb.from.id {
-                return answer(ctx, cb, i18n::not_host(lang), true).await;
-            }
-            // A deadline means betting runs until then — the host can't close early.
-            if !prediction.can_close(chrono::Utc::now().timestamp()) {
-                let when = crate::commands::util::fmt_local_time(prediction.ends_at, prediction.tz_offset)
-                    .unwrap_or_default();
-                return answer(ctx, cb, &i18n::close_before_deadline(lang, &when), true).await;
-            }
-            if !prediction.close() {
-                return answer(ctx, cb, i18n::already_closed(lang), true).await;
-            }
-            if let Err(err) = db.save_prediction(prediction) {
-                eprintln!("save_prediction(close) error: {err}");
-            }
-            (prediction.get_text(), prediction.get_buttons())
-        };
-        let _ = tg::edit_with_buttons(ctx, chat_id, msg_id, &text, &rows).await;
-        return answer(ctx, cb, i18n::close_prediction_toast(lang), false).await;
-    }
-
-    // pick: gamble:pick:<idx> — post the tapper their OWN stake board as a reply
-    // to the shared prediction card (owner-locked, so only they can use it; the placed
-    // bet is announced back under the card). The board stays out of the shared
-    // card so every member can tap for their own board.
-    if let Some(idx_s) = rest.strip_prefix("pick:") {
-        let Ok(idx) = idx_s.parse::<usize>() else {
-            return answer(ctx, cb, "", false).await;
-        };
-        // The builder shows the odds in the *bettor's* format (not the host's).
-        let fmt = db.get_odds_fmt(cb.from.id).unwrap_or_default();
-        let label = {
-            let g = predictions.lock().await;
-            let Some(prediction) = g.get(&key) else {
-                return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-            };
-            if prediction.state != BetState::betting || prediction.ended(chrono::Utc::now().timestamp()) {
-                return answer(ctx, cb, i18n::already_closed(lang), true).await;
-            }
-            match prediction.option_order.get(idx) {
-                Some(o) => opt_label(o, &prediction.option_odds(o, fmt)),
-                None => return answer(ctx, cb, "", false).await,
-            }
-        };
-        // Head the board with the tapper's name in a group so members can tell
-        // whose owner-locked board it is.
-        let text = board_header(chat_id, &full_name(&cb.from), &i18n::prediction_build(lang, &label, "0"));
-        let rows = prediction_builder_rows(lang, &key, idx, cb.from.id, 0);
-        return match tg::send_with_buttons_reply(ctx, chat_id, msg_id, &text, &rows).await {
-            Ok(_) => answer(ctx, cb, "", false).await,
-            Err(e) => {
-                eprintln!("[gamble] stake board post failed (chat {chat_id}): {e:?}");
-                answer(ctx, cb, i18n::bet_failed(lang), true).await
-            }
-        };
-    }
-
-    // settle: gamble:<outcome>  (host only, after close). Validate, then hand off
-    // to the shared `finish_settle` (also used by the menu-list settle flow).
-    let outcome = rest;
-    {
-        let g = predictions.lock().await;
-        let Some(prediction) = g.get(&key) else {
-            return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-        };
-        if prediction.host != cb.from.id {
-            return answer(ctx, cb, i18n::not_host(lang), true).await;
-        }
-        if prediction.state != BetState::closed {
-            return answer(ctx, cb, i18n::not_closed_yet(lang), true).await;
-        }
-    }
-    if !finish_settle(ctx, &key, outcome).await {
-        return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-    }
-    answer(ctx, cb, i18n::settle_success(lang), false).await
-}
-
-/// Settle the prediction at `key` (`chat:msg`) for `outcome` (`$draw$` or an
-/// option name): pay winners, drop it from the DB + in-memory map, strip the
-/// card's now-dead buttons, unpin it, and post the result (header + top-10
-/// winners, in the host's locale) as a reply to the card. The caller must have
-/// validated host + closed state. Returns `false` if the prediction was already
-/// gone (raced away). Shared by the card settle buttons and the `pstl:` menu flow.
-async fn finish_settle(ctx: &Context, key: &str, outcome: &str) -> bool {
-    let predictions = predictions(ctx);
-    let db = db(ctx);
-    let Some((chat_s, msg_s)) = key.split_once(':') else {
-        return false;
-    };
-    let (Ok(chat_id), Ok(msg_id)) = (chat_s.parse::<i64>(), msg_s.parse::<i64>()) else {
-        return false;
-    };
-    let (outputs, result_text) = {
-        let mut g = predictions.lock().await;
-        let Some(prediction) = g.get_mut(key) else {
-            return false;
-        };
-        let (outputs, header) = prediction.settle(outcome);
-        // A terminal state → `save_prediction` drops the prediction's rows from the DB.
-        if let Err(err) = db.save_prediction(prediction) {
-            eprintln!("save_prediction(settle) error: {err}");
-        }
-        // Bounded readout: header + at most the top 10 winners (or a break-even
-        // note for a one-sided settle).
-        let result_text = format!("{header}{}", prediction.winners_readout(10));
-        // Drop the settled prediction from the in-memory map too.
-        g.remove(key);
-        (outputs, result_text)
-    };
-    for (user, win) in &outputs {
-        if *win > 0 {
-            // Log a failed winner payout instead of silently swallowing it.
-            if let Err(e) = db.force_change(*user, win.saturating_mul(COIN)) {
-                eprintln!("gamble settle credit failed (user {user}, +{win} coins): {e}");
-            }
-        }
-    }
-    // Strip the now-dead settle buttons from the card (keyboard only — the card
-    // text is left as-is), then post the result as a reply to it (falling back to
-    // a loose message if the card is gone).
-    let _ = tg::clear_buttons(ctx, chat_id, msg_id).await;
-    // Undo the pin set when the card was created (best-effort; no-op if it was
-    // never pinned — e.g. a DM prediction or the bot lacks the right).
-    if is_group_chat(chat_id) {
-        let _ = tg::unpin_message(ctx, chat_id, msg_id).await;
-    }
-    let _ = tg::send_text_reply(ctx, chat_id, msg_id, &result_text).await;
-    true
-}
-
-/// In-group stake-builder keyboard for a `/predict` option at `total` whole coins.
-/// The prediction ref + owner + total all ride in the callback data
-/// (`gsz/gsc/gsp:<chat>:<msg>:<idx>:<owner>:<total>`) — no server-side per-user
-/// state. `owner` locks the board to the tapper; the Dismiss row (`bx:<owner>`)
-/// lets them delete it.
-fn prediction_builder_rows(lang: Lang, key: &str, idx: usize, owner: i64, total: i64) -> Vec<Vec<(String, String)>> {
-    let add: Vec<(String, String)> = crate::core::prediction::STAKE_AMOUNTS
-        .iter()
-        .map(|p| (format!("+{p}"), format!("gsz:{key}:{idx}:{owner}:{}", total + p)))
-        .collect();
-    // Confirm places the bet straight away (no separate confirmation screen); the
-    // board is its own group message, so Dismiss rides on the same action row.
-    vec![
-        add,
-        vec![
-            (i18n::bet_btn_confirm(lang).to_string(), format!("gsp:{key}:{idx}:{owner}:{total}")),
-            (i18n::bet_btn_clear(lang).to_string(), format!("gsz:{key}:{idx}:{owner}:0")),
-            (i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}")),
-        ],
-    ]
-}
-
-/// Parse `<chat>:<msg>:<idx>:<owner>:<total>` → (prediction key `"chat:msg"`, option
-/// idx, board owner, total).
-fn parse_prediction_draft(rest: &str) -> Option<(String, usize, i64, i64)> {
-    let parts: Vec<&str> = rest.split(':').collect();
-    let [chat, msg, idx, owner, total] = parts.as_slice() else {
-        return None;
-    };
-    Some((format!("{chat}:{msg}"), idx.parse().ok()?, owner.parse().ok()?, total.parse().ok()?))
-}
-
-/// The option's `(name, odds-in-`fmt`)` for `(key, idx)` if the prediction is still
-/// open; else the toast to show (`prediction_invalid`/`already_closed`). The odds are
-/// the pari-mutuel multiplier rendered in the *bettor's* format for the DM builder.
-async fn prediction_option(
-    ctx: &Context,
-    lang: Lang,
-    key: &str,
-    idx: usize,
-    fmt: crate::core::types::OddsFormat,
-) -> Result<(String, String), &'static str> {
-    let predictions = predictions(ctx);
-    let g = predictions.lock().await;
-    let Some(prediction) = g.get(key) else {
-        return Err(i18n::prediction_invalid(lang));
-    };
-    if prediction.state != BetState::betting || prediction.ended(chrono::Utc::now().timestamp()) {
-        return Err(i18n::already_closed(lang));
-    }
-    let name = prediction.option_order.get(idx).cloned().ok_or_else(|| i18n::prediction_invalid(lang))?;
-    let odds = prediction.option_odds(&name, fmt);
-    Ok((name, odds))
-}
-
-/// `[name (odds)]` — the option label shown in the DM stake builder/confirm.
-fn opt_label(name: &str, odds: &str) -> String {
-    format!("{name} ({odds})")
-}
-
-/// `gsz:…` — re-render the DM builder at the accumulated total.
-async fn handle_prediction_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let Some((key, idx, owner, total)) = parse_prediction_draft(rest) else {
-        return answer(ctx, cb, "", false).await;
-    };
-    if owner != cb.from.id {
-        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
-    }
-    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let (opt, odds) = match prediction_option(ctx, lang, &key, idx, fmt).await {
-        Ok(p) => p,
-        Err(t) => return answer(ctx, cb, t, true).await,
-    };
-    if let Some(m) = &cb.message {
-        let body = i18n::prediction_build(lang, &opt_label(&opt, &odds), &total.max(0).to_string());
-        let text = board_header(m.chat.get_id(), &full_name(&cb.from), &body);
-        let _ = tg::edit_with_buttons(
-            ctx,
-            m.chat.get_id(),
-            m.message_id,
-            &text,
-            &prediction_builder_rows(lang, &key, idx, owner, total),
-        )
-        .await;
-    }
-    answer(ctx, cb, "", false).await
-}
-
-/// Best-effort refund of `units` micro-coins to `user`, logging (not swallowing)
-/// a failure — used when a self-host stake debit can't be turned into a placed
-/// bet (prediction gone / option missing / stake rejected) after the debit succeeded.
-fn log_refund(db: &crate::database::Database, user: i64, units: i64) {
-    if let Err(e) = db.force_change(user, units) {
-        eprintln!("prediction stake refund failed (user {user}, +{units}): {e}");
-    }
-}
-
-/// `gsp:…` — fired by the board's **Confirm**: the only money-moving step. Debit,
-/// `prediction.stake`, edit the group board with new totals, report the result in a
-/// popup alert, and announce in the group.
-async fn handle_prediction_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let Some((key, idx, owner, total)) = parse_prediction_draft(rest) else {
-        return answer(ctx, cb, "", false).await;
-    };
-    if owner != cb.from.id {
-        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
-    }
-    // Guard the whole-coin → micro-coin conversion (caps at MAX_COINS, rejects
-    // overflow and non-positive): `total` rides in the callback data, so a
-    // crafted value must not be able to wrap i64 and mint/destroy coins.
-    let Some(units) = to_micro(total) else {
-        return answer(ctx, cb, i18n::bad_stake(lang), true).await;
-    };
-    let db = db(ctx);
-    if !db.balance_change(cb.from.id, -units).unwrap_or(false) {
-        return answer(ctx, cb, i18n::not_enough_money(lang), true).await;
-    }
-    let predictions = predictions(ctx);
-    let placed = {
-        let mut g = predictions.lock().await;
-        let Some(prediction) = g.get_mut(&key) else {
-            log_refund(&db, cb.from.id, units);
-            return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-        };
-        // Reject (and refund) a place on a closed/ended prediction — the builder DM may
-        // have been opened before the deadline passed.
-        if prediction.state != BetState::betting || prediction.ended(chrono::Utc::now().timestamp()) {
-            log_refund(&db, cb.from.id, units);
-            return answer(ctx, cb, i18n::already_closed(lang), true).await;
-        }
-        let Some(option) = prediction.option_order.get(idx).cloned() else {
-            log_refund(&db, cb.from.id, units);
-            return answer(ctx, cb, i18n::bet_failed(lang), true).await;
-        };
-        if !prediction.stake(cb.from.id, &option, total, &full_name(&cb.from)) {
-            log_refund(&db, cb.from.id, units);
-            return answer(ctx, cb, i18n::bet_failed(lang), true).await;
-        }
-        if let Err(err) = db.save_prediction(prediction) {
-            eprintln!("save_prediction(stake) error: {err}");
-        }
-        (option, prediction.get_text(), prediction.get_buttons())
-    };
-    let (option, board_text, board_rows) = placed;
-    // Edit the group board with the new totals and announce the bet there — as a
-    // reply to the board card (like match betting replies to its prediction card), so
-    // the announcement is threaded under the prediction it belongs to. Falls back
-    // to a loose message if the card is gone (`send_text_reply` sets
-    // `allow_sending_without_reply`).
-    if let Some((c, m)) = key.split_once(':') {
-        if let (Ok(chat), Ok(msg)) = (c.parse::<i64>(), m.parse::<i64>()) {
-            let _ = tg::edit_with_buttons(ctx, chat, msg, &board_text, &board_rows).await;
-            let announce = i18n::prediction_announce(lang, &full_name(&cb.from), &total.to_string(), &option);
-            let _ = tg::send_text_reply(ctx, chat, msg, &announce).await;
-        }
-    }
-    // The stake board is its own message — delete it now that the bet is placed
-    // (the result rides in the announcement reply under the prediction card above).
-    if let Some(m) = &cb.message {
-        let _ = tg::delete_message(ctx, m.chat.get_id(), m.message_id).await;
-    }
-    answer(ctx, cb, i18n::bet_success(lang), true).await
-}
 
 /// `bx:<owner>` — dismiss an in-group personal stake board by deleting it.
 /// Owner-locked: only the user the board was opened for can delete it (anyone
@@ -625,7 +291,7 @@ async fn handle_set_lang(
                 chat,
                 message.message_id,
                 &menu::menu_text(lang, &full_name(&cb.from)),
-                &menu::main_menu_rows(lang, available, in_group, 0),
+                &menu::main_menu_rows(lang, available, in_group),
             )
             .await;
         } else {
@@ -656,13 +322,12 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
         let chat = message.chat.get_id();
         let in_group = is_group_chat(chat);
         let available = in_group || db.checkin_available(cb.from.id).unwrap_or(true);
-        let pending = predict::pending_settle_count(ctx, cb.from.id).await;
         let _ = tg::edit_with_buttons(
             ctx,
             chat,
             message.message_id,
             &menu::menu_text(lang, &full_name(&cb.from)),
-            &menu::main_menu_rows(lang, available, in_group, pending),
+            &menu::main_menu_rows(lang, available, in_group),
         )
         .await;
     }
@@ -824,13 +489,12 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         Ok(true) => {
             if let Some(message) = cb.message.clone() {
                 if !is_group_chat(message.chat.get_id()) {
-                    let pending = predict::pending_settle_count(ctx, cb.from.id).await;
                     let _ = tg::edit_with_buttons(
                         ctx,
                         message.chat.get_id(),
                         message.message_id,
                         &menu::menu_text(lang, &full_name(&cb.from)),
-                        &menu::main_menu_rows(lang, false, false, pending),
+                        &menu::main_menu_rows(lang, false, false),
                     )
                     .await;
                 }
@@ -883,258 +547,15 @@ async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let chat = message.chat.get_id();
     let in_group = is_group_chat(chat);
     let available = in_group || db(ctx).checkin_available(cb.from.id).unwrap_or(true);
-    let pending = predict::pending_settle_count(ctx, cb.from.id).await;
     let _ = tg::edit_with_buttons(
         ctx,
         chat,
         message.message_id,
         &menu::menu_text(lang, &full_name(&cb.from)),
-        &menu::main_menu_rows(lang, available, in_group, pending),
+        &menu::main_menu_rows(lang, available, in_group),
     )
     .await;
     Ok(())
-}
-
-/// Prefix for the menu-driven prediction settle flow (host-facing, in-place
-/// double-confirm). Each step edits the menu message: `pstl:p:<chat>:<msg>` →
-/// outcome picker; `pstl:o:<chat>:<msg>:<oc>` → confirm 1/2; `pstl:c:…:<oc>` →
-/// confirm 2/2; `pstl:g:…:<oc>` → settle. `<oc>` is an option index, or `d` for
-/// void/draw. Settling here never needs a message link, so it works in any chat
-/// type (incl. plain groups where `t.me/c` deep links don't exist).
-const PSTL: &str = "pstl:";
-
-/// Build the host's open-prediction settle list (title + rows) for `menu:settle`.
-/// Each entry is a `pstl:p:` button (no deep link), 🔴 ready / 🟢 still running.
-fn settle_list_view(lang: Lang, preds: &[predict::HostPred]) -> (String, Vec<tg::Row>) {
-    let mut rows: Vec<tg::Row> = preds
-        .iter()
-        .map(|p| {
-            // 🔴 ready to settle (deadline passed / none), 🟢 still running.
-            let mark = if p.ready { "🔴" } else { "🟢" };
-            let title = truncate_label(&p.question, 40);
-            vec![(format!("{mark} {title}"), format!("{PSTL}p:{}:{}", p.chat_id, p.msg_id))]
-        })
-        .collect();
-    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
-    (i18n::settle_list_title(lang).to_string(), rows)
-}
-
-/// `menu:settle` — edit the menu in place into the host's list of open
-/// predictions, each a `pstl:p:` button that drives the settle flow **in place**
-/// (pick outcome → confirm 1/2 → 2/2 → settle), plus `[⬅ Back]`. Private-only
-/// (the button isn't shown in groups). Works for every chat type since it never
-/// relies on a `t.me/c` message link to reach the card.
-async fn handle_menu_settle(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
-    let chat = message.chat.get_id();
-    let preds = predict::host_open_predictions(ctx, cb.from.id).await;
-    // Raced to empty (all settled since the badge rendered) — just drop back to the
-    // home menu in place (handles its own ack), no "nothing to settle" notice.
-    if preds.is_empty() {
-        return handle_menu_home(ctx, cb).await;
-    }
-    answer(ctx, cb, "", false).await?;
-    let (body, rows) = settle_list_view(lang, &preds);
-    let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &body, &rows).await;
-    Ok(())
-}
-
-/// Settle-flow outcome code → the string `Prediction::settle` expects
-/// (`d` = void/draw, else an option index into `option_order`).
-fn resolve_outcome(p: &crate::core::prediction::Prediction, oc: &str) -> Option<String> {
-    if oc == "d" {
-        return Some("$draw$".to_string());
-    }
-    p.option_order.get(oc.parse::<usize>().ok()?).cloned()
-}
-
-/// Display label for a settle-flow outcome code (option name, or the localized
-/// void label for `d`).
-fn outcome_label(p: &crate::core::prediction::Prediction, oc: &str, lang: Lang) -> Option<String> {
-    if oc == "d" {
-        return Some(i18n::void_label(lang).to_string());
-    }
-    p.option_order.get(oc.parse::<usize>().ok()?).cloned()
-}
-
-/// `pstl:` — the host-facing, in-place double-confirm settle flow opened from the
-/// `menu:settle` list (see `PSTL`). Each step re-reads the in-memory prediction
-/// and re-checks host + deadline, so a stale press fails safe.
-async fn handle_predict_settle_cb(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
-    let mchat = message.chat.get_id();
-    let mid = message.message_id;
-    let predictions = predictions(ctx);
-    let db = db(ctx);
-    let now = chrono::Utc::now().timestamp();
-    let (action, tail) = rest.split_once(':').unwrap_or((rest, ""));
-    match action {
-        // Picked a prediction → its management screen: the outcome picker if it's
-        // settleable, otherwise a "still open" note. Both offer `[♻️ Repost card]`
-        // (re-posts a fresh copy if the original was deleted from the chat).
-        "p" => {
-            let (title, rows) = {
-                let g = predictions.lock().await;
-                let Some(p) = g.get(tail) else {
-                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-                };
-                if p.host != cb.from.id {
-                    return answer(ctx, cb, i18n::not_host(lang), true).await;
-                }
-                let key = tail;
-                let mut rows: Vec<tg::Row> = Vec::new();
-                // Settleable = deadline passed/none, or the host is the only staker
-                // (force-settle early); otherwise betting is still live.
-                let title = if p.can_close(now) || p.only_host_staked() {
-                    for (i, o) in p.option_order.iter().enumerate() {
-                        rows.push(vec![(o.clone(), format!("{PSTL}o:{key}:{i}"))]);
-                    }
-                    rows.push(vec![(i18n::void_label(lang).to_string(), format!("{PSTL}o:{key}:d"))]);
-                    i18n::settle_pick_outcome(lang).to_string()
-                } else {
-                    let when = crate::commands::util::fmt_local_time(p.ends_at, p.tz_offset)
-                        .unwrap_or_default();
-                    i18n::settle_not_ready(lang, &when)
-                };
-                rows.push(vec![(i18n::repost_card_btn(lang).to_string(), format!("{PSTL}r:{key}"))]);
-                rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_SETTLE.to_string())]);
-                (title, rows)
-            };
-            let _ = tg::edit_with_buttons(ctx, mchat, mid, &title, &rows).await;
-        }
-        // Repost the card to its origin chat (shared `repost_card` helper), then
-        // refresh the settle list in place so its row callbacks carry the new msg id.
-        "r" => {
-            let key = tail;
-            {
-                let g = predictions.lock().await;
-                let Some(p) = g.get(key) else {
-                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-                };
-                if p.host != cb.from.id {
-                    return answer(ctx, cb, i18n::not_host(lang), true).await;
-                }
-            }
-            // From the (private) settle list we can only target the card's origin
-            // chat — the group `[♻️ Restore card]` button is the path that survives
-            // a chat-id migration (it reposts into the chat it was tapped in).
-            let Some(Ok(origin)) = key.split_once(':').map(|(c, _)| c.parse::<i64>()) else {
-                return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-            };
-            if !predict::repost_card(ctx, key, origin).await {
-                return answer(ctx, cb, i18n::predict_post_failed(lang), true).await;
-            }
-            answer(ctx, cb, i18n::card_reposted(lang), false).await?;
-            let preds = predict::host_open_predictions(ctx, cb.from.id).await;
-            if preds.is_empty() {
-                return handle_menu_home(ctx, cb).await;
-            }
-            let (body, rows) = settle_list_view(lang, &preds);
-            let _ = tg::edit_with_buttons(ctx, mchat, mid, &body, &rows).await;
-            return Ok(());
-        }
-        // Picked an outcome → confirm 1/2; or first confirm → confirm 2/2.
-        "o" | "c" => {
-            let Some((key, oc)) = tail.rsplit_once(':') else {
-                return answer(ctx, cb, "", false).await;
-            };
-            let label = {
-                let g = predictions.lock().await;
-                let Some(p) = g.get(key) else {
-                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-                };
-                if p.host != cb.from.id {
-                    return answer(ctx, cb, i18n::not_host(lang), true).await;
-                }
-                match outcome_label(p, oc, lang) {
-                    Some(l) => l,
-                    None => return answer(ctx, cb, i18n::prediction_invalid(lang), true).await,
-                }
-            };
-            let (text, rows) = if action == "o" {
-                (
-                    i18n::settle_confirm1(lang, &label),
-                    vec![
-                        vec![(i18n::settle_btn_continue(lang).to_string(), format!("{PSTL}c:{key}:{oc}"))],
-                        vec![(i18n::bet_btn_back(lang).to_string(), format!("{PSTL}p:{key}"))],
-                    ],
-                )
-            } else {
-                (
-                    i18n::settle_confirm2(lang, &label),
-                    vec![
-                        vec![(i18n::settle_btn_settle(lang).to_string(), format!("{PSTL}g:{key}:{oc}"))],
-                        vec![(i18n::bet_btn_back(lang).to_string(), format!("{PSTL}p:{key}"))],
-                    ],
-                )
-            };
-            let _ = tg::edit_with_buttons(ctx, mchat, mid, &text, &rows).await;
-        }
-        // Final confirm → settle (closing the pool first if betting's still open).
-        "g" => {
-            let Some((key, oc)) = tail.rsplit_once(':') else {
-                return answer(ctx, cb, "", false).await;
-            };
-            let outcome = {
-                let mut g = predictions.lock().await;
-                let Some(p) = g.get_mut(key) else {
-                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-                };
-                if p.host != cb.from.id {
-                    return answer(ctx, cb, i18n::not_host(lang), true).await;
-                }
-                if !p.can_close(now) && !p.only_host_staked() {
-                    let when = crate::commands::util::fmt_local_time(p.ends_at, p.tz_offset)
-                        .unwrap_or_default();
-                    return answer(ctx, cb, &i18n::close_before_deadline(lang, &when), true).await;
-                }
-                let Some(outcome) = resolve_outcome(p, oc) else {
-                    return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-                };
-                // `settle` requires a closed pool — close it now if still betting.
-                if p.state == BetState::betting {
-                    p.close();
-                    if let Err(err) = db.save_prediction(p) {
-                        eprintln!("save_prediction(menu close) error: {err}");
-                    }
-                }
-                outcome
-            };
-            if !finish_settle(ctx, key, &outcome).await {
-                return answer(ctx, cb, i18n::prediction_invalid(lang), true).await;
-            }
-            // Refresh the settle list in place — or drop to the home menu if nothing's left.
-            let preds = predict::host_open_predictions(ctx, cb.from.id).await;
-            if preds.is_empty() {
-                return handle_menu_home(ctx, cb).await;
-            }
-            answer(ctx, cb, i18n::settle_success(lang), false).await?;
-            let (body, rows) = settle_list_view(lang, &preds);
-            let _ = tg::edit_with_buttons(ctx, mchat, mid, &body, &rows).await;
-            return Ok(());
-        }
-        _ => {}
-    }
-    answer(ctx, cb, "", false).await
-}
-
-/// Trim a button label to at most `max` chars (char-safe), adding an ellipsis when cut.
-fn truncate_label(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let cut: String = s.chars().take(max.saturating_sub(1)).collect();
-    format!("{cut}…")
 }
 
 /// This user's referral deep link, from the cached bot username.
@@ -1302,26 +723,6 @@ async fn handle_menu_predict(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     }
 }
 
-/// `menu:repost` — the group-only `[♻️ Restore card]` button. Reposts the
-/// presser's prediction card **into this group** (the chat the button was tapped
-/// in is provably reachable — the bot just received this callback there), which
-/// is exactly the recovery for a card deleted from the chat. Picks the host's
-/// most-recent open prediction in this group; a toast if they host none here.
-async fn handle_menu_repost(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
-    let lang = cb_lang(ctx, cb);
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
-    let chat = message.chat.get_id();
-    let Some(key) = predict::host_restorable_prediction(ctx, cb.from.id, chat).await else {
-        return answer(ctx, cb, i18n::nothing_to_restore(lang), true).await;
-    };
-    if predict::repost_card(ctx, &key, chat).await {
-        answer(ctx, cb, i18n::card_reposted(lang), false).await
-    } else {
-        answer(ctx, cb, i18n::predict_post_failed(lang), true).await
-    }
-}
 
 async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let Some(message) = cb.message.clone() else {
