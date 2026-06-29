@@ -141,11 +141,46 @@ the `en`/`zh` API locale) so repeated `/markets`, `menu:markets`, and `bet:` tap
 don't hammer the rate-limited API — the lock is never held across the network
 `.await`. Every real-money placement **re-prices from this cache at place time**
 (`betting::refetch_quote`, see the betting section), so a wager is always booked
-at odds **at most `FEED_CACHE_TTL` (30s) old** — never the older snapshot the
-quote was locked to. The displayed quote keeps its own 60s `QUOTE_TTL_SECS` purely
-for the build/confirm UI (auto-renewed past that). Concurrent cold-cache misses
+from a feed snapshot **at most `FEED_CACHE_TTL` (30s) old** — never the older
+snapshot the quote was locked to (the **Gamma odds overlaid** into that snapshot
+can themselves be up to ~2×TTL old — see the odds-overlay note below). The
+displayed quote keeps its own 60s `QUOTE_TTL_SECS` purely for the build/confirm
+UI (auto-renewed past that). Concurrent cold-cache misses
 aren't coalesced, so a startup burst may fetch a couple of times before the cache
 warms.
+
+**Odds overlay — live from Polymarket.** The waterx browse feed supplies the
+**normalized match shell** (teams, kickoff, sport detection, localized names),
+but its `oddsCents` is just a relay of Polymarket's YES price — so the odds shown
+*and* bet are **re-priced straight from Polymarket's public Gamma API**
+(`gamma-api.polymarket.com/events/slug/<ticker>`, `GAMMA_EVENT_URL`) and overlaid
+onto the waterx list. `markets::overlay_gamma_odds` runs inside `fetch_markets`
+**before the cache insert**, so the overlaid odds are baked into the feed snapshot
+— and thus both the brief *and* bet-time re-pricing (`fetch_one` →
+`betting::refetch_quote`) book Gamma odds. **Join key:** waterx ships
+`sport-<ticker>` and Gamma's event slug is exactly `<ticker>`, so stripping the
+`sport-` prefix yields the event lookup (`fetch_gamma_sides`). A 3-way match is a
+**neg-risk event** of separate Yes/No markets (one per team + draw); `map_sides`
+keys **draw** off its `groupItemTitle` ("Draw …") and orders the two **win**
+markets by where their title appears in the `"TeamA vs. TeamB"` event title — the
+**same slug-derived order waterx uses for teamA/teamB**, so the mapping is
+**locale-independent** (it never touches the localized waterx team strings, so zh
+works too). teamA/teamB odds are applied only when **both** win markets resolve
+cleanly (else each side keeps its waterx value); draw overlays independently.
+`outcomes`/`outcomePrices` arrive as **JSON-encoded strings** (e.g.
+`"[\"Yes\",\"No\"]"`), parsed lazily by `GammaMarket::yes_cents` (YES price × 100 =
+the bot's existing cents convention; non-positive → treated as "no quote"). The
+overlay is **best-effort**: any network/parse failure, an unresolved slug, or a
+missing side falls back to the waterx odds — and **bounded**: only the first
+`MAX_MARKETS` within-window matches are priced, fetched concurrently via
+`tokio::task::JoinSet`, once per cache refresh. Because the odds are
+language-independent, results are served from a process-wide **locale-shared**
+`gamma_cache()` keyed by the de-prefixed ticker (`FEED_CACHE_TTL`, positive-only
+caching, pruned each refresh) so the `en` and `zh` refreshes don't each re-fetch
+the same events. The crate `polymarket_client_sdk_v2` was evaluated for this and
+**deliberately not used** — its read path pulls in a non-optional `alloy`
+(signers + sol-types) and wants `reqwest 0.13` (vs the tree's `0.12`), so we hit
+Gamma directly with the existing `reqwest` instead.
 
 `/markets` renders the brief with a **numbered button per
 shown match** (`bet:<market_id>`); `markets::brief` returns `(text, button rows)`
