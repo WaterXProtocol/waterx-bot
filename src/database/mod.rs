@@ -107,6 +107,11 @@ impl Database {
         // AMM `/predict` board location columns, for older event tables.
         let _ = conn.execute("ALTER TABLE events ADD COLUMN card_chat INTEGER NOT NULL DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE events ADD COLUMN card_msg INTEGER NOT NULL DEFAULT 0", []);
+        // Funding-stage columns (LP price-discovery), for older event tables:
+        // `events.open_at` = when funding closes → trading opens; `markets.funded` =
+        // per-outcome LP allocation that sets the opening price.
+        let _ = conn.execute("ALTER TABLE events ADD COLUMN open_at INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE markets ADD COLUMN funded INTEGER NOT NULL DEFAULT 0", []);
         // Small key/value table for bot-wide flags (currently just the admin
         // `paused` kill-switch). Persisted so a pause survives restarts.
         conn.execute(

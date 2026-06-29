@@ -205,7 +205,8 @@ impl Database {
                 card_chat      INTEGER NOT NULL DEFAULT 0,
                 card_msg       INTEGER NOT NULL DEFAULT 0,
                 created_at     INTEGER NOT NULL DEFAULT 0,
-                resolved_at    INTEGER NOT NULL DEFAULT 0
+                resolved_at    INTEGER NOT NULL DEFAULT 0,
+                open_at        INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
@@ -215,6 +216,7 @@ impl Database {
                 idx      INTEGER NOT NULL,
                 name     TEXT    NOT NULL DEFAULT '',
                 q_shares INTEGER NOT NULL DEFAULT 0,
+                funded   INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (event_id, idx)
             )",
             [],
@@ -227,6 +229,18 @@ impl Database {
                 shares     INTEGER NOT NULL DEFAULT 0,
                 cost       INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (event_id, market_idx, user)
+            )",
+            [],
+        )?;
+        // Per-LP funding-stage contributions (micro-coins). LP share of the pool =
+        // contributed / Σ contributed; the residual + fees are split back pro-rata
+        // at resolution (see `core::lmsr_fund`).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS liquidity (
+                event_id    INTEGER NOT NULL,
+                user        INTEGER NOT NULL,
+                contributed INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (event_id, user)
             )",
             [],
         )?;
