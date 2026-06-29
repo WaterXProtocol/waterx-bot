@@ -9,8 +9,13 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use telexide::prelude::*;
 
-/// waterx prediction-market browse endpoint.
+/// waterx prediction-market browse endpoint (the normalized match list:
+/// teams, kickoff, sport detection, localized names).
 const BROWSE_URL: &str = "https://api.waterx.app/predict/browse";
+/// Polymarket Gamma event lookup (`…/events/slug/<ticker>`). Live odds are
+/// re-priced straight from here and overlaid onto the waterx match list — see
+/// the Gamma odds-overlay section below.
+const GAMMA_EVENT_URL: &str = "https://gamma-api.polymarket.com/events/slug/";
 /// How long a fetched feed is reused before re-hitting the API (per locale), to
 /// stay under the upstream rate limit. Every real-money bet is **re-priced from
 /// this cache at place time** (`betting::refetch_quote`), so a wager is booked at
@@ -197,8 +202,118 @@ async fn fetch_markets(lang: Lang) -> Result<Vec<MarketInfo>, reqwest::Error> {
 
     let mut markets: Vec<MarketInfo> = resp.data.items.iter().filter_map(to_match_info).collect();
     markets.sort_by_key(|m| (!m.live, m.starts_at.unwrap_or(i64::MAX)));
+    // Replace the relayed waterx odds with live odds straight from Polymarket's
+    // Gamma API (waterx odds kept as the per-side fallback). Only the matches
+    // that actually get shown/bet are priced, to bound the call count. Done once
+    // per cache refresh, so the cached snapshot — and thus bet-time re-pricing
+    // via `fetch_one` — carries the Gamma numbers.
+    overlay_gamma_odds(&mut markets, now).await;
     feed_cache().lock().insert(api_locale, (now, markets.clone()));
     Ok(markets)
+}
+
+// ---------------------------------------------------------------------------
+// Gamma odds overlay — live odds straight from Polymarket
+// ---------------------------------------------------------------------------
+//
+// waterx's `oddsCents` is just a relay of Polymarket's YES price, so for fresher
+// numbers (and independence from waterx's odds cadence) we re-price each shown
+// match directly against Polymarket's public Gamma API. The join key is the
+// slug: waterx ships `sport-<ticker>` and Gamma's event slug is exactly
+// `<ticker>`, so stripping the `sport-` prefix yields the event lookup. A 3-way
+// match is a neg-risk event of separate Yes/No markets (one per team + draw);
+// each is mapped back to teamA/teamB/draw and we read its YES price.
+
+/// Overlay live Gamma odds onto the matches that will be shown/bet (the first
+/// `MAX_MARKETS` within the display window). Best-effort: any per-match
+/// fetch/parse failure leaves that match on its waterx odds, and a present Gamma
+/// price overrides only its own side. Runs once per cache refresh.
+async fn overlay_gamma_odds(markets: &mut [MarketInfo], now: i64) {
+    let targets: Vec<(usize, String)> = markets
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| within_window(m, now))
+        .take(MAX_MARKETS)
+        .map(|(i, m)| (i, m.slug.clone()))
+        .collect();
+    if targets.is_empty() {
+        return;
+    }
+    // One event fetch per match, concurrently.
+    let mut set = tokio::task::JoinSet::new();
+    for (i, slug) in targets {
+        set.spawn(async move { (i, fetch_gamma_sides(&slug).await) });
+    }
+    while let Some(joined) = set.join_next().await {
+        let Ok((i, Some(sides))) = joined else { continue };
+        let m = &mut markets[i];
+        if sides.a.is_some() {
+            m.odds_a = sides.a;
+        }
+        if sides.draw.is_some() {
+            m.odds_draw = sides.draw;
+        }
+        if sides.b.is_some() {
+            m.odds_b = sides.b;
+        }
+    }
+}
+
+/// Fetch one match's Gamma event by slug and distil its per-side YES odds (cents).
+/// `None` on any network/parse failure (caller falls back to the waterx odds).
+async fn fetch_gamma_sides(waterx_slug: &str) -> Option<GammaSides> {
+    let ticker = waterx_slug.strip_prefix("sport-").unwrap_or(waterx_slug);
+    if ticker.is_empty() {
+        return None;
+    }
+    let event = http_client()
+        .get(format!("{GAMMA_EVENT_URL}{ticker}"))
+        .header("user-agent", "waterx-bot/0.1")
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json::<GammaEvent>()
+        .await
+        .ok()?;
+    map_sides(&event)
+}
+
+/// Map a Gamma event's per-outcome markets onto teamA/teamB/draw YES cents.
+///
+/// Draw is identified by its `groupItemTitle` ("Draw …") — locale-independent.
+/// The two win markets are ordered by where their title appears in the event
+/// title ("TeamA vs. TeamB"), the same slug-derived order waterx uses for
+/// teamA/teamB, so the mapping holds in any display language. teamA/teamB odds
+/// are only applied when **both** win markets resolve cleanly (else each side
+/// keeps its waterx value); draw overlays independently.
+fn map_sides(ev: &GammaEvent) -> Option<GammaSides> {
+    let title = ev.title.as_deref().unwrap_or("");
+    let mut draw = None;
+    let mut wins: Vec<(usize, f64)> = Vec::new(); // (position in title, yes cents)
+    for m in &ev.markets {
+        let Some(cents) = m.yes_cents() else { continue };
+        let git = m.group_item_title.trim();
+        if git.is_empty() {
+            continue;
+        }
+        if git.to_ascii_lowercase().starts_with("draw") {
+            draw = Some(cents);
+        } else if let Some(pos) = title.find(git) {
+            wins.push((pos, cents));
+        }
+    }
+    let (a, b) = if wins.len() == 2 {
+        wins.sort_by_key(|(pos, _)| *pos);
+        (Some(wins[0].1), Some(wins[1].1))
+    } else {
+        (None, None)
+    };
+    if a.is_none() && b.is_none() && draw.is_none() {
+        return None;
+    }
+    Some(GammaSides { a, draw, b })
 }
 
 fn to_match_info(it: &Item) -> Option<MarketInfo> {
@@ -321,4 +436,52 @@ struct Side {
     // (e.g. 99.9), so this must be a float or the whole feed fails to parse.
     #[serde(rename = "oddsCents")]
     odds_cents: Option<f64>,
+}
+
+// ---------------------------------------------------------------------------
+// Polymarket Gamma event — only the fields the odds overlay reads.
+// ---------------------------------------------------------------------------
+
+/// YES-price (cents) overlay for one match's three sides; `None` = keep waterx.
+#[derive(Clone, Copy)]
+struct GammaSides {
+    a: Option<f64>,
+    draw: Option<f64>,
+    b: Option<f64>,
+}
+
+/// A Gamma event (`/events/slug/<ticker>`). The 3-way moneyline is a neg-risk
+/// group of `markets`; `title` is "TeamA vs. TeamB" and pins the side order.
+#[derive(Deserialize)]
+struct GammaEvent {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    markets: Vec<GammaMarket>,
+}
+
+/// One outcome market inside a Gamma event. `outcomes`/`outcomePrices` arrive as
+/// **JSON-encoded strings** (e.g. `"[\"Yes\", \"No\"]"`), not arrays — so they're
+/// parsed lazily in [`GammaMarket::yes_cents`].
+#[derive(Deserialize)]
+struct GammaMarket {
+    #[serde(rename = "groupItemTitle", default)]
+    group_item_title: String,
+    #[serde(default)]
+    outcomes: Option<String>,
+    #[serde(rename = "outcomePrices", default)]
+    outcome_prices: Option<String>,
+}
+
+impl GammaMarket {
+    /// This market's YES price as odds in cents (probability × 100), or `None`
+    /// if it can't be parsed or is non-positive (treated as "no quote", so the
+    /// waterx odds stand). Matches the bot's existing `oddsCents` convention.
+    fn yes_cents(&self) -> Option<f64> {
+        let outcomes: Vec<String> = serde_json::from_str(self.outcomes.as_deref()?).ok()?;
+        let prices: Vec<String> = serde_json::from_str(self.outcome_prices.as_deref()?).ok()?;
+        let yes = outcomes.iter().position(|o| o.eq_ignore_ascii_case("yes"))?;
+        let p: f64 = prices.get(yes)?.parse().ok()?;
+        (p > 0.0).then_some(p * 100.0)
+    }
 }
