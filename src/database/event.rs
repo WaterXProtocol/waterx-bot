@@ -21,6 +21,40 @@ pub enum TradeOutcome {
     Unavailable,
 }
 
+/// How a user's stake in one settled event resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaimKind {
+    /// Held the winning outcome — paid `coins`.
+    Won,
+    /// Held only losing outcomes — paid nothing.
+    Lost,
+    /// Event voided — cost basis refunded.
+    Refunded,
+}
+
+/// One user's settlement result for one event (the unit `/claim` and `/settle`
+/// report and DM).
+#[derive(Debug, Clone)]
+pub struct Payout {
+    pub event_id: i64,
+    pub title: String,
+    pub user: i64,
+    /// Micro-coins credited to the user for this event (0 for a pure loss).
+    pub coins: i64,
+    pub kind: ClaimKind,
+}
+
+/// Display precedence when a user held several outcomes in one event: a win
+/// dominates a refund, which dominates a loss.
+fn merge_kind(a: ClaimKind, b: ClaimKind) -> ClaimKind {
+    use ClaimKind::*;
+    match (a, b) {
+        (Won, _) | (_, Won) => Won,
+        (Refunded, _) | (_, Refunded) => Refunded,
+        _ => Lost,
+    }
+}
+
 /// `amount · bps / 10000`, floored, in i128 to avoid mid-product overflow.
 fn mul_bps(amount: i64, bps: i64) -> i64 {
     (amount as i128 * bps as i128 / 10_000) as i64
@@ -296,6 +330,358 @@ impl Database {
         tx.commit()?;
         Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee })
     }
+
+    // --- Sourced (Polymarket-backed, house-banked) -------------------------
+
+    /// Find the open `sourced` event for a Gamma `source_ref`, creating it (plus
+    /// its outcome markets) on first trade. Lazily materialised like the old
+    /// `wagers` rows were. Returns the event id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_or_create_sourced_event(
+        &self,
+        source_ref: &str,
+        title: &str,
+        lang: &str,
+        odds_fmt: &str,
+        tz_offset: Option<i64>,
+        ends_at: i64,
+        outcomes: &[String],
+        now: i64,
+    ) -> SqlResult<i64> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        if let Some(id) = tx
+            .query_row(
+                "SELECT id FROM events WHERE kind = 'sourced' AND source_ref = ?1 AND state = 'open'",
+                params![source_ref],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+        {
+            return Ok(id); // read-only tx drops → rollback
+        }
+        tx.execute(
+            "INSERT INTO events
+                (kind, source_ref, title, creator, lang, odds_fmt, tz_offset, ends_at, state, pool, created_at)
+             VALUES ('sourced', ?1, ?2, 0, ?3, ?4, ?5, ?6, 'open', 0, ?7)",
+            params![source_ref, title, lang, odds_fmt, tz_offset, ends_at, now],
+        )?;
+        let id = tx.last_insert_rowid();
+        for (idx, name) in outcomes.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO markets (event_id, idx, name, q_shares) VALUES (?1, ?2, ?3, 0)",
+                params![id, idx as i64, name],
+            )?;
+        }
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// Buy YES shares of outcome `idx` in a sourced event at the live Gamma price
+    /// (`price_cents` ∈ (0, 100]). House-banked: `shares = ⌊spend / price⌋`
+    /// (floored), the spend leaves circulation, no pool. One transaction.
+    pub fn sourced_buy(
+        &self,
+        event_id: i64,
+        idx: i64,
+        user: i64,
+        spend: i64,
+        price_cents: f64,
+    ) -> SqlResult<TradeOutcome> {
+        if spend <= 0 || !(price_cents.is_finite() && price_cents > 0.0) {
+            return Ok(TradeOutcome::Rejected);
+        }
+        self.ensure_row(user)?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let open: Option<i64> = tx
+            .query_row(
+                "SELECT 1 FROM events WHERE id = ?1 AND kind = 'sourced' AND state = 'open'",
+                params![event_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let has_idx: Option<i64> = tx
+            .query_row(
+                "SELECT 1 FROM markets WHERE event_id = ?1 AND idx = ?2",
+                params![event_id, idx],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if open.is_none() || has_idx.is_none() {
+            return Ok(TradeOutcome::Unavailable);
+        }
+        // shares = spend / (price_cents/100), in micro-shares (SHARE == COIN).
+        let shares = (spend as f64 * 100.0 / price_cents).floor() as i64;
+        if shares <= 0 {
+            return Ok(TradeOutcome::Rejected);
+        }
+        let debited = tx.execute(
+            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
+            params![spend, user],
+        )?;
+        if debited != 1 {
+            return Ok(TradeOutcome::Rejected);
+        }
+        add_position(&tx, event_id, idx, user, shares, spend)?;
+        tx.execute(
+            "UPDATE markets SET q_shares = q_shares + ?1 WHERE event_id = ?2 AND idx = ?3",
+            params![shares, event_id, idx],
+        )?;
+        tx.commit()?;
+        Ok(TradeOutcome::Filled { shares, coins: -spend, fee: 0 })
+    }
+
+    /// Sell `shares` micro-shares of outcome `idx` in a sourced event at the live
+    /// price. House-banked: credit `⌊shares · price⌋` (floored), no pool. One
+    /// transaction.
+    pub fn sourced_sell(
+        &self,
+        event_id: i64,
+        idx: i64,
+        user: i64,
+        shares: i64,
+        price_cents: f64,
+    ) -> SqlResult<TradeOutcome> {
+        if shares <= 0 || !(price_cents.is_finite() && price_cents > 0.0) {
+            return Ok(TradeOutcome::Rejected);
+        }
+        self.ensure_row(user)?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let open: Option<i64> = tx
+            .query_row(
+                "SELECT 1 FROM events WHERE id = ?1 AND kind = 'sourced' AND state = 'open'",
+                params![event_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if open.is_none() {
+            return Ok(TradeOutcome::Unavailable);
+        }
+        let (held, basis): (i64, i64) = tx
+            .query_row(
+                "SELECT shares, cost FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
+                params![event_id, idx, user],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .unwrap_or((0, 0));
+        if held < shares {
+            return Ok(TradeOutcome::Rejected);
+        }
+        let proceeds = (shares as f64 * price_cents / 100.0).floor() as i64;
+        tx.execute(
+            "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
+            params![user],
+        )?;
+        tx.execute(
+            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+            params![proceeds, user],
+        )?;
+        tx.execute(
+            "UPDATE markets SET q_shares = q_shares - ?1 WHERE event_id = ?2 AND idx = ?3",
+            params![shares, event_id, idx],
+        )?;
+        if held == shares {
+            tx.execute(
+                "DELETE FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
+                params![event_id, idx, user],
+            )?;
+        } else {
+            let basis_removed = (basis as i128 * shares as i128 / held as i128) as i64;
+            tx.execute(
+                "UPDATE positions SET shares = shares - ?1, cost = cost - ?2
+                 WHERE event_id = ?3 AND market_idx = ?4 AND user = ?5",
+                params![shares, basis_removed, event_id, idx, user],
+            )?;
+        }
+        tx.commit()?;
+        Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee: 0 })
+    }
+
+    // --- Resolution & settlement -------------------------------------------
+
+    /// Record the winning outcome on an open event (sourced: from the Gamma
+    /// oracle; amm: declared by the host). Returns `true` if it flipped an open
+    /// event to `resolved`. Payouts happen later via [`Database::claim`] /
+    /// [`Database::settle_all_sourced`].
+    pub fn resolve_event(&self, event_id: i64, winning_idx: i64, now: i64) -> SqlResult<bool> {
+        let conn = self.conn.lock();
+        let n = conn.execute(
+            "UPDATE events SET state = 'resolved', winning_market = ?1, resolved_at = ?2
+             WHERE id = ?3 AND state = 'open'",
+            params![winning_idx, now, event_id],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// Void an open event (no clear winner / 50-50). Settlement then refunds every
+    /// holder's cost basis. Returns `true` if it flipped an open event to `void`.
+    pub fn void_event(&self, event_id: i64, now: i64) -> SqlResult<bool> {
+        let conn = self.conn.lock();
+        let n = conn.execute(
+            "UPDATE events SET state = 'void', resolved_at = ?1 WHERE id = ?2 AND state = 'open'",
+            params![now, event_id],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// Settle the positions of one resolved/void event — for one user
+    /// (`only_user`) or everyone (`None`). Winning shares pay 1 coin each; losers
+    /// 0; a void refunds cost basis. AMM payouts/refunds come **from the pool**
+    /// (and the residual returns to the host once the last position is settled,
+    /// flipping the event to `closed`); sourced payouts are house-banked. One
+    /// transaction. Returns one [`Payout`] per affected user.
+    fn settle_event(&self, event_id: i64, only_user: Option<i64>) -> SqlResult<Vec<Payout>> {
+        use std::collections::BTreeMap;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let Some((kind, state, winning, mut pool, creator, title)) = tx
+            .query_row(
+                "SELECT kind, state, winning_market, pool, creator, title FROM events WHERE id = ?1",
+                params![event_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, i64>(4)?,
+                        r.get::<_, String>(5)?,
+                    ))
+                },
+            )
+            .optional()?
+        else {
+            return Ok(vec![]);
+        };
+        let voided = state == "void";
+        if !voided && state != "resolved" {
+            return Ok(vec![]); // not settleable yet
+        }
+        let amm = kind == "amm";
+
+        // (user, market_idx, shares, cost)
+        let positions: Vec<(i64, i64, i64, i64)> = if let Some(u) = only_user {
+            let mut stmt = tx.prepare(
+                "SELECT user, market_idx, shares, cost FROM positions WHERE event_id = ?1 AND user = ?2",
+            )?;
+            let v = stmt
+                .query_map(params![event_id, u], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            v
+        } else {
+            let mut stmt =
+                tx.prepare("SELECT user, market_idx, shares, cost FROM positions WHERE event_id = ?1")?;
+            let v = stmt
+                .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            v
+        };
+
+        let mut per_user: BTreeMap<i64, (i64, ClaimKind)> = BTreeMap::new();
+        for (user, idx, shares, cost) in &positions {
+            let (coins, kind_one) = if voided {
+                (*cost, ClaimKind::Refunded)
+            } else if Some(*idx) == winning {
+                (*shares, ClaimKind::Won) // SHARE == COIN ⇒ 1 share = 1 coin
+            } else {
+                (0, ClaimKind::Lost)
+            };
+            if coins > 0 {
+                tx.execute(
+                    "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
+                    params![user],
+                )?;
+                tx.execute(
+                    "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+                    params![coins, user],
+                )?;
+                if amm {
+                    pool -= coins; // AMM payouts/refunds are funded by the pool
+                }
+            }
+            tx.execute(
+                "DELETE FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
+                params![event_id, idx, user],
+            )?;
+            let e = per_user.entry(*user).or_insert((0, ClaimKind::Lost));
+            e.0 += coins;
+            e.1 = merge_kind(e.1, kind_one);
+        }
+
+        if amm {
+            tx.execute("UPDATE events SET pool = ?1 WHERE id = ?2", params![pool, event_id])?;
+        }
+        // When the last position is gone, finalise: AMM residual (seed + fees −
+        // payouts) returns to the host, and the event closes.
+        let remaining: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM positions WHERE event_id = ?1",
+            params![event_id],
+            |r| r.get(0),
+        )?;
+        if remaining == 0 {
+            if amm && pool > 0 {
+                tx.execute(
+                    "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
+                    params![creator],
+                )?;
+                tx.execute(
+                    "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+                    params![pool, creator],
+                )?;
+                tx.execute("UPDATE events SET pool = 0 WHERE id = ?1", params![event_id])?;
+            }
+            tx.execute("UPDATE events SET state = 'closed' WHERE id = ?1", params![event_id])?;
+        }
+        tx.commit()?;
+
+        Ok(per_user
+            .into_iter()
+            .map(|(user, (coins, kind))| Payout { event_id, title: title.clone(), user, coins, kind })
+            .collect())
+    }
+
+    /// Collect a user's winnings: settle their positions across every
+    /// resolved/void event they hold. Returns the per-event payouts (for the DM
+    /// summary).
+    pub fn claim(&self, user: i64) -> SqlResult<Vec<Payout>> {
+        let ids: Vec<i64> = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT p.event_id FROM positions p JOIN events e ON e.id = p.event_id
+                 WHERE p.user = ?1 AND e.state IN ('resolved', 'void')",
+            )?;
+            let v = stmt.query_map(params![user], |r| r.get(0))?.collect::<SqlResult<Vec<_>>>()?;
+            v
+        };
+        let mut out = Vec::new();
+        for ev in ids {
+            out.extend(self.settle_event(ev, Some(user))?);
+        }
+        Ok(out)
+    }
+
+    /// Public `/settle` sweep — settle **all** positions of every resolved/void
+    /// **sourced** event (Polymarket is the oracle). AMM events are skipped (they
+    /// settle via the host + `/claim`). Returns every payout made.
+    pub fn settle_all_sourced(&self) -> SqlResult<Vec<Payout>> {
+        let ids: Vec<i64> = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id FROM events WHERE kind = 'sourced' AND state IN ('resolved', 'void')
+                 AND EXISTS (SELECT 1 FROM positions WHERE event_id = events.id)",
+            )?;
+            let v = stmt.query_map([], |r| r.get(0))?.collect::<SqlResult<Vec<_>>>()?;
+            v
+        };
+        let mut out = Vec::new();
+        for ev in ids {
+            out.extend(self.settle_event(ev, None)?);
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -516,5 +902,132 @@ mod tests {
             .unwrap();
         assert_eq!(db.amm_buy(ev, 0, 2, 100 * COIN).unwrap(), TradeOutcome::Rejected);
         assert_eq!(db.get_user_info(2).unwrap().balance, 3 * COIN, "nothing moved");
+    }
+
+    // --- Sourced (house-banked) + settlement --------------------------------
+
+    fn sourced(db: &Database) -> i64 {
+        db.get_or_create_sourced_event("tkr", "A vs B", "", "", None, 0, &opts(&["A", "B"]), 100)
+            .unwrap()
+    }
+
+    fn state_of(db: &Database, ev: i64) -> String {
+        db.conn
+            .lock()
+            .query_row("SELECT state FROM events WHERE id = ?1", [ev], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn sourced_buy_burns_spend_and_mints_shares_at_price() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(2, 100 * COIN).unwrap();
+        let ev = sourced(&db);
+        // Buy 10 coins of A at 50¢ → 20 shares; spend leaves circulation (no pool).
+        let out = db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap();
+        let TradeOutcome::Filled { shares, coins, fee } = out else {
+            panic!("{out:?}")
+        };
+        assert_eq!(shares, 20 * SHARE);
+        assert_eq!(coins, -10 * COIN);
+        assert_eq!(fee, 0);
+        assert_eq!(db.get_user_info(2).unwrap().balance, 90 * COIN);
+        assert_eq!(pool_of(&db, ev), 0, "sourced is house-banked, no pool");
+    }
+
+    #[test]
+    fn sourced_win_pays_one_coin_per_share_house_minted() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(2, 100 * COIN).unwrap();
+        let ev = sourced(&db);
+        db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap(); // 20 shares, bal 90
+        assert!(db.resolve_event(ev, 0, 200).unwrap());
+        let payouts = db.claim(2).unwrap();
+        assert_eq!(payouts.len(), 1);
+        assert_eq!(payouts[0].kind, ClaimKind::Won);
+        assert_eq!(payouts[0].coins, 20 * COIN); // 20 winning shares → 20 coins
+        assert_eq!(db.get_user_info(2).unwrap().balance, 110 * COIN); // 90 + 20 (house mint)
+        assert_eq!(state_of(&db, ev), "closed");
+    }
+
+    #[test]
+    fn sourced_loss_pays_zero_and_clears() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(2, 100 * COIN).unwrap();
+        let ev = sourced(&db);
+        db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap();
+        db.resolve_event(ev, 1, 200).unwrap(); // B wins; user held A
+        let payouts = db.claim(2).unwrap();
+        assert_eq!(payouts[0].kind, ClaimKind::Lost);
+        assert_eq!(payouts[0].coins, 0);
+        assert_eq!(db.get_user_info(2).unwrap().balance, 90 * COIN); // lost the 10
+    }
+
+    #[test]
+    fn amm_settlement_pays_winners_from_pool_residual_to_host_conserved() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 1000 * COIN).unwrap(); // host
+        db.force_change(2, 1000 * COIN).unwrap(); // backs A (winner)
+        db.force_change(3, 1000 * COIN).unwrap(); // backs B (loser)
+        let before = coin_total(&db);
+        let ev = db
+            .create_amm_event(1, "Q", "", "", None, 0, &opts(&["A", "B"]), 50, 200, 100)
+            .unwrap()
+            .unwrap();
+        db.amm_buy(ev, 0, 2, 80 * COIN).unwrap();
+        db.amm_buy(ev, 1, 3, 40 * COIN).unwrap();
+        db.resolve_event(ev, 0, 200).unwrap(); // A wins
+        db.claim(2).unwrap();
+        db.claim(3).unwrap();
+        assert_eq!(coin_total(&db), before, "AMM settlement conserves total coins");
+        assert_eq!(pool_of(&db, ev), 0, "pool drained to winner + host residual");
+        assert_eq!(state_of(&db, ev), "closed");
+        let n: i64 = db
+            .conn
+            .lock()
+            .query_row("SELECT COUNT(*) FROM positions WHERE event_id = ?1", [ev], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn void_refunds_cost_basis_and_amm_returns_escrow_to_host() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 1000 * COIN).unwrap();
+        db.force_change(2, 1000 * COIN).unwrap();
+        let before = coin_total(&db);
+        let ev = db
+            .create_amm_event(1, "Q", "", "", None, 0, &opts(&["A", "B"]), 50, 200, 100)
+            .unwrap()
+            .unwrap();
+        db.amm_buy(ev, 0, 2, 60 * COIN).unwrap();
+        db.void_event(ev, 200).unwrap();
+        let payouts = db.claim(2).unwrap();
+        assert_eq!(payouts[0].kind, ClaimKind::Refunded);
+        assert_eq!(db.get_user_info(2).unwrap().balance, 1000 * COIN, "trader refunded cost basis");
+        assert_eq!(db.get_user_info(1).unwrap().balance, 1000 * COIN, "host got the escrow back");
+        assert_eq!(coin_total(&db), before);
+        assert_eq!(pool_of(&db, ev), 0);
+    }
+
+    #[test]
+    fn settle_all_sourced_skips_amm_events() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 1000 * COIN).unwrap();
+        db.force_change(2, 1000 * COIN).unwrap();
+        let src = sourced(&db);
+        db.sourced_buy(src, 0, 2, 10 * COIN, 50.0).unwrap();
+        db.resolve_event(src, 0, 200).unwrap();
+        let amm = db
+            .create_amm_event(1, "Q", "", "", None, 0, &opts(&["A", "B"]), 50, 200, 100)
+            .unwrap()
+            .unwrap();
+        db.amm_buy(amm, 0, 2, 20 * COIN).unwrap();
+        db.resolve_event(amm, 0, 200).unwrap();
+
+        let payouts = db.settle_all_sourced().unwrap();
+        assert!(payouts.iter().all(|p| p.event_id == src), "only the sourced event settled");
+        assert_eq!(state_of(&db, src), "closed");
+        assert_eq!(state_of(&db, amm), "resolved", "amm untouched by /settle");
     }
 }
