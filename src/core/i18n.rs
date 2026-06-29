@@ -1858,6 +1858,24 @@ pub fn claim_refunded(l: Lang, title: &str, coins: &str) -> String {
     .replace("{coins}", coins)
 }
 
+pub fn settle_nothing(l: Lang) -> &'static str {
+    tr!(l;
+        "Nothing to settle right now.", "目前沒有可結算的。", "目前没有可结算的。", "今は精算できるものがありません。", "지금 정산할 것이 없습니다.",
+        "Сейчас нечего рассчитывать.", "Rien à régler pour l'instant.", "Nada que liquidar ahora.", "Im Moment nichts abzurechnen.", "Hiện chưa có gì để quyết toán.",
+        "Belum ada yang bisa diselesaikan.", "Wala pang maa-settle.", "ยังไม่มีอะไรให้เคลียร์", "Nu niets af te rekenen.", "Şu an çözülecek bir şey yok.",
+        "Nada para liquidar agora.", "अभी निपटाने को कुछ नहीं है।", "لا شيء للتسوية الآن.")
+}
+
+pub fn settle_done(l: Lang, events: &str, coins: &str) -> String {
+    tr!(l;
+        "✅ Settled {events} event(s) — paid out {coins} 🪙. Use /claim for your share.", "✅ 已結算 {events} 場 — 派彩 {coins} 🪙。用 /claim 領你的份。", "✅ 已结算 {events} 场 — 派彩 {coins} 🪙。用 /claim 领你的份。", "✅ {events} 件を精算 — {coins} 🪙 を払い出し。/claim で受け取りを。", "✅ {events}건 정산 — {coins} 🪙 지급. /claim 으로 수령하세요.",
+        "✅ Рассчитано {events} событий — выплачено {coins} 🪙. Заберите своё через /claim.", "✅ {events} événement(s) réglé(s) — {coins} 🪙 versés. Récupérez via /claim.", "✅ {events} evento(s) liquidado(s) — {coins} 🪙 pagados. Usa /claim.", "✅ {events} Event(s) abgerechnet — {coins} 🪙 ausgezahlt. Hol dir deins mit /claim.", "✅ Đã quyết toán {events} sự kiện — trả {coins} 🪙. Dùng /claim để nhận.",
+        "✅ {events} event diselesaikan — dibayar {coins} 🪙. Pakai /claim.", "✅ Na-settle ang {events} event — {coins} 🪙 binayad. Gamitin ang /claim.", "✅ เคลียร์ {events} รายการ — จ่าย {coins} 🪙 ใช้ /claim เพื่อรับ", "✅ {events} event(s) afgerekend — {coins} 🪙 uitbetaald. Gebruik /claim.", "✅ {events} etkinlik çözüldü — {coins} 🪙 ödendi. /claim ile al.",
+        "✅ {events} evento(s) liquidado(s) — {coins} 🪙 pagos. Use /claim.", "✅ {events} इवेंट निपटाए — {coins} 🪙 दिए गए। /claim से लें।", "✅ تمت تسوية {events} حدثًا — دُفع {coins} 🪙. استخدم /claim.")
+    .replace("{events}", events)
+    .replace("{coins}", coins)
+}
+
 pub fn claim_lost(l: Lang, title: &str) -> String {
     tr!(l;
         "✖ {title}: no win this time", "✖ {title}：這次沒中", "✖ {title}：这次没中", "✖ {title}：今回はハズレ", "✖ {title}: 이번엔 꽝",

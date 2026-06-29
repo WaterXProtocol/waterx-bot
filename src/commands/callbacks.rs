@@ -172,8 +172,6 @@ pub async fn on_callback(ctx: Context, update: Update) {
         predmarket::handle_void(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(predmarket::PM_BACK) {
         predmarket::handle_back(&ctx, &cb, rest).await
-    } else if let Some(rest) = data.strip_prefix(admin::SETTLE_CB) {
-        admin::handle_settle_cb(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(admin::RESET_CB) {
         admin::handle_reset_cb(&ctx, &cb, rest).await
     } else {

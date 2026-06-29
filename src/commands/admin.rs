@@ -6,8 +6,8 @@ use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
 use crate::core::types::BetState;
-use crate::database::{OpenMarket, COIN};
-use crate::core::i18n::{self, Lang};
+use crate::database::COIN;
+use crate::core::i18n;
 use std::time::Duration;
 use telexide::model::{CallbackQuery, User};
 use telexide::prelude::*;
@@ -19,9 +19,6 @@ const BROADCAST_PACE: Duration = Duration::from_millis(67);
 const SEND_MAX_RETRIES: u32 = 5;
 /// Extra slack added to Telegram's reported `retry after N` before retrying.
 const RATE_LIMIT_SLACK_SECS: u64 = 1;
-
-/// Callback-data prefix for the button-driven settle flow (owner-only).
-pub const SETTLE_CB: &str = "stl:";
 
 /// Callback-data prefix for the button-driven selective `/reset` flow (owner+dev).
 pub const RESET_CB: &str = "rst:";
@@ -36,16 +33,6 @@ const RESET_PROMPT: &str = "🧹 Reset (dev) — tap to select, then Submit:";
 /// the working directory (same place as the SQLite file).
 pub const REDEPLOY_MARKER: &str = "redeploy.notify";
 
-/// Normalize an admin-typed winner token into the stored outcome key.
-fn normalize_winner(s: &str) -> Option<&'static str> {
-    match s.to_ascii_lowercase().as_str() {
-        "a" | "teama" | "team_a" | "home" | "1" => Some("teamA"),
-        "b" | "teamb" | "team_b" | "away" | "2" => Some("teamB"),
-        "draw" | "x" | "d" | "tie" => Some("draw"),
-        _ => None,
-    }
-}
-
 /// Owner gate for message-triggered admin commands. Returns the sender as a
 /// `User` iff they're the configured `BOT_OWNER`; otherwise `None`, meaning the
 /// caller should silently `return Ok(())` — non-owners (and the rare from-less
@@ -56,64 +43,6 @@ fn normalize_winner(s: &str) -> Option<&'static str> {
 fn owner_guard(ctx: &Context, message: &Message) -> Option<User> {
     let user = message.from.clone()?;
     is_owner(ctx, user.id).then_some(user)
-}
-
-/// `/settle` — owner-only. With no args, lists markets that still have open
-/// wagers (copy a market id). `/settle <market_id|slug> <a|b|draw>` pays out
-/// winners and DMs every bettor their result.
-#[command(description = "owner: settle a match")]
-pub async fn settle(ctx: Context, message: Message) -> CommandResult {
-    if owner_guard(&ctx, &message).is_none() {
-        return Ok(());
-    }
-    let database = db(&ctx);
-    let parts = args(&message);
-
-    if parts.len() < 2 {
-        let open = match database.list_open_markets() {
-            Ok(o) => o,
-            Err(e) => {
-                eprintln!("settle list_open_markets error: {e}");
-                reply(&ctx, &message, "⚠️ DB error — couldn't list open markets.").await?;
-                return Ok(());
-            }
-        };
-        if open.is_empty() {
-            reply(&ctx, &message, "No open wagers.").await?;
-            return Ok(());
-        }
-        // Button-driven picker: one button per market, labelled with the
-        // human-readable title (the market id rides in the callback data).
-        tg::send_with_buttons(
-            &ctx,
-            message.chat.get_id(),
-            "Settle — pick a market:",
-            &market_list_rows(&open),
-        )
-        .await?;
-        return Ok(());
-    }
-
-    let Some(winner) = normalize_winner(&parts[1]) else {
-        reply(&ctx, &message, "Winner must be one of: a | b | draw").await?;
-        return Ok(());
-    };
-    let open = match database.list_open_markets() {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("settle list_open_markets error: {e}");
-            reply(&ctx, &message, "⚠️ DB error — couldn't load markets.").await?;
-            return Ok(());
-        }
-    };
-    let Some(target) = open.iter().find(|m| m.market_id == parts[0] || m.slug == parts[0]) else {
-        reply(&ctx, &message, "No open market with that id/slug.").await?;
-        return Ok(());
-    };
-    let market_id = target.market_id.clone();
-    let (_ok, summary) = run_settle(&ctx, &market_id, winner).await;
-    reply(&ctx, &message, summary).await?;
-    Ok(())
 }
 
 /// Parse Telegram's `retry after N` (seconds) out of a 429 error description.
@@ -145,212 +74,6 @@ async fn send_resilient(ctx: &Context, chat_id: i64, text: &str) -> bool {
         }
     }
     false
-}
-
-/// Settle one market against `winner` (a stored outcome key: `teamA`/`teamB`/
-/// `draw`): pay winners, mark wagers, DM every bettor, and return `(ok, summary)`
-/// — `ok` is false when the settlement itself failed, so the button flow can
-/// avoid a false "Settled ✅" toast. Shared by the `/settle <id> <a|b|draw>`
-/// text path and the button-driven confirm flow.
-async fn run_settle(ctx: &Context, market_id: &str, winner: &str) -> (bool, String) {
-    let database = db(ctx);
-    let settlements = match database.settle_market(market_id, winner) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("settle_market error ({market_id}): {e}");
-            return (false, format!("⚠️ Settle error: {e}"));
-        }
-    };
-    let (mut won, mut lost, mut paid) = (0u32, 0u32, 0i64);
-    for st in &settlements {
-        let blang = database.get_lang(st.user).ok().flatten().unwrap_or(Lang::En);
-        // Tell the bettor which match and side this result is for (side name in
-        // their own locale).
-        let side = match st.outcome.as_str() {
-            "teamA" => st.team_a.clone(),
-            "teamB" => st.team_b.clone(),
-            _ => i18n::draw_label(blang).to_string(),
-        };
-        let descriptor = format!("{} vs. {} / {}", st.team_a, st.team_b, side);
-        let dm = if st.won {
-            won += 1;
-            paid += st.payout;
-            i18n::bet_won(blang, &descriptor, &fmt_coins(st.payout))
-        } else {
-            lost += 1;
-            i18n::bet_lost(blang, &descriptor)
-        };
-        // Resilient send: a rate-limit spike while settling a busy market must
-        // not silently drop win/lose DMs. Payouts are already committed (in the
-        // `settle_market` transaction), so this only governs the notification.
-        if !send_resilient(ctx, st.user, &dm).await {
-            eprintln!("settle result DM undelivered (user {})", st.user);
-        }
-    }
-    let summary = format!(
-        "Settled {} wager(s): {won} won (paid {}), {lost} lost.",
-        settlements.len(),
-        fmt_coins(paid)
-    );
-    (true, summary)
-}
-
-/// Human-readable button label for a market (title, never the raw id).
-fn market_label(m: &OpenMarket) -> String {
-    if !m.team_a.is_empty() && !m.team_b.is_empty() {
-        format!("{} vs {}", m.team_a, m.team_b)
-    } else if !m.slug.is_empty() {
-        m.slug.clone()
-    } else {
-        m.market_id.clone()
-    }
-}
-
-/// One button per open market: visible label is the title, callback data is
-/// `stl:p:<market_id>`.
-fn market_list_rows(open: &[OpenMarket]) -> Vec<tg::Row> {
-    open.iter()
-        .map(|m| vec![(market_label(m), format!("{SETTLE_CB}p:{}", m.market_id))])
-        .collect()
-}
-
-/// The three-outcome keyboard for a chosen market, plus a back button.
-fn outcome_rows(m: &OpenMarket) -> Vec<tg::Row> {
-    vec![
-        vec![(m.team_a.clone(), format!("{SETTLE_CB}o:{}:a", m.market_id))],
-        vec![("🤝 Draw".to_string(), format!("{SETTLE_CB}o:{}:d", m.market_id))],
-        vec![(m.team_b.clone(), format!("{SETTLE_CB}o:{}:b", m.market_id))],
-        vec![("⬅ Back".to_string(), format!("{SETTLE_CB}l"))],
-    ]
-}
-
-/// `a|b|d` → display name of the winning side for a market.
-fn winner_label(o: &str, m: &OpenMarket) -> String {
-    match o {
-        "a" => m.team_a.clone(),
-        "b" => m.team_b.clone(),
-        _ => "Draw".to_string(),
-    }
-}
-
-/// `a|b|d` → stored outcome key for `settle_market`.
-fn outcome_key(o: &str) -> Option<&'static str> {
-    match o {
-        "a" => Some("teamA"),
-        "b" => Some("teamB"),
-        "d" => Some("draw"),
-        _ => None,
-    }
-}
-
-/// Owner-only button-driven settle flow (callback prefix [`SETTLE_CB`]). Each
-/// step edits the same message in place: pick market → pick outcome → confirm
-/// 1/2 → confirm 2/2 → settle. Re-reads the open-market list at every step so a
-/// market that's already been settled (or whose id doesn't match) fails safe
-/// rather than paying out the wrong market.
-pub async fn handle_settle_cb(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
-    // Only the owner may drive settlement — others get a silent ack even if
-    // they somehow see the buttons (e.g. /settle was run in a group).
-    if !is_owner(ctx, cb.from.id) {
-        return answer(ctx, cb, "", false).await;
-    }
-    let Some(message) = cb.message.clone() else {
-        return answer(ctx, cb, "", false).await;
-    };
-    let chat = message.chat.get_id();
-    let mid = message.message_id;
-    let database = db(ctx);
-    let open = match database.list_open_markets() {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("handle_settle_cb list_open_markets error: {e}");
-            tg::edit_text_only(ctx, chat, mid, "⚠️ DB error — couldn't load markets.").await.ok();
-            return answer(ctx, cb, "", false).await;
-        }
-    };
-
-    let (action, arg) = rest.split_once(':').unwrap_or((rest, ""));
-    match action {
-        // Back to the market list.
-        "l" => {
-            if open.is_empty() {
-                tg::edit_text_only(ctx, chat, mid, "No open wagers.").await.ok();
-            } else {
-                tg::edit_with_buttons(ctx, chat, mid, "Settle — pick a market:", &market_list_rows(&open))
-                    .await
-                    .ok();
-            }
-        }
-        // Picked a market → show its outcome buttons.
-        "p" => {
-            let Some(m) = open.iter().find(|m| m.market_id == arg) else {
-                tg::edit_text_only(ctx, chat, mid, "That market is no longer open.").await.ok();
-                return answer(ctx, cb, "", false).await;
-            };
-            let text = format!(
-                "{} vs {}\n{} bet(s) · {} staked\n\nWho won?",
-                m.team_a,
-                m.team_b,
-                m.count,
-                fmt_coins(m.stake)
-            );
-            tg::edit_with_buttons(ctx, chat, mid, &text, &outcome_rows(m)).await.ok();
-        }
-        // Picked an outcome → first confirmation; or first confirm → second.
-        "o" | "1" => {
-            let Some((market_id, o)) = arg.rsplit_once(':') else {
-                return answer(ctx, cb, "", false).await;
-            };
-            let Some(m) = open.iter().find(|m| m.market_id == market_id) else {
-                tg::edit_text_only(ctx, chat, mid, "That market is no longer open.").await.ok();
-                return answer(ctx, cb, "", false).await;
-            };
-            let wl = winner_label(o, m);
-            if action == "o" {
-                let text = format!(
-                    "Settle this market?\n\n{} vs {}\n→ winner: {}\n\nThis pays out real coins.\n(confirm 1 of 2)",
-                    m.team_a, m.team_b, wl
-                );
-                let rows = vec![
-                    vec![("✅ Yes, continue".to_string(), format!("{SETTLE_CB}1:{market_id}:{o}"))],
-                    vec![("⬅ Back".to_string(), format!("{SETTLE_CB}p:{market_id}"))],
-                ];
-                tg::edit_with_buttons(ctx, chat, mid, &text, &rows).await.ok();
-            } else {
-                let text = format!(
-                    "⚠️ FINAL CONFIRMATION\n\n{} vs {}\n→ winner: {}\n\nThis is irreversible.\n(confirm 2 of 2)",
-                    m.team_a, m.team_b, wl
-                );
-                let rows = vec![
-                    vec![(format!("⚠️ Settle: {wl} wins"), format!("{SETTLE_CB}2:{market_id}:{o}"))],
-                    vec![("❌ Cancel".to_string(), format!("{SETTLE_CB}l"))],
-                ];
-                tg::edit_with_buttons(ctx, chat, mid, &text, &rows).await.ok();
-            }
-        }
-        // Second confirmation → execute.
-        "2" => {
-            let Some((market_id, o)) = arg.rsplit_once(':') else {
-                return answer(ctx, cb, "", false).await;
-            };
-            let Some(winner) = outcome_key(o) else {
-                return answer(ctx, cb, "", false).await;
-            };
-            if !open.iter().any(|m| m.market_id == market_id) {
-                tg::edit_text_only(ctx, chat, mid, "That market is no longer open.").await.ok();
-                return answer(ctx, cb, "", false).await;
-            }
-            let (ok, summary) = run_settle(ctx, market_id, winner).await;
-            tg::edit_text_only(ctx, chat, mid, &summary).await.ok();
-            return answer(ctx, cb, if ok { "Settled ✅" } else { "⚠️ Settle failed" }, true).await;
-        }
-        _ => {}
-    }
-    answer(ctx, cb, "", false).await
 }
 
 /// `/redeploy` — owner-only. Fire-and-forget triggers a **separate** systemd

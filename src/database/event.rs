@@ -874,6 +874,19 @@ impl Database {
         Ok(())
     }
 
+    /// Every open **sourced** event with its slug — the public `/settle` sweep
+    /// fetches each one's Polymarket resolution.
+    pub fn all_open_sourced(&self) -> SqlResult<Vec<(i64, String)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, COALESCE(source_ref, '') FROM events WHERE kind = 'sourced' AND state = 'open'",
+        )?;
+        let v = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(v)
+    }
+
     /// The caller's distinct open **sourced** events with their slugs — for
     /// detecting Polymarket resolution at `/claim` time.
     pub fn user_open_sourced(&self, user: i64) -> SqlResult<Vec<(i64, String)>> {
