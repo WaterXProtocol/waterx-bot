@@ -44,6 +44,17 @@ pub struct Payout {
     pub kind: ClaimKind,
 }
 
+/// A user's open share holding, for the `/assets` / `/bets` positions view.
+#[derive(Debug, Clone)]
+pub struct PositionView {
+    pub event_title: String,
+    pub outcome: String,
+    /// Micro-shares held (== potential payout in micro-coins on a win).
+    pub shares: i64,
+    /// Micro-coin cost basis.
+    pub cost: i64,
+}
+
 /// Display precedence when a user held several outcomes in one event: a win
 /// dominates a refund, which dominates a loss.
 fn merge_kind(a: ClaimKind, b: ClaimKind) -> ClaimKind {
@@ -682,6 +693,32 @@ impl Database {
         }
         Ok(out)
     }
+
+    /// The user's open share holdings (events still `open`), joined with their
+    /// event title + outcome name — for the `/assets` / `/bets` view. Resolved
+    /// events are excluded (they're collected via `/claim`).
+    pub fn user_positions(&self, user: i64) -> SqlResult<Vec<PositionView>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT e.title, m.name, p.shares, p.cost
+             FROM positions p
+             JOIN events e ON e.id = p.event_id
+             JOIN markets m ON m.event_id = p.event_id AND m.idx = p.market_idx
+             WHERE p.user = ?1 AND e.state = 'open'
+             ORDER BY p.event_id, p.market_idx",
+        )?;
+        let v = stmt
+            .query_map(params![user], |r| {
+                Ok(PositionView {
+                    event_title: r.get(0)?,
+                    outcome: r.get(1)?,
+                    shares: r.get(2)?,
+                    cost: r.get(3)?,
+                })
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(v)
+    }
 }
 
 #[cfg(test)]
@@ -1029,5 +1066,22 @@ mod tests {
         assert!(payouts.iter().all(|p| p.event_id == src), "only the sourced event settled");
         assert_eq!(state_of(&db, src), "closed");
         assert_eq!(state_of(&db, amm), "resolved", "amm untouched by /settle");
+    }
+
+    #[test]
+    fn user_positions_lists_open_holdings_only() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(2, 100 * COIN).unwrap();
+        let ev = sourced(&db); // outcomes ["A", "B"]
+        db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap(); // 20 shares of A
+        let v = db.user_positions(2).unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].outcome, "A");
+        assert_eq!(v[0].shares, 20 * SHARE);
+        assert_eq!(v[0].cost, 10 * COIN);
+        // Once resolved, the event leaves 'open' → dropped from the live view
+        // (collected via /claim instead).
+        db.resolve_event(ev, 0, 200).unwrap();
+        assert!(db.user_positions(2).unwrap().is_empty());
     }
 }

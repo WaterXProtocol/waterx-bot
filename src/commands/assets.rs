@@ -65,26 +65,23 @@ pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> S
     let database = db(ctx);
     let mut body = String::new();
 
-    // Open (unsettled) match bets.
-    let positions = database.list_open_wagers(user.id).unwrap_or_else(|e| {
-        eprintln!("bets list_open_wagers error (user {}): {e}", user.id);
+    // Open share positions (match events + host AMM predictions), from the unified
+    // engine. Each line is cost basis paid → potential payout (1 share settles to
+    // 1 coin, so the payout is the share count) — mirroring the old stake→payout
+    // format, language-neutral (title + outcome name + numbers + symbols).
+    let positions = database.user_positions(user.id).unwrap_or_else(|e| {
+        eprintln!("user_positions error (user {}): {e}", user.id);
         Vec::new()
     });
     if !positions.is_empty() {
         body.push_str(&format!("\n\n{}", i18n::positions_title(lang)));
         for p in &positions {
-            let side = match p.outcome.as_str() {
-                "teamA" => p.team_a.clone(),
-                "teamB" => p.team_b.clone(),
-                _ => i18n::draw_label(lang).to_string(),
-            };
             body.push_str(&format!(
-                "\n• {} vs. {}\n  {} · 🪙{} → 🏆{}",
-                p.team_a,
-                p.team_b,
-                side,
-                fmt_coins(p.stake),
-                fmt_coins(p.potential_payout()),
+                "\n• {}\n  {} · 🪙{} → 🏆{}",
+                p.event_title,
+                p.outcome,
+                fmt_coins(p.cost),
+                fmt_coins(p.shares),
             ));
         }
     }
