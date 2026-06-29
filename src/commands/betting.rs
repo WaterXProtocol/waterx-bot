@@ -14,7 +14,7 @@ use crate::commands::markets;
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
-use crate::database::{decimal_payout, COIN};
+use crate::database::{decimal_payout, TradeOutcome, COIN};
 use crate::core::i18n::{self, Lang};
 use crate::core::types::OddsFormat;
 use parking_lot::Mutex;
@@ -388,8 +388,13 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
 }
 
 /// `szp:<qid>:<outcome>:<total>` — fired by the builder's **Confirm**: the only
-/// step that moves money. Re-checks freshness + balance, debits, records the
-/// wager, and reports the result in a popup alert.
+/// step that moves money. Re-prices from the live feed, then **buys YES shares**
+/// of the picked outcome at that price (`spend → ⌊spend/price⌋ shares`,
+/// house-banked) via the unified market engine. The sourced event is materialised
+/// on first trade (keyed by the match slug for later Gamma resolution). Because a
+/// share settles to 1 coin, the "potential payout" shown is the share count — the
+/// same number the old fixed-odds flow displayed — but the position can now also
+/// be sold back before settlement.
 pub async fn handle_size_place(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -403,67 +408,96 @@ pub async fn handle_size_place(
         return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
     }
     // Guard the whole-coin → micro-coin conversion (caps at MAX_COINS, rejects
-    // overflow and non-positive) so a crafted stake can't wrap i64 and mint coins.
-    let Some(stake_units) = to_micro(total) else {
+    // overflow and non-positive) so a crafted spend can't wrap i64 and mint coins.
+    let Some(spend_units) = to_micro(total) else {
         return answer(ctx, cb, i18n::bad_stake(lang), true).await;
     };
-    // Re-price every placement from the live feed so the wager is booked at the
-    // current odds, never the locked snapshot the user was looking at.
+    // Re-price from the live feed so shares are bought at the current price, never
+    // the locked snapshot the user was looking at.
     let Some(q) = refetch_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
     };
-    let Some(odds) = q.odds(&outcome).filter(|c| *c > 0.0) else {
+    let Some(price_cents) = q.odds(&outcome).filter(|c| *c > 0.0) else {
         return answer(ctx, cb, "", false).await;
     };
 
     let database = db(ctx);
-    // Atomic debit + record in one DB transaction: `false` = insufficient funds
-    // (nothing written), `Err` = DB fault. There's no separate debit to roll
-    // back, so the old swallowed-rollback path is gone entirely.
-    match database.place_wager(
-        cb.from.id,
-        &q.market_id,
+    // Materialise the sourced event on first trade — keyed by the match slug so
+    // `/settle`/`/claim` can later resolve it against Polymarket. Outcomes are the
+    // fixed `[teamA, draw, teamB]` order (`outcome_idx`), matching the card.
+    let title = format!("{} vs. {}", q.team_a, q.team_b);
+    let outcomes = [
+        q.team_a.clone(),
+        i18n::draw_label(lang).to_string(),
+        q.team_b.clone(),
+    ];
+    let event_id = match database.get_or_create_sourced_event(
         &q.slug,
-        &q.team_a,
-        &q.team_b,
-        &outcome,
-        stake_units,
-        odds,
+        &title,
+        lang.store_code(),
+        "",
+        None,
         q.ends_at,
+        &outcomes,
+        now(),
     ) {
-        Ok(true) => {}
-        Ok(false) => return answer(ctx, cb, i18n::not_enough_money(lang), true).await,
+        Ok(id) => id,
         Err(err) => {
-            eprintln!("place_wager error: {err}");
+            eprintln!("get_or_create_sourced_event error: {err}");
             return answer(ctx, cb, i18n::db_error(lang), true).await;
         }
-    }
+    };
+    // Atomic debit + share credit in one transaction (house-banked).
+    let shares = match database.sourced_buy(
+        event_id,
+        outcome_idx(&outcome),
+        cb.from.id,
+        spend_units,
+        price_cents,
+    ) {
+        Ok(TradeOutcome::Filled { shares, .. }) => shares,
+        Ok(TradeOutcome::Rejected) => {
+            return answer(ctx, cb, i18n::not_enough_money(lang), true).await
+        }
+        Ok(TradeOutcome::Unavailable) => return expire(ctx, cb, lang).await,
+        Err(err) => {
+            eprintln!("sourced_buy error: {err}");
+            return answer(ctx, cb, i18n::db_error(lang), true).await;
+        }
+    };
     quotes(ctx).lock().remove(qid);
 
-    let payout = decimal_payout(stake_units, odds);
+    // 1 share settles to 1 coin, so the share count *is* the potential payout.
     let side = q.side_name(lang, &outcome);
-    // Confirmation + group announce show the odds in the bettor's chosen format.
-    let odds_str = format_odds(odds, database.get_odds_fmt(cb.from.id).unwrap_or_default());
-    let placed = i18n::bet_placed(lang, &fmt_coins(stake_units), &side, &odds_str, &fmt_coins(payout));
+    let odds_str = format_odds(price_cents, database.get_odds_fmt(cb.from.id).unwrap_or_default());
+    let placed = i18n::bet_placed(lang, &fmt_coins(spend_units), &side, &odds_str, &fmt_coins(shares));
     if is_group_chat(q.origin_chat) {
         // Group: the stake board is its own message — delete it and post the
-        // result as a reply to the prediction card it was bet on (falling back to a
+        // result as a reply to the event card it was bet on (falling back to a
         // loose message if that card is gone).
         let _ = tg::delete_message(ctx, cb.message_chat(), cb.message_id()).await;
         let announce =
-            i18n::bet_announce(lang, &full_name(&cb.from), &fmt_coins(stake_units), &side, &odds_str);
+            i18n::bet_announce(lang, &full_name(&cb.from), &fmt_coins(spend_units), &side, &odds_str);
         if q.origin_msg != 0 {
             let _ = tg::send_text_reply(ctx, q.origin_chat, q.origin_msg, &announce).await;
         } else {
             let _ = send_text(ctx, q.origin_chat, announce).await;
         }
     } else {
-        // Private `/markets`: the board edits in place into the placed confirmation
-        // (no prediction card to reply to — the origin is the caller's own DM).
+        // Private `/events`: the board edits in place into the placed confirmation.
         let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &placed).await;
     }
-    // Report the placed bet in a popup alert (Confirm places straight away now).
     answer(ctx, cb, &placed, true).await
+}
+
+/// Map a card outcome key to its market index in the sourced event's fixed
+/// outcome list `[teamA, draw, teamB]`.
+fn outcome_idx(outcome: &str) -> i64 {
+    match outcome {
+        "draw" => 1,
+        "teamB" => 2,
+        _ => 0, // teamA
+    }
 }
 
 /// Build the stake-builder screen for `total` coins on `outcome`: presets that
