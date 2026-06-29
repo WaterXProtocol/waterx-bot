@@ -16,7 +16,7 @@ pub use event::{
     FEE_BPS_DEFAULT, FEE_BPS_MAX,
 };
 pub use user::UserRow;
-pub use wager::{decimal_payout, OpenMarket, Position, Settlement};
+pub use wager::decimal_payout;
 
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, Result as SqlResult};
@@ -458,17 +458,26 @@ mod reset_tests {
 
     #[test]
     fn reset_wagers_refunds_open_and_clears() {
+        // `/migrate` still drains the legacy `wagers` table via reset_wagers;
+        // place_wager is gone, so seed a row directly.
         let db = Database::new(":memory:", 1).unwrap();
-        db.force_change(10, 100 * COIN).unwrap();
-        // Stake 30 → balance 70, one open wager.
-        assert!(db.place_wager(10, "m1", "s", "A", "B", "teamA", 30 * COIN, 200.0, 0).unwrap());
-        assert_eq!(db.get_user_info(10).unwrap().balance, 70 * COIN);
+        db.force_change(10, 70 * COIN).unwrap(); // 100 staked 30 → 70 left
+        db.conn
+            .lock()
+            .execute(
+                "INSERT INTO wagers (user, market_id, slug, team_a, team_b, outcome, stake, odds_cents, placed_at)
+                 VALUES (10, 'm1', 's', 'A', 'B', 'teamA', ?1, 200.0, 0)",
+                [30 * COIN],
+            )
+            .unwrap();
 
         let (n, refunded) = db.reset_wagers().unwrap();
         assert_eq!(n, 1);
         assert_eq!(refunded, 30 * COIN);
-        assert_eq!(db.get_user_info(10).unwrap().balance, 100 * COIN); // stake returned
-        assert!(db.list_open_wagers(10).unwrap().is_empty()); // table cleared
+        assert_eq!(db.get_user_info(10).unwrap().balance, 100 * COIN); // 70 + 30 refund
+        let open: i64 =
+            db.conn.lock().query_row("SELECT COUNT(*) FROM wagers", [], |r| r.get(0)).unwrap();
+        assert_eq!(open, 0, "table cleared");
     }
 
     #[test]
@@ -532,12 +541,23 @@ mod reset_tests {
     fn delete_user_removes_their_wagers() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(10, 100 * COIN).unwrap();
-        assert!(db.place_wager(10, "m1", "s", "A", "B", "teamA", 30 * COIN, 200.0, 0).unwrap());
-        assert_eq!(db.list_open_wagers(10).unwrap().len(), 1);
+        db.conn
+            .lock()
+            .execute(
+                "INSERT INTO wagers (user, market_id, slug, team_a, team_b, outcome, stake, odds_cents, placed_at)
+                 VALUES (10, 'm1', 's', 'A', 'B', 'teamA', ?1, 200.0, 0)",
+                [30 * COIN],
+            )
+            .unwrap();
 
         assert!(db.delete_user(10).unwrap());
         assert!(!db.user_exists(10).unwrap());
-        assert!(db.list_open_wagers(10).unwrap().is_empty()); // wagers gone too
+        let left: i64 = db
+            .conn
+            .lock()
+            .query_row("SELECT COUNT(*) FROM wagers WHERE user = 10", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0, "wagers gone too");
     }
 
     #[test]

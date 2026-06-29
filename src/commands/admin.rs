@@ -5,8 +5,6 @@
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
-use crate::core::types::BetState;
-use crate::database::COIN;
 use crate::core::i18n;
 use std::time::Duration;
 use telexide::model::{CallbackQuery, User};
@@ -245,64 +243,21 @@ async fn profile_text(ctx: &Context, id: i64, user: Option<&User>) -> String {
     }
     s.push_str(&format!("\n· invited {invited} user(s)"));
 
-    // Open (unsettled) match bets.
-    let bets = database.list_open_wagers(id).unwrap_or_default();
-    s.push_str(&format!("\n\n🎟️ Open match bets ({})", bets.len()));
-    if bets.is_empty() {
+    // Open share positions (sourced matches + amm predictions), from the engine.
+    let positions = database.user_positions(id).unwrap_or_default();
+    s.push_str(&format!("\n\n🎟️ Open positions ({})", positions.len()));
+    if positions.is_empty() {
         s.push_str("\n· none");
     } else {
-        for p in &bets {
-            let side = match p.outcome.as_str() {
-                "teamA" => p.team_a.clone(),
-                "teamB" => p.team_b.clone(),
-                _ => "Draw".to_string(),
-            };
+        for p in &positions {
             s.push_str(&format!(
-                "\n• {} vs. {}\n  {} · 🪙{} → 🏆{}",
-                esc(&p.team_a),
-                esc(&p.team_b),
-                esc(&side),
-                fmt_coins(p.stake),
-                fmt_coins(p.potential_payout()),
+                "\n• {}\n  {} · 🪙{} → 🏆{}",
+                esc(&p.event_title),
+                esc(&p.outcome),
+                fmt_coins(p.cost),
+                fmt_coins(p.shares),
             ));
         }
-    }
-
-    // Stakes locked in still-open self-host (`/predict`) games (in-memory map).
-    let mut pred = String::new();
-    {
-        let games = predictions(ctx);
-        let guard = games.lock().await;
-        for g in guard.values() {
-            if !matches!(g.state, BetState::betting | BetState::closed) {
-                continue;
-            }
-            let staked: Vec<(&String, i64)> = g
-                .option_order
-                .iter()
-                .filter_map(|opt| {
-                    g.options
-                        .get(opt)
-                        .and_then(|d| d.detail.get(&id).copied())
-                        .filter(|&v| v > 0)
-                        .map(|v| (opt, v))
-                })
-                .collect();
-            if staked.is_empty() {
-                continue;
-            }
-            let desc = g
-                .description
-                .split_once('\n')
-                .map_or(g.description.as_str(), |(_, rest)| rest);
-            pred.push_str(&format!("\n🎲 {}", esc(desc)));
-            for (opt, stake) in staked {
-                pred.push_str(&format!("\n  {} · 🪙{}", esc(opt), fmt_coins(stake * COIN)));
-            }
-        }
-    }
-    if !pred.is_empty() {
-        s.push_str(&format!("\n\n🎲 Open predictions{pred}"));
     }
 
     s
