@@ -448,12 +448,12 @@ pub async fn handle_reset_cb(
     answer(ctx, cb, "", false).await
 }
 
-/// Snapshot every account with coins or fruit (`export_balances`) to a timestamped
+/// Snapshot every account with coins or fruit (`export_accounts`) to a timestamped
 /// `balances-*.json` file in the working directory, returning the filename. Shared
 /// by `/backup` and the `[Everything]` reset's safety net — restored via `/load`.
 /// `Err(String)` on a DB or filesystem failure so a reset caller can abort the wipe.
 fn backup_balances(ctx: &Context) -> Result<String, String> {
-    let rows = db(ctx).export_balances().map_err(|e| e.to_string())?;
+    let rows = db(ctx).export_accounts().map_err(|e| e.to_string())?;
     let json = serde_json::to_string(&rows).map_err(|e| e.to_string())?;
     let file = format!("balances-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
     std::fs::write(&file, json).map_err(|e| e.to_string())?;
@@ -535,7 +535,7 @@ pub async fn load(ctx: Context, message: Message) -> CommandResult {
                 }
             },
         };
-    match db(&ctx).import_balances(&rows) {
+    match db(&ctx).import_accounts(&rows) {
         Ok(n) => {
             reply(&ctx, &message, format!("✅ Restored {n} account(s) (balances + fruit) from {name}"))
                 .await?
@@ -553,7 +553,7 @@ pub async fn backup(ctx: Context, message: Message) -> CommandResult {
     if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
-    let n = db(&ctx).export_balances().map(|v| v.len()).unwrap_or(0);
+    let n = db(&ctx).export_accounts().map(|v| v.len()).unwrap_or(0);
     match backup_balances(&ctx) {
         Ok(file) => {
             reply(

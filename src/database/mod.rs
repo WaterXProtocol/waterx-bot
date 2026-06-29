@@ -302,7 +302,7 @@ impl Database {
     /// Snapshot every user with coins **or** fruit as `(user, micro_coins, fruit)`
     /// — what `/backup` (and the `[Everything]` reset) writes to disk and `/load`
     /// restores. A user holding only fruit (zero coins) is still captured.
-    pub fn export_balances(&self) -> SqlResult<Vec<(i64, i64, String)>> {
+    pub fn export_accounts(&self) -> SqlResult<Vec<(i64, i64, String)>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT user, balance, COALESCE(fruit, '') FROM balance \
@@ -317,7 +317,7 @@ impl Database {
     /// Restore coins + fruit from a `/load` backup: upsert each user's `balance`
     /// **and** `fruit` (creating the row if needed), leaving every other column
     /// untouched, in one transaction. Returns the number of accounts written.
-    pub fn import_balances(&self, rows: &[(i64, i64, String)]) -> SqlResult<usize> {
+    pub fn import_accounts(&self, rows: &[(i64, i64, String)]) -> SqlResult<usize> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         for (user, balance, fruit) in rows {
@@ -387,7 +387,7 @@ mod reset_tests {
         db.conn.lock().execute("UPDATE balance SET fruit = '🍎🍌' WHERE user = 30", []).unwrap(); // …but holds fruit
         db.force_change(40, 0).unwrap(); // zero coins + no fruit → not exported
 
-        let snapshot = db.export_balances().unwrap();
+        let snapshot = db.export_accounts().unwrap();
         assert_eq!(snapshot.len(), 3); // 10, 20 (coins) + 30 (fruit-only); 40 excluded
         assert!(snapshot.contains(&(10, 50 * COIN, String::new())));
         assert!(snapshot.contains(&(30, 0, "🍎🍌".to_string())));
@@ -395,7 +395,7 @@ mod reset_tests {
         // Wipe, then restore from the snapshot.
         db.reset_all().unwrap();
         assert!(!db.user_exists(10).unwrap());
-        let n = db.import_balances(&snapshot).unwrap();
+        let n = db.import_accounts(&snapshot).unwrap();
         assert_eq!(n, 3);
         assert_eq!(db.get_user_info(10).unwrap().balance, 50 * COIN);
         assert_eq!(db.get_user_info(20).unwrap().balance, 7 * COIN);
