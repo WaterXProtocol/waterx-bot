@@ -134,7 +134,7 @@ pub async fn run() -> anyhow::Result<()> {
         .set_token(&cfg.token)
         .set_framework(create_framework!(
             bot_username.as_str(),
-            start, assets, balance, bets, send, predict, rule, feedback, sell, buy, markets,
+            start, assets, balance, bets, send, predict, rule, feedback, sell, buy, events,
             checkin, settings, timezone, onlyreplyhere, replyanywhere, mint, pause, unpause,
             broadcast, reset, settle, redeploy, dashboard, load, profile, delete
         ))

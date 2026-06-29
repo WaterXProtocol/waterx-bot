@@ -56,8 +56,8 @@ impl MarketInfo {
     }
 }
 
-#[command(description = "browse live prediction markets")]
-pub async fn markets(ctx: Context, message: Message) -> CommandResult {
+#[command(description = "browse live prediction events")]
+pub async fn events(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
         return Ok(());
     }

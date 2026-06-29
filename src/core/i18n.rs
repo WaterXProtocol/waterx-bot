@@ -846,7 +846,7 @@ pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
         ("bets", menu_bets(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
-        ("markets", menu_markets(l)),
+        ("events", menu_markets(l)),
         ("rule", menu_rule(l)),
         ("feedback", menu_feedback(l)),
         ("settings", menu_settings(l)),
