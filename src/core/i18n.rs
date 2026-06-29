@@ -839,7 +839,7 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 10] {
     [
         ("start", menu_start(l)),
         ("balance", menu_balance(l)),
@@ -847,6 +847,7 @@ pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 9] {
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
         ("events", menu_markets(l)),
+        ("claim", menu_claim(l)),
         ("rule", menu_rule(l)),
         ("feedback", menu_feedback(l)),
         ("settings", menu_settings(l)),
@@ -1819,6 +1820,51 @@ pub fn predict_need_coins(l: Lang, coins: &str) -> String {
         "⚠️ Anda butuh {coins} 🪙 untuk menyediakan likuiditas prediksi ini.", "⚠️ Kailangan mo ng {coins} 🪙 para pondohan ang prediksyon na ito.", "⚠️ คุณต้องมี {coins} 🪙 เพื่อเติมสภาพคล่องให้การทำนายนี้", "⚠️ Je hebt {coins} 🪙 nodig om deze voorspelling van liquiditeit te voorzien.", "⚠️ Bu tahmine likidite sağlamak için {coins} 🪙 gerekir.",
         "⚠️ Você precisa de {coins} 🪙 para dar liquidez a esta previsão.", "⚠️ इस भविष्यवाणी की लिक्विडिटी के लिए आपको {coins} 🪙 चाहिए।", "⚠️ تحتاج {coins} 🪙 لتوفير السيولة لهذا التوقع.")
     .replace("{coins}", coins)
+}
+
+fn menu_claim(l: Lang) -> &'static str {
+    tr!(l;
+        "Claim winnings", "領取獎金", "领取奖金", "獲得分を受け取る", "당첨금 받기",
+        "Забрать выигрыш", "Récupérer les gains", "Reclamar ganancias", "Gewinne abholen", "Nhận tiền thắng",
+        "Klaim kemenangan", "Kunin ang panalo", "รับเงินรางวัล", "Winst claimen", "Kazancı al",
+        "Resgatar ganhos", "जीत प्राप्त करें", "اطلب أرباحك")
+}
+
+pub fn claim_nothing(l: Lang) -> &'static str {
+    tr!(l;
+        "Nothing to claim yet.", "目前沒有可領取的獎勵。", "目前没有可领取的奖励。", "受け取れるものはまだありません。", "아직 받을 것이 없습니다.",
+        "Пока нечего забирать.", "Rien à récupérer pour l'instant.", "Nada que reclamar todavía.", "Noch nichts abzuholen.", "Chưa có gì để nhận.",
+        "Belum ada yang bisa diklaim.", "Wala pang maa-claim.", "ยังไม่มีอะไรให้รับ", "Nog niets te claimen.", "Henüz alınacak bir şey yok.",
+        "Nada para resgatar ainda.", "अभी कुछ प्राप्त करने को नहीं है।", "لا شيء للمطالبة به بعد.")
+}
+
+pub fn claim_won(l: Lang, title: &str, coins: &str) -> String {
+    tr!(l;
+        "🏆 {title}: +{coins} 🪙", "🏆 {title}：+{coins} 🪙", "🏆 {title}：+{coins} 🪙", "🏆 {title}：+{coins} 🪙", "🏆 {title}: +{coins} 🪙",
+        "🏆 {title}: +{coins} 🪙", "🏆 {title} : +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙",
+        "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙",
+        "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙")
+    .replace("{title}", title)
+    .replace("{coins}", coins)
+}
+
+pub fn claim_refunded(l: Lang, title: &str, coins: &str) -> String {
+    tr!(l;
+        "↩️ {title}: refunded {coins} 🪙", "↩️ {title}：退回 {coins} 🪙", "↩️ {title}：退回 {coins} 🪙", "↩️ {title}：{coins} 🪙 返金", "↩️ {title}: {coins} 🪙 환불",
+        "↩️ {title}: возврат {coins} 🪙", "↩️ {title} : remboursé {coins} 🪙", "↩️ {title}: reembolso {coins} 🪙", "↩️ {title}: {coins} 🪙 erstattet", "↩️ {title}: hoàn {coins} 🪙",
+        "↩️ {title}: dikembalikan {coins} 🪙", "↩️ {title}: na-refund {coins} 🪙", "↩️ {title}: คืน {coins} 🪙", "↩️ {title}: {coins} 🪙 terugbetaald", "↩️ {title}: {coins} 🪙 iade",
+        "↩️ {title}: reembolsado {coins} 🪙", "↩️ {title}: {coins} 🪙 वापस", "↩️ {title}: استُرجع {coins} 🪙")
+    .replace("{title}", title)
+    .replace("{coins}", coins)
+}
+
+pub fn claim_lost(l: Lang, title: &str) -> String {
+    tr!(l;
+        "✖ {title}: no win this time", "✖ {title}：這次沒中", "✖ {title}：这次没中", "✖ {title}：今回はハズレ", "✖ {title}: 이번엔 꽝",
+        "✖ {title}: в этот раз без выигрыша", "✖ {title} : pas de gain cette fois", "✖ {title}: sin premio esta vez", "✖ {title}: diesmal kein Gewinn", "✖ {title}: lần này không thắng",
+        "✖ {title}: belum menang kali ini", "✖ {title}: walang panalo ngayon", "✖ {title}: รอบนี้ไม่ถูก", "✖ {title}: deze keer geen winst", "✖ {title}: bu sefer kazanç yok",
+        "✖ {title}: sem prêmio desta vez", "✖ {title}: इस बार जीत नहीं", "✖ {title}: لا ربح هذه المرة")
+    .replace("{title}", title)
 }
 
 /// Self-host (`/predict`) DM stake builder — no odds (pari-mutuel).
