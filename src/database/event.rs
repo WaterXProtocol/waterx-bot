@@ -874,6 +874,21 @@ impl Database {
         Ok(())
     }
 
+    /// The caller's distinct open **sourced** events with their slugs — for
+    /// detecting Polymarket resolution at `/claim` time.
+    pub fn user_open_sourced(&self, user: i64) -> SqlResult<Vec<(i64, String)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT e.id, COALESCE(e.source_ref, '')
+             FROM positions p JOIN events e ON e.id = p.event_id
+             WHERE p.user = ?1 AND e.kind = 'sourced' AND e.state = 'open'",
+        )?;
+        let v = stmt
+            .query_map(params![user], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(v)
+    }
+
     /// The `(chat, msg)` of an event's board, or `None` if not posted yet.
     pub fn event_card(&self, event_id: i64) -> SqlResult<Option<(i64, i64)>> {
         let conn = self.conn.lock();

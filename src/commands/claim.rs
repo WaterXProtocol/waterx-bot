@@ -4,6 +4,7 @@
 //! events are resolved by their host; sourced (Polymarket) events are resolved by
 //! the oracle (a public `/settle` sweep caches the result on the event row).
 
+use crate::commands::markets;
 use crate::commands::util::*;
 use crate::core::i18n;
 use crate::database::ClaimKind;
@@ -19,6 +20,18 @@ pub async fn claim(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     let lang = lang_for(&ctx, user);
+    // Detect Polymarket resolution for the caller's open sourced events and cache
+    // the winner on the event row (so every later claim/settle reuses it, no
+    // re-fetch). Best-effort: a feed error or still-open event just leaves it.
+    let now = chrono::Utc::now().timestamp();
+    for (event_id, slug) in db(&ctx).user_open_sourced(user.id).unwrap_or_default() {
+        if slug.is_empty() {
+            continue;
+        }
+        if let Ok(Some(idx)) = markets::gamma_resolution(&slug).await {
+            let _ = db(&ctx).resolve_event(event_id, idx, now);
+        }
+    }
     let payouts = match db(&ctx).claim(user.id) {
         Ok(p) => p,
         Err(e) => {

@@ -356,6 +356,56 @@ fn map_sides(ev: &GammaEvent) -> Option<GammaSides> {
     Some(GammaSides { a, draw, b })
 }
 
+/// Detect a sourced match's resolution from Polymarket: fetch the Gamma event by
+/// its `sport-<ticker>` slug and, if it's `closed`, return the winning outcome's
+/// index in the sourced event's `[teamA, draw, teamB]` order — the winner is the
+/// only market whose YES price resolved to ~1 (losers → 0). `Ok(None)` when not
+/// yet resolved, the slug is empty, or there's no clear winner (e.g. a void);
+/// `Err` on a feed/parse failure.
+pub(crate) async fn gamma_resolution(slug: &str) -> Result<Option<i64>, reqwest::Error> {
+    let ticker = slug.strip_prefix("sport-").unwrap_or(slug);
+    if ticker.is_empty() {
+        return Ok(None);
+    }
+    let event = http_client()
+        .get(format!("{GAMMA_EVENT_URL}{ticker}"))
+        .header("user-agent", "waterx-bot/0.1")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<GammaEvent>()
+        .await?;
+    if !event.closed {
+        return Ok(None);
+    }
+    let title = event.title.as_deref().unwrap_or("");
+    let winner = event
+        .markets
+        .iter()
+        .find(|m| m.yes_cents().is_some_and(|c| c >= 99.0))
+        .map(|m| m.group_item_title.trim().to_string());
+    let Some(winner) = winner else {
+        return Ok(None); // closed but no clear winner
+    };
+    if winner.to_ascii_lowercase().starts_with("draw") {
+        return Ok(Some(1)); // draw is the sourced event's middle outcome
+    }
+    // teamA/teamB by their order in the "TeamA vs. TeamB" title.
+    let mut teams: Vec<(usize, &str)> = event
+        .markets
+        .iter()
+        .map(|m| m.group_item_title.trim())
+        .filter(|g| !g.to_ascii_lowercase().starts_with("draw"))
+        .filter_map(|g| title.find(g).map(|p| (p, g)))
+        .collect();
+    teams.sort_by_key(|(p, _)| *p);
+    match teams.iter().position(|(_, g)| *g == winner) {
+        Some(0) => Ok(Some(0)),
+        Some(_) => Ok(Some(2)),
+        None => Ok(None),
+    }
+}
+
 fn to_match_info(it: &Item) -> Option<MarketInfo> {
     let d = &it.market.display;
     if d.kind.as_deref() != Some("sport") {
@@ -496,6 +546,9 @@ struct GammaSides {
 struct GammaEvent {
     #[serde(default)]
     title: Option<String>,
+    /// True once Polymarket has resolved the event (the winner's YES price → 1).
+    #[serde(default)]
+    closed: bool,
     #[serde(default)]
     markets: Vec<GammaMarket>,
 }
