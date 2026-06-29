@@ -67,6 +67,27 @@ pub struct PositionView {
     pub cost: i64,
 }
 
+/// Render data for a host AMM (`/predict`) event's shared board: the question +
+/// state + each outcome's net shares (the renderer derives prices via LMSR over
+/// `b_param`). `winning_market` is set once the host resolves.
+#[derive(Debug, Clone)]
+pub struct AmmBoard {
+    pub event_id: i64,
+    pub host: i64,
+    pub question: String,
+    pub state: String,
+    pub lang: String,
+    pub odds_fmt: String,
+    pub tz_offset: i64,
+    pub ends_at: i64,
+    pub b_param: i64,
+    pub fee_bps: i64,
+    pub winning_market: Option<i64>,
+    pub pool: i64,
+    /// `(outcome name, net q_shares)` ordered by idx.
+    pub options: Vec<(String, i64)>,
+}
+
 /// Everything the sell flow needs to price + execute a sell of one holding:
 /// `kind` selects the price source (sourced → Gamma by `source_ref` slug; amm →
 /// LMSR over `q_shares` with `b_param`), `held` caps the sell amount.
@@ -865,6 +886,101 @@ impl Database {
             .optional()?;
         Ok(r.filter(|(c, m)| *c != 0 && *m != 0))
     }
+
+    /// Load an AMM event's board render data (host `/predict` card). `None` for a
+    /// missing or non-AMM event.
+    pub fn amm_board(&self, event_id: i64) -> SqlResult<Option<AmmBoard>> {
+        let conn = self.conn.lock();
+        let ev = conn
+            .query_row(
+                "SELECT creator, title, state, lang, odds_fmt, COALESCE(tz_offset, 0), ends_at,
+                        COALESCE(b_param, 0), fee_bps, winning_market, pool
+                 FROM events WHERE id = ?1 AND kind = 'amm'",
+                params![event_id],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, i64>(5)?,
+                        r.get::<_, i64>(6)?,
+                        r.get::<_, i64>(7)?,
+                        r.get::<_, i64>(8)?,
+                        r.get::<_, Option<i64>>(9)?,
+                        r.get::<_, i64>(10)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((host, question, state, lang, odds_fmt, tz_offset, ends_at, b_param, fee_bps, winning_market, pool)) =
+            ev
+        else {
+            return Ok(None);
+        };
+        let options = {
+            let mut stmt =
+                conn.prepare("SELECT name, q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+            let v = stmt
+                .query_map(params![event_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            v
+        };
+        Ok(Some(AmmBoard {
+            event_id,
+            host,
+            question,
+            state,
+            lang,
+            odds_fmt,
+            tz_offset,
+            ends_at,
+            b_param,
+            fee_bps,
+            winning_market,
+            pool,
+            options,
+        }))
+    }
+
+    /// Read-only preview of how many shares `spend` micro-coins buys of an AMM
+    /// outcome (mirrors [`Database::amm_buy`]'s share math) — for the buy builder.
+    /// `None` if the event isn't an open AMM, the idx is bad, or the spend is too
+    /// small to mint a share.
+    pub fn amm_buy_quote(&self, event_id: i64, idx: i64, spend: i64) -> SqlResult<Option<i64>> {
+        if spend <= 0 {
+            return Ok(None);
+        }
+        let conn = self.conn.lock();
+        let row = conn
+            .query_row(
+                "SELECT b_param, fee_bps FROM events WHERE id = ?1 AND kind = 'amm' AND state = 'open'",
+                params![event_id],
+                |r| Ok((r.get::<_, Option<i64>>(0)?.unwrap_or(0), r.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        let Some((b, fee_bps)) = row else {
+            return Ok(None);
+        };
+        let q = {
+            let mut stmt =
+                conn.prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+            let v = stmt
+                .query_map(params![event_id], |r| r.get(0))?
+                .collect::<SqlResult<Vec<i64>>>()?;
+            v
+        };
+        if idx < 0 || idx as usize >= q.len() {
+            return Ok(None);
+        }
+        let cost = spend - mul_bps(spend, fee_bps);
+        let q_whole: Vec<f64> = q.iter().map(|x| *x as f64 / SHARE as f64).collect();
+        let shares = (lmsr::shares_for_budget(&q_whole, b as f64, idx as usize, cost as f64 / COIN as f64)
+            * SHARE as f64)
+            .floor() as i64;
+        Ok((shares > 0).then_some(shares))
+    }
 }
 
 #[cfg(test)]
@@ -1269,5 +1385,40 @@ mod tests {
         assert!(db.event_card(ev).unwrap().is_none(), "no card until posted");
         db.set_event_card(ev, -100, 55).unwrap();
         assert_eq!(db.event_card(ev).unwrap(), Some((-100, 55)));
+    }
+
+    #[test]
+    fn amm_board_and_buy_quote() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 1000 * COIN).unwrap();
+        db.force_change(2, 1000 * COIN).unwrap();
+        let ev = db
+            .create_amm_event(
+                1,
+                "Who wins?",
+                "hant",
+                "",
+                Some(480),
+                0,
+                &opts(&["A", "B", "C"]),
+                B_MEDIUM,
+                FEE_BPS_DEFAULT,
+                100,
+            )
+            .unwrap()
+            .unwrap();
+        let board = db.amm_board(ev).unwrap().unwrap();
+        assert_eq!(board.question, "Who wins?");
+        assert_eq!(board.state, "open");
+        assert_eq!(board.lang, "hant");
+        assert_eq!(board.options.len(), 3);
+        assert_eq!(board.options[0], ("A".to_string(), 0));
+        // The read-only quote must match the share count an actual buy mints.
+        let quoted = db.amm_buy_quote(ev, 0, 50 * COIN).unwrap().unwrap();
+        assert!(quoted > 0);
+        let TradeOutcome::Filled { shares, .. } = db.amm_buy(ev, 0, 2, 50 * COIN).unwrap() else {
+            panic!()
+        };
+        assert_eq!(quoted, shares, "quote matches the executed buy");
     }
 }
