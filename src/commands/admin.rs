@@ -21,8 +21,7 @@ const RATE_LIMIT_SLACK_SECS: u64 = 1;
 /// Callback-data prefix for the button-driven selective `/reset` flow (owner+dev).
 pub const RESET_CB: &str = "rst:";
 /// Selectable reset parts, OR'd into a bitmask that rides in the callback data.
-const RESET_MATCHES: u8 = 1;
-const RESET_PREDICTIONS: u8 = 2;
+const RESET_MARKETS: u8 = 1;
 const RESET_EVERYTHING: u8 = 4;
 const RESET_PROMPT: &str = "🧹 Reset (dev) — tap to select, then Submit:";
 
@@ -114,17 +113,15 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
 }
 
 /// `/dashboard` — owner-only snapshot of bot-wide metrics: user/chat counts, the
-/// circulating coin supply, real-money match-bet exposure, and open self-host
-/// games. Plain English (an operator diagnostic, not a user-facing surface).
+/// circulating coin supply, and live market-engine exposure (open events +
+/// positions + committed coins). Plain English (an operator diagnostic, not a
+/// user-facing surface).
 #[command(description = "owner: bot-wide dashboard")]
 pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
     if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
     let database = db(&ctx);
-    // Everything — including the open self-host `/predict` game count and the
-    // coins committed to them — comes from one DB aggregate now (the `games`
-    // table holds only live games, so no in-memory fold is needed).
     let s = match database.dashboard() {
         Ok(s) => s,
         Err(e) => {
@@ -148,11 +145,9 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
          \n\
          🪙 Coin supply: {supply}\n\
          \n\
-         🎟️ Match bets\n\
-         · open: {open_w} · {open_stake} staked\n\
-         · all-time: {tot_w} · {tot_vol} volume\n\
-         🎲 Self-host games\n\
-         · open: {open_g} · {open_g_coins} staked\n\
+         📈 Open markets\n\
+         · {open_sourced} sourced (/events) · {open_amm} AMM (/predict)\n\
+         · {open_pos} open position(s) · {committed} committed\n\
          \n\
          ⚙️ Status: {status}",
         users = format_number(s.users),
@@ -161,12 +156,10 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
         groups = format_number(s.groups),
         private = format_number(s.private_chats),
         supply = fmt_coins(s.total_supply),
-        open_w = format_number(s.open_wagers),
-        open_stake = fmt_coins(s.open_stake),
-        tot_w = format_number(s.total_wagers),
-        tot_vol = fmt_coins(s.total_volume),
-        open_g = format_number(s.open_predictions),
-        open_g_coins = fmt_coins(s.open_game_stake),
+        open_sourced = format_number(s.open_sourced),
+        open_amm = format_number(s.open_amm),
+        open_pos = format_number(s.open_positions),
+        committed = fmt_coins(s.committed_coins),
     );
     reply(&ctx, &message, text).await?;
     Ok(())
@@ -300,7 +293,7 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
 
 /// `/reset` — selective, button-driven wipe. Owner-only **and** dev-mode-only, so
 /// it can never fire against a production bot. Posts a multi-select picker
-/// (Matches / Predictions / Everything + Submit); the actual work happens in
+/// (Markets / Everything + Submit); the actual work happens in
 /// [`handle_reset_cb`] when Submit is pressed.
 #[command(description = "owner+dev: selective reset")]
 pub async fn reset(ctx: Context, message: Message) -> CommandResult {
@@ -312,8 +305,8 @@ pub async fn reset(ctx: Context, message: Message) -> CommandResult {
 }
 
 /// `/delete` — owner **and** dev-mode only (`is_dev`, so it can never fire on a
-/// production bot). Deletes a user's profile (their `balance` row + any wagers,
-/// via `Database::delete_user`) so they count as brand-new again — handy to
+/// production bot). Deletes a user's profile (their `balance` row + any open
+/// positions, via `Database::delete_user`) so they count as brand-new again — handy to
 /// re-test referral binding, which gates on a `balance` row's existence. Target =
 /// the replied-to user (gives a name in the confirmation) or a numeric id
 /// argument (`/delete <id>`).
@@ -365,8 +358,7 @@ fn reset_picker_rows(flags: u8) -> Vec<tg::Row> {
         vec![(format!("{mark} {label}"), format!("{RESET_CB}t:{}", flags ^ bit))]
     };
     vec![
-        part(RESET_MATCHES, "Matches (refund open bets)"),
-        part(RESET_PREDICTIONS, "Predictions (refund open bets)"),
+        part(RESET_MARKETS, "Markets (refund + clear all bets)"),
         part(RESET_EVERYTHING, "Everything (refund + backup + wipe)"),
         vec![("🧹 Submit".to_string(), format!("{RESET_CB}go:{flags}"))],
     ]
@@ -405,22 +397,13 @@ pub async fn handle_reset_cb(
             let database = db(ctx);
             let mut lines: Vec<String> = Vec::new();
             if flags & RESET_EVERYTHING != 0 {
-                // (1) Return every open bet (match + self-host) so the snapshot
-                // captures those coins back in the balances…
-                match database.reset_wagers() {
-                    Ok((n, refunded)) => lines.push(format!("🎟️ Returned {} to {n} open match bet(s)", fmt_coins(refunded))),
+                // (1) Return every committed coin (position cost bases + AMM escrow)
+                // so the snapshot captures those coins back in the balances…
+                match database.reset_events() {
+                    Ok((n, refunded)) => lines.push(format!("📈 Returned {} from {n} open market(s)", fmt_coins(refunded))),
                     Err(e) => {
-                        eprintln!("reset_wagers (everything) error: {e}");
-                        lines.push("🎟️ Match refunds — ⚠️ error".to_string());
-                    }
-                }
-                match database.reset_predictions() {
-                    Ok((n, refunded)) => {
-                        lines.push(format!("🎲 Returned {} from {n} prediction(s)", fmt_coins(refunded)));
-                    }
-                    Err(e) => {
-                        eprintln!("reset_predictions (everything) error: {e}");
-                        lines.push("🎲 Prediction refunds — ⚠️ error".to_string());
+                        eprintln!("reset_events (everything) error: {e}");
+                        lines.push("📈 Market refunds — ⚠️ error".to_string());
                     }
                 }
                 // (2) Snapshot balances to a backup file — the safety net for /load.
@@ -445,27 +428,14 @@ pub async fn handle_reset_cb(
                         lines.push(format!("💾 Backup FAILED — wipe aborted, balances kept ({e})"));
                     }
                 }
-            } else {
-                if flags & RESET_MATCHES != 0 {
-                    match database.reset_wagers() {
-                        Ok((n, refunded)) => {
-                            lines.push(format!("🎟️ Matches cleared — refunded {} to {n} open bet(s)", fmt_coins(refunded)))
-                        }
-                        Err(e) => {
-                            eprintln!("reset_wagers error: {e}");
-                            lines.push("🎟️ Matches — ⚠️ error".to_string());
-                        }
+            } else if flags & RESET_MARKETS != 0 {
+                match database.reset_events() {
+                    Ok((n, refunded)) => {
+                        lines.push(format!("📈 Markets cleared — {n} event(s), refunded {}", fmt_coins(refunded)))
                     }
-                }
-                if flags & RESET_PREDICTIONS != 0 {
-                    match database.reset_predictions() {
-                        Ok((n, refunded)) => {
-                            lines.push(format!("🎲 Predictions cleared — {n} prediction(s), refunded {}", fmt_coins(refunded)))
-                        }
-                        Err(e) => {
-                            eprintln!("reset_predictions error: {e}");
-                            lines.push("🎲 Predictions — ⚠️ error".to_string());
-                        }
+                    Err(e) => {
+                        eprintln!("reset_events error: {e}");
+                        lines.push("📈 Markets — ⚠️ error".to_string());
                     }
                 }
             }
@@ -476,58 +446,6 @@ pub async fn handle_reset_cb(
         _ => {}
     }
     answer(ctx, cb, "", false).await
-}
-
-/// Target schema version stamped by `/migrate`.
-const MIGRATE_VERSION: i64 = 1;
-
-/// `/migrate` (owner) — one-time cutover wash to the Polymarket share-trading
-/// schema. **Version-guarded** (idempotent): a re-run after a successful
-/// migration is a no-op. It refunds every unsettled *legacy* bet (open match
-/// wagers + self-host prediction stakes) back to balances, snapshots balances to
-/// a rollback file (aborting if it can't be written — never proceed without a
-/// backup), then stamps the schema version. The `balance` table (lang / timezone
-/// / referrals / check-in) **and** the new events/markets/positions tables are
-/// left untouched — only the legacy bet data is drained. Prod-capable (unlike the
-/// dev-only `/reset`).
-#[command(description = "(owner) one-time cutover wash to the new schema")]
-pub async fn migrate(ctx: Context, message: Message) -> CommandResult {
-    if owner_guard(&ctx, &message).is_none() {
-        return Ok(());
-    }
-    let database = db(&ctx);
-    let ver = database.schema_version().unwrap_or(0);
-    if ver >= MIGRATE_VERSION {
-        reply(&ctx, &message, format!("✅ Already migrated (schema v{ver}). Nothing to do.")).await?;
-        return Ok(());
-    }
-    // (1) Snapshot balances FIRST — never proceed without a rollback file.
-    let snapshot = match backup_balances(&ctx) {
-        Ok(file) => file,
-        Err(e) => {
-            reply(&ctx, &message, format!("⚠️ Backup failed — migration aborted, nothing changed ({e})")).await?;
-            return Ok(());
-        }
-    };
-    // (2) Refund all unsettled legacy funds back into balances.
-    let (w_n, w_ref) = database.reset_wagers().unwrap_or((0, 0));
-    let (p_n, p_ref) = database.reset_predictions().unwrap_or((0, 0));
-    // (3) Stamp the version so a re-run is a no-op.
-    let _ = database.set_schema_version(MIGRATE_VERSION);
-    let refunded = w_ref.saturating_add(p_ref);
-    reply(
-        &ctx,
-        &message,
-        format!(
-            "✅ Migrated to schema v{MIGRATE_VERSION}.\n\
-             🎟️ {w_n} open match bet(s) + 🎲 {p_n} prediction(s) refunded = {} returned to balances.\n\
-             💾 Balances snapshotted to {snapshot} (rollback via /load {snapshot}).\n\
-             Legacy bet data drained; the balance table (lang / timezone / referrals) is preserved.",
-            fmt_coins(refunded)
-        ),
-    )
-    .await?;
-    Ok(())
 }
 
 /// Snapshot every non-zero coin balance to a timestamped `balances-*.json` file in

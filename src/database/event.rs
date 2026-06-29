@@ -182,10 +182,9 @@ impl Database {
     ///   their price from Gamma).
     /// - **`positions`** — one row per (event, outcome, user) YES-share holding:
     ///   `shares` (micro-shares) and `cost` (micro-coin basis, for avg-price display
-    ///   and `/migrate` refunds).
+    ///   and `reset_events` refunds).
     ///
-    /// Co-located with the trade engine so the schema and read/write code can't
-    /// drift, mirroring [`Database::create_game_tables`].
+    /// Co-located with the trade engine so the schema and read/write code can't drift.
     pub(super) fn create_event_tables(conn: &Connection) -> SqlResult<()> {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS events (
@@ -742,6 +741,69 @@ impl Database {
             out.extend(self.settle_event(ev, None)?);
         }
         Ok(out)
+    }
+
+    /// Dev `/reset` (Markets) — refund every committed coin and wipe the whole
+    /// trading engine (`events`/`markets`/`positions`) in one transaction. Each
+    /// position holder gets their `cost` basis back; each AMM host gets the escrow
+    /// still sitting in the `pool` (`pool − Σ that event's position costs`, which is
+    /// exactly the seed they funded). **Conserves supply** — every coin committed
+    /// to the engine returns to a balance, nothing is stranded or minted. Returns
+    /// `(events_cleared, micro_coins_refunded)`.
+    pub fn reset_events(&self) -> SqlResult<(i64, i64)> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let events_cleared: i64 = tx.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))?;
+        let mut refunded = 0i64;
+        let credit = |tx: &rusqlite::Transaction, user: i64, amount: i64| -> SqlResult<()> {
+            tx.execute(
+                "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
+                params![user],
+            )?;
+            tx.execute(
+                "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+                params![amount, user],
+            )?;
+            Ok(())
+        };
+        // (1) Every holder's cost basis back to their balance.
+        let holders: Vec<(i64, i64)> = {
+            let mut stmt =
+                tx.prepare("SELECT user, COALESCE(SUM(cost), 0) FROM positions GROUP BY user")?;
+            let v = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            v
+        };
+        for (user, cost) in &holders {
+            if *cost > 0 {
+                credit(&tx, *user, *cost)?;
+                refunded += cost;
+            }
+        }
+        // (2) Each AMM host's remaining escrow (pool minus its traders' costs).
+        let hosts: Vec<(i64, i64)> = {
+            let mut stmt = tx.prepare(
+                "SELECT e.creator,
+                        e.pool - COALESCE((SELECT SUM(p.cost) FROM positions p WHERE p.event_id = e.id), 0)
+                 FROM events e WHERE e.kind = 'amm'",
+            )?;
+            let v = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            v
+        };
+        for (host, residual) in &hosts {
+            if *residual > 0 {
+                credit(&tx, *host, *residual)?;
+                refunded += residual;
+            }
+        }
+        tx.execute("DELETE FROM positions", [])?;
+        tx.execute("DELETE FROM markets", [])?;
+        tx.execute("DELETE FROM events", [])?;
+        tx.commit()?;
+        Ok((events_cleared, refunded))
     }
 
     /// The user's open share holdings (events still `open`), joined with their
@@ -1448,5 +1510,50 @@ mod tests {
             panic!()
         };
         assert_eq!(quoted, shares, "quote matches the executed buy");
+    }
+
+    #[test]
+    fn reset_events_refunds_cost_and_amm_escrow_then_wipes() {
+        // AMM event: pool = host escrow (70) + trader's cost (30) = 100.
+        // Sourced event: house-banked (no pool), trader cost 20.
+        let db = Database::new(":memory:", 1).unwrap();
+        {
+            let conn = db.conn.lock();
+            conn.execute(
+                "INSERT INTO events (id, kind, creator, state, pool) VALUES (1, 'amm', 99, 'open', ?1)",
+                [100 * COIN],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO positions (event_id, market_idx, user, shares, cost) VALUES (1, 0, 10, 50, ?1)",
+                [30 * COIN],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO events (id, kind, state, pool) VALUES (2, 'sourced', 'open', 0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO positions (event_id, market_idx, user, shares, cost) VALUES (2, 1, 11, 40, ?1)",
+                [20 * COIN],
+            )
+            .unwrap();
+        }
+
+        let (cleared, refunded) = db.reset_events().unwrap();
+        assert_eq!(cleared, 2, "both events counted");
+        // trader10 cost 30 + host99 escrow 70 (pool−30) + trader11 cost 20 = 120.
+        assert_eq!(refunded, 120 * COIN, "every committed coin returned (conserved)");
+        assert_eq!(db.get_user_info(10).unwrap().balance, 30 * COIN);
+        assert_eq!(db.get_user_info(99).unwrap().balance, 70 * COIN);
+        assert_eq!(db.get_user_info(11).unwrap().balance, 20 * COIN);
+        // Engine fully wiped.
+        let n: i64 =
+            db.conn.lock().query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+        let p: i64 =
+            db.conn.lock().query_row("SELECT COUNT(*) FROM positions", [], |r| r.get(0)).unwrap();
+        assert_eq!(p, 0);
     }
 }

@@ -3,7 +3,6 @@ mod chats;
 mod dashboard;
 mod event;
 mod fruit;
-mod predictions;
 mod meta;
 mod referral;
 mod user;
@@ -96,15 +95,15 @@ impl Database {
             )",
             [],
         )?;
-        // Self-host `/predict` games, normalized across games/game_options/
-        // game_stakes (schema owned by `games.rs`). A one-time migration folds any
-        // legacy JSON-blob `bet_games` rows in (and drops that table) below.
-        Self::create_game_tables(&conn)?;
         // Unified Polymarket-style market schema (events/markets/positions) — the
-        // share-trading model that supersedes both `wagers` and the game tables.
-        // Created alongside the old tables; the old ones are drained + dropped at
-        // cutover by `/migrate`. Schema owned by `event.rs`.
+        // share-trading model. Schema owned by `event.rs`.
         Self::create_event_tables(&conn)?;
+        // Drop the dead legacy bet tables from any pre-rewrite data file (best-effort,
+        // no-op on a fresh DB) — the share engine replaced both the fixed-odds
+        // `wagers` and the pari-mutuel `games` system.
+        for t in ["wagers", "games", "game_options", "game_stakes", "bet_games"] {
+            let _ = conn.execute(&format!("DROP TABLE IF EXISTS {t}"), []);
+        }
         // AMM `/predict` board location columns, for older event tables.
         let _ = conn.execute("ALTER TABLE events ADD COLUMN card_chat INTEGER NOT NULL DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE events ADD COLUMN card_msg INTEGER NOT NULL DEFAULT 0", []);
@@ -114,27 +113,6 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS meta (
                 key   TEXT NOT NULL PRIMARY KEY,
                 value TEXT NOT NULL
-            )",
-            [],
-        )?;
-        // Real-money match bets. `stake` is micro-coins; `odds_cents` is the
-        // YES odds (cents) locked at placement; payout on a win is
-        // `stake * 100 / odds_cents`. Settled manually by an admin.
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS wagers (
-                id         INTEGER PRIMARY KEY,
-                user       INTEGER NOT NULL,
-                market_id  TEXT    NOT NULL,
-                slug       TEXT    NOT NULL DEFAULT '',
-                team_a     TEXT    NOT NULL DEFAULT '',
-                team_b     TEXT    NOT NULL DEFAULT '',
-                outcome    TEXT    NOT NULL,
-                stake      INTEGER NOT NULL,
-                odds_cents REAL    NOT NULL,
-                placed_at  INTEGER NOT NULL,
-                ends_at    INTEGER NOT NULL DEFAULT 0,
-                status     TEXT    NOT NULL DEFAULT 'open',
-                settled_at INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
@@ -290,89 +268,33 @@ impl Database {
         Ok(())
     }
 
-    /// Wipe every table (dev-only `/reset`). In-memory bet games must be
-    /// cleared separately by the caller (they live in `PredictionsKey`, not the DB).
+    /// Wipe every table (dev-only `/reset` → [Everything]) — balances, chats, meta
+    /// flags, the buffer escrow, and the whole market engine (`events`/`markets`/
+    /// `positions`).
     pub fn reset_all(&self) -> SqlResult<()> {
         let conn = self.conn.lock();
         conn.execute_batch(
             "DELETE FROM balance;
              DELETE FROM buffer;
-             DELETE FROM games;
-             DELETE FROM game_options;
-             DELETE FROM game_stakes;
              DELETE FROM meta;
              DELETE FROM chats;
-             DELETE FROM wagers;",
+             DELETE FROM positions;
+             DELETE FROM markets;
+             DELETE FROM events;",
         )
-    }
-
-    /// Selective `/reset` — refund + clear all real-money **match bets**: credit
-    /// every *open* wager's stake back to its bettor, then wipe the `wagers` table
-    /// (open + settled history) in one transaction. Returns
-    /// `(open_bets_refunded, micro_coins_refunded)`.
-    pub fn reset_wagers(&self) -> SqlResult<(i64, i64)> {
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        let open: Vec<(i64, i64)> = {
-            let mut stmt = tx.prepare("SELECT user, stake FROM wagers WHERE status = 'open'")?;
-            let v = stmt
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<SqlResult<Vec<_>>>()?;
-            v
-        };
-        let mut refunded = 0i64;
-        for (user, stake) in &open {
-            tx.execute("INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')", params![user])?;
-            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![stake, user])?;
-            refunded += stake;
-        }
-        tx.execute("DELETE FROM wagers", [])?;
-        tx.commit()?;
-        Ok((open.len() as i64, refunded))
-    }
-
-    /// Selective `/reset` — refund + clear all self-host **predictions**: credit
-    /// every prediction stake (whole coins → micro) back to its bettor, then wipe the
-    /// `games`/`game_options`/`game_stakes` tables in one transaction. Returns
-    /// `(predictions_cleared, micro_coins_refunded)`. **Legacy** — only `/migrate`
-    /// calls it now, to drain stakes left in the old tables on the prod cutover.
-    pub fn reset_predictions(&self) -> SqlResult<(i64, i64)> {
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        let predictions_cleared: i64 = tx.query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0))?;
-        let stakes: Vec<(i64, i64)> = {
-            let mut stmt = tx.prepare("SELECT user, amount FROM game_stakes")?;
-            let v = stmt
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<SqlResult<Vec<_>>>()?;
-            v
-        };
-        let mut refunded = 0i64;
-        for (user, amount) in &stakes {
-            let micro = amount.saturating_mul(COIN);
-            tx.execute("INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')", params![user])?;
-            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![micro, user])?;
-            refunded += micro;
-        }
-        tx.execute("DELETE FROM game_stakes", [])?;
-        tx.execute("DELETE FROM game_options", [])?;
-        tx.execute("DELETE FROM games", [])?;
-        tx.commit()?;
-        Ok((predictions_cleared, refunded))
     }
 
     /// Dev-only `/delete` — remove a single user's footprint so they count as
     /// **brand-new** for referral binding (which gates on a `balance` row's
-    /// existence). Deletes their `balance` row and any of their `wagers` in one
+    /// existence). Deletes their `balance` row and any open `positions` in one
     /// transaction. Returns `true` when a balance row existed (so the caller can
-    /// report "not found" otherwise). Does **not** touch the in-memory `/predict`
-    /// map or the normalized game tables — it's a referral-test helper, not a
-    /// mid-prediction cleanup.
+    /// report "not found" otherwise). It's a referral-test helper — it drops the
+    /// positions outright (no settle/refund).
     pub fn delete_user(&self, user_id: i64) -> SqlResult<bool> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         let deleted = tx.execute("DELETE FROM balance WHERE user = ?1", params![user_id])?;
-        tx.execute("DELETE FROM wagers WHERE user = ?1", params![user_id])?;
+        tx.execute("DELETE FROM positions WHERE user = ?1", params![user_id])?;
         tx.commit()?;
         Ok(deleted == 1)
     }
@@ -436,7 +358,8 @@ mod reset_tests {
                 .query_row(
                     "SELECT (SELECT COUNT(*) FROM balance)
                           + (SELECT COUNT(*) FROM buffer)
-                          + (SELECT COUNT(*) FROM games)
+                          + (SELECT COUNT(*) FROM events)
+                          + (SELECT COUNT(*) FROM positions)
                           + (SELECT COUNT(*) FROM meta)
                           + (SELECT COUNT(*) FROM chats)",
                     [],
@@ -449,58 +372,6 @@ mod reset_tests {
         db.reset_all().unwrap();
         assert_eq!(total(&db), 0, "every table should be empty after reset");
         assert!(!db.is_paused().unwrap(), "pause flag cleared");
-    }
-
-    #[test]
-    fn reset_wagers_refunds_open_and_clears() {
-        // `/migrate` still drains the legacy `wagers` table via reset_wagers;
-        // place_wager is gone, so seed a row directly.
-        let db = Database::new(":memory:", 1).unwrap();
-        db.force_change(10, 70 * COIN).unwrap(); // 100 staked 30 → 70 left
-        db.conn
-            .lock()
-            .execute(
-                "INSERT INTO wagers (user, market_id, slug, team_a, team_b, outcome, stake, odds_cents, placed_at)
-                 VALUES (10, 'm1', 's', 'A', 'B', 'teamA', ?1, 200.0, 0)",
-                [30 * COIN],
-            )
-            .unwrap();
-
-        let (n, refunded) = db.reset_wagers().unwrap();
-        assert_eq!(n, 1);
-        assert_eq!(refunded, 30 * COIN);
-        assert_eq!(db.get_user_info(10).unwrap().balance, 100 * COIN); // 70 + 30 refund
-        let open: i64 =
-            db.conn.lock().query_row("SELECT COUNT(*) FROM wagers", [], |r| r.get(0)).unwrap();
-        assert_eq!(open, 0, "table cleared");
-    }
-
-    #[test]
-    fn reset_predictions_refunds_stakes_and_clears() {
-        // `/migrate` drains the legacy game tables via reset_predictions; the
-        // Prediction codec is gone, so seed the rows directly.
-        let db = Database::new(":memory:", 1).unwrap();
-        db.force_change(10, 0).unwrap();
-        db.force_change(20, 0).unwrap();
-        {
-            let conn = db.conn.lock();
-            conn.execute("INSERT INTO games (id, host) VALUES ('5:5', 1)", []).unwrap();
-            conn.execute(
-                "INSERT INTO game_stakes (game_id, option_name, user, amount)
-                 VALUES ('5:5', 'A', 10, 4), ('5:5', 'B', 20, 6)",
-                [],
-            )
-            .unwrap();
-        }
-
-        let (predictions_cleared, refunded) = db.reset_predictions().unwrap();
-        assert_eq!(predictions_cleared, 1);
-        assert_eq!(refunded, 10 * COIN); // (4 + 6) whole coins → micro
-        assert_eq!(db.get_user_info(10).unwrap().balance, 4 * COIN);
-        assert_eq!(db.get_user_info(20).unwrap().balance, 6 * COIN);
-        let left: i64 =
-            db.conn.lock().query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0)).unwrap();
-        assert_eq!(left, 0);
     }
 
     #[test]
@@ -542,15 +413,15 @@ mod reset_tests {
     }
 
     #[test]
-    fn delete_user_removes_their_wagers() {
+    fn delete_user_removes_their_positions() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(10, 100 * COIN).unwrap();
         db.conn
             .lock()
             .execute(
-                "INSERT INTO wagers (user, market_id, slug, team_a, team_b, outcome, stake, odds_cents, placed_at)
-                 VALUES (10, 'm1', 's', 'A', 'B', 'teamA', ?1, 200.0, 0)",
-                [30 * COIN],
+                "INSERT INTO positions (event_id, market_idx, user, shares, cost)
+                 VALUES (1, 0, 10, 5000000, 3000000)",
+                [],
             )
             .unwrap();
 
@@ -559,9 +430,9 @@ mod reset_tests {
         let left: i64 = db
             .conn
             .lock()
-            .query_row("SELECT COUNT(*) FROM wagers WHERE user = 10", [], |r| r.get(0))
+            .query_row("SELECT COUNT(*) FROM positions WHERE user = 10", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(left, 0, "wagers gone too");
+        assert_eq!(left, 0, "positions gone too");
     }
 
     #[test]
@@ -578,13 +449,5 @@ mod reset_tests {
         // bot re-records the group adder; here we just recreate the row).
         db.force_change(1, 0).unwrap();
         assert!(db.set_referrer_if_new(2, 1).unwrap());
-    }
-
-    #[test]
-    fn schema_version_defaults_zero_and_persists() {
-        let db = Database::new(":memory:", 1).unwrap();
-        assert_eq!(db.schema_version().unwrap(), 0, "never migrated");
-        db.set_schema_version(1).unwrap();
-        assert_eq!(db.schema_version().unwrap(), 1, "stamped → /migrate re-run no-ops");
     }
 }

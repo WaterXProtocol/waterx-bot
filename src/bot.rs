@@ -122,7 +122,7 @@ pub async fn run() -> anyhow::Result<()> {
             bot_username.as_str(),
             start, assets, balance, bets, send, predict, rule, feedback, sell, buy, events,
             claim, checkin, settings, timezone, onlyreplyhere, replyanywhere, mint, pause, unpause,
-            broadcast, reset, settle, redeploy, dashboard, load, profile, delete, migrate
+            broadcast, reset, settle, redeploy, dashboard, load, profile, delete
         ))
         .add_handler_func(callbacks::on_callback)
         .add_handler_func(callbacks::on_my_chat_member)
