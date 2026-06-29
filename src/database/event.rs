@@ -7,6 +7,15 @@ use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult, Trans
 /// `SHARE == COIN`.
 pub(crate) const SHARE: i64 = 1_000_000;
 
+/// LMSR liquidity (whole shares) for a host `/predict` AMM — the "medium" preset
+/// (seed escrow ≈ b·ln k ≈ 35–55 coins for 2–3 outcomes). `create_amm_event`
+/// takes `b` as a parameter so other presets can be wired later; the `/predict`
+/// builder uses this one.
+pub const B_MEDIUM: i64 = 50;
+/// Host trading fee (basis points): 2% default, 10% ceiling (the builder clamps).
+pub const FEE_BPS_DEFAULT: i64 = 200;
+pub const FEE_BPS_MAX: i64 = 1_000;
+
 /// Result of an AMM buy/sell attempt against the ledger.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TradeOutcome {
@@ -173,6 +182,8 @@ impl Database {
                 b_param        INTEGER,
                 fee_bps        INTEGER NOT NULL DEFAULT 200,
                 pool           INTEGER NOT NULL DEFAULT 0,
+                card_chat      INTEGER NOT NULL DEFAULT 0,
+                card_msg       INTEGER NOT NULL DEFAULT 0,
                 created_at     INTEGER NOT NULL DEFAULT 0,
                 resolved_at    INTEGER NOT NULL DEFAULT 0
             )",
@@ -830,6 +841,30 @@ impl Database {
             .max(0.0) as i64;
         Ok(Some(refund - mul_bps(refund, fee_bps)))
     }
+
+    /// Record where an AMM event's shared board message lives, so a later bet can
+    /// re-render the board in place.
+    pub fn set_event_card(&self, event_id: i64, chat: i64, msg: i64) -> SqlResult<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE events SET card_chat = ?1, card_msg = ?2 WHERE id = ?3",
+            params![chat, msg, event_id],
+        )?;
+        Ok(())
+    }
+
+    /// The `(chat, msg)` of an event's board, or `None` if not posted yet.
+    pub fn event_card(&self, event_id: i64) -> SqlResult<Option<(i64, i64)>> {
+        let conn = self.conn.lock();
+        let r = conn
+            .query_row(
+                "SELECT card_chat, card_msg FROM events WHERE id = ?1",
+                params![event_id],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        Ok(r.filter(|(c, m)| *c != 0 && *m != 0))
+    }
 }
 
 #[cfg(test)]
@@ -1221,5 +1256,18 @@ mod tests {
         };
         let q = db.amm_sell_quote(amm, 0, shares).unwrap().unwrap();
         assert!(q > 0 && q <= 50 * COIN);
+    }
+
+    #[test]
+    fn event_card_round_trips() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 1000 * COIN).unwrap();
+        let ev = db
+            .create_amm_event(1, "Q", "", "", None, 0, &opts(&["A", "B"]), B_MEDIUM, FEE_BPS_DEFAULT, 100)
+            .unwrap()
+            .unwrap();
+        assert!(db.event_card(ev).unwrap().is_none(), "no card until posted");
+        db.set_event_card(ev, -100, 55).unwrap();
+        assert_eq!(db.event_card(ev).unwrap(), Some((-100, 55)));
     }
 }

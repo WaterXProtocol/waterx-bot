@@ -11,7 +11,10 @@ mod wager;
 
 pub use buffer::OfferOutcome;
 pub use dashboard::Dashboard;
-pub use event::{ClaimKind, Payout, PositionView, SellContext, TradeOutcome};
+pub use event::{
+    ClaimKind, Payout, PositionView, SellContext, TradeOutcome, B_MEDIUM, FEE_BPS_DEFAULT,
+    FEE_BPS_MAX,
+};
 pub use user::UserRow;
 pub use wager::{decimal_payout, OpenMarket, Position, Settlement};
 
@@ -102,6 +105,9 @@ impl Database {
         // Created alongside the old tables; the old ones are drained + dropped at
         // cutover by `/migrate`. Schema owned by `event.rs`.
         Self::create_event_tables(&conn)?;
+        // AMM `/predict` board location columns, for older event tables.
+        let _ = conn.execute("ALTER TABLE events ADD COLUMN card_chat INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE events ADD COLUMN card_msg INTEGER NOT NULL DEFAULT 0", []);
         // Small key/value table for bot-wide flags (currently just the admin
         // `paused` kill-switch). Persisted so a pause survives restarts.
         conn.execute(
