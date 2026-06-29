@@ -172,6 +172,20 @@ fn feed_cache() -> &'static Mutex<FeedCache> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Per-ticker cache of distilled Gamma odds, **shared across locales** (the odds
+/// are language-independent, so the `en` and `zh` feed refreshes shouldn't each
+/// re-fetch the same events). Keyed by the de-prefixed Gamma ticker; entries live
+/// for [`FEED_CACHE_TTL`]. (Worst case a wager books odds up to ~2×TTL old — a
+/// gamma entry up to TTL old baked into a feed snapshot served for up to another
+/// TTL — which is fine for play-money stakes.)
+type GammaCache = HashMap<String, (i64, GammaSides)>;
+
+/// Process-wide [`GammaCache`]. Guards are never held across an `.await`.
+fn gamma_cache() -> &'static Mutex<GammaCache> {
+    static CACHE: OnceLock<Mutex<GammaCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// Pull and parse the feed into sport markets, live-first then soonest. Served
 /// from a [`FEED_CACHE_TTL`]-second per-locale cache to avoid hammering the API.
 async fn fetch_markets(lang: Lang) -> Result<Vec<MarketInfo>, reqwest::Error> {
@@ -239,10 +253,12 @@ async fn overlay_gamma_odds(markets: &mut [MarketInfo], now: i64) {
     if targets.is_empty() {
         return;
     }
-    // One event fetch per match, concurrently.
+    // One event fetch per match, concurrently — but each is served from the
+    // locale-shared gamma cache when fresh, so the second locale to refresh reuses
+    // the first's results instead of re-fetching.
     let mut set = tokio::task::JoinSet::new();
     for (i, slug) in targets {
-        set.spawn(async move { (i, fetch_gamma_sides(&slug).await) });
+        set.spawn(async move { (i, fetch_gamma_sides(&slug, now).await) });
     }
     while let Some(joined) = set.join_next().await {
         let Ok((i, Some(sides))) = joined else { continue };
@@ -257,14 +273,26 @@ async fn overlay_gamma_odds(markets: &mut [MarketInfo], now: i64) {
             m.odds_b = sides.b;
         }
     }
+    // Drop entries no future refresh can reuse, so the cache stays bounded.
+    gamma_cache()
+        .lock()
+        .retain(|_, (fetched_at, _)| now - *fetched_at <= FEED_CACHE_TTL);
 }
 
 /// Fetch one match's Gamma event by slug and distil its per-side YES odds (cents).
-/// `None` on any network/parse failure (caller falls back to the waterx odds).
-async fn fetch_gamma_sides(waterx_slug: &str) -> Option<GammaSides> {
+/// Served from the locale-shared [`gamma_cache`] when fresh, so `en`/`zh` refreshes
+/// don't double-fetch the same event. `None` on any network/parse failure (caller
+/// falls back to the waterx odds); only successful mappings are cached.
+async fn fetch_gamma_sides(waterx_slug: &str, now: i64) -> Option<GammaSides> {
     let ticker = waterx_slug.strip_prefix("sport-").unwrap_or(waterx_slug);
     if ticker.is_empty() {
         return None;
+    }
+    // Cache hit shared across locales (clone out, drop the guard before the await).
+    if let Some((fetched_at, sides)) = gamma_cache().lock().get(ticker) {
+        if now - *fetched_at <= FEED_CACHE_TTL {
+            return Some(*sides);
+        }
     }
     let event = http_client()
         .get(format!("{GAMMA_EVENT_URL}{ticker}"))
@@ -277,7 +305,9 @@ async fn fetch_gamma_sides(waterx_slug: &str) -> Option<GammaSides> {
         .json::<GammaEvent>()
         .await
         .ok()?;
-    map_sides(&event)
+    let sides = map_sides(&event)?;
+    gamma_cache().lock().insert(ticker.to_string(), (now, sides));
+    Some(sides)
 }
 
 /// Map a Gamma event's per-outcome markets onto teamA/teamB/draw YES cents.
