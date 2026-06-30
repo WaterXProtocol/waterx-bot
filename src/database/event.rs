@@ -136,6 +136,9 @@ pub struct SellContext {
     pub fee_bps: i64,
     pub q_shares: Vec<i64>,
     pub held: i64,
+    /// Total cost basis (micro-coins) of the held position — for the sell
+    /// builder's estimated-P&L preview (`proceeds − basis_for_sold(...)`).
+    pub basis: i64,
     pub outcome: String,
     pub title: String,
 }
@@ -204,8 +207,9 @@ fn add_position(
 
 /// Cost basis attributable to `sold` of `held` shares carrying total `basis`:
 /// the whole `basis` on a full sell, else floored pro-rata. Realized P&L on a
-/// sell is `proceeds − basis_for_sold(...)`.
-fn basis_for_sold(basis: i64, sold: i64, held: i64) -> i64 {
+/// sell is `proceeds − basis_for_sold(...)`. Shared by the sell engine and the
+/// sell builder's estimated-P&L preview, so the estimate matches the execution.
+pub fn basis_for_sold(basis: i64, sold: i64, held: i64) -> i64 {
     if sold >= held || held <= 0 {
         basis
     } else {
@@ -1189,14 +1193,14 @@ impl Database {
         let Some((kind, source_ref, b_param, fee_bps, title)) = ev else {
             return Ok(None);
         };
-        let held: i64 = conn
+        let (held, basis): (i64, i64) = conn
             .query_row(
-                "SELECT shares FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
+                "SELECT shares, cost FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
                 params![event_id, idx, user],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?
-            .unwrap_or(0);
+            .unwrap_or((0, 0));
         if held <= 0 {
             return Ok(None);
         }
@@ -1216,7 +1220,17 @@ impl Database {
                 .collect::<SqlResult<Vec<i64>>>()?;
             v
         };
-        Ok(Some(SellContext { kind, source_ref, b_param, fee_bps, q_shares, held, outcome, title }))
+        Ok(Some(SellContext {
+            kind,
+            source_ref,
+            b_param,
+            fee_bps,
+            q_shares,
+            held,
+            basis,
+            outcome,
+            title,
+        }))
     }
 
     /// Read-only proceeds quote for selling `shares` micro-shares of an AMM

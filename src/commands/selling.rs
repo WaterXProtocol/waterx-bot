@@ -12,7 +12,7 @@ use crate::commands::menu;
 use crate::commands::tg::{self, answer};
 use crate::commands::util::*;
 use crate::core::i18n::{self, Lang};
-use crate::database::{SellContext, TradeOutcome, COIN};
+use crate::database::{basis_for_sold, SellContext, TradeOutcome, COIN};
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
@@ -130,15 +130,7 @@ pub async fn handle_sell_place(
         Ok(TradeOutcome::Filled { shares, coins, basis, .. }) => {
             let sold = i18n::sold(lang, &fmt_coins(-shares), &outcome, &fmt_coins(coins));
             // Realized P&L on the sold shares = proceeds − their cost basis.
-            let pnl = coins - basis;
-            let emoji = if pnl > 0 {
-                "📈"
-            } else if pnl < 0 {
-                "📉"
-            } else {
-                "➖"
-            };
-            let body = format!("{sold}\n{}", i18n::sell_pnl(lang, emoji, &fmt_signed_coins(pnl)));
+            let body = format!("{sold}\n{}", pnl_line(lang, coins - basis));
             let rows = vec![vec![(
                 i18n::bet_btn_back(lang).to_string(),
                 menu::MENU_BALANCE.to_string(),
@@ -176,6 +168,19 @@ async fn quote_proceeds(
     }
 }
 
+/// Profit/loss line, realized (on confirm) or estimated (in the builder):
+/// `📈 P&L: +5 🪙` (📉 loss / ➖ flat).
+fn pnl_line(lang: Lang, pnl: i64) -> String {
+    let emoji = if pnl > 0 {
+        "📈"
+    } else if pnl < 0 {
+        "📉"
+    } else {
+        "➖"
+    };
+    i18n::sell_pnl(lang, emoji, &fmt_signed_coins(pnl))
+}
+
 fn build_screen(
     lang: Lang,
     eid: i64,
@@ -185,7 +190,18 @@ fn build_screen(
     proceeds: Option<i64>,
 ) -> (String, Vec<tg::Row>) {
     let proceeds_str = proceeds.map(fmt_coins).unwrap_or_else(|| "—".to_string());
-    let text = i18n::sell_build(lang, &c.outcome, &fmt_coins(c.held), &fmt_coins(micro), &proceeds_str);
+    let mut text =
+        i18n::sell_build(lang, &c.outcome, &fmt_coins(c.held), &fmt_coins(micro), &proceeds_str);
+    // Estimated P&L for the selected amount at the current price = proceeds minus
+    // the pro-rata cost basis of those shares (same `basis_for_sold` the sell
+    // executes with, so the estimate matches the result).
+    if micro > 0 {
+        if let Some(p) = proceeds {
+            let pnl = p - basis_for_sold(c.basis, micro, c.held);
+            text.push('\n');
+            text.push_str(&pnl_line(lang, pnl));
+        }
+    }
     let preset_row: tg::Row = SELL_PRESETS
         .iter()
         .map(|p| {
