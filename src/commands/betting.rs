@@ -33,23 +33,25 @@ pub const OPT: &str = "opt:"; // pick a side → open the stake builder
 pub const SIZE: &str = "sz:"; // re-render the builder at an accumulated total
 pub const SIZE_PLACE: &str = "szp:"; // Confirm → debit + place the wager
 
-/// A snapshot of one match's odds, locked for [`QUOTE_TTL_SECS`].
+/// A snapshot of one event's odds, locked for [`QUOTE_TTL_SECS`]. Generalized to
+/// any number of outcomes — a bet carries the outcome **index**.
 #[derive(Clone)]
 pub struct Quote {
-    market_id: String,
-    slug: String,
-    team_a: String,
-    team_b: String,
-    odds_a: Option<f64>,
-    odds_draw: Option<f64>,
-    odds_b: Option<f64>,
+    /// Event key (a sport slug) — also the sourced event's `source_ref`, the join
+    /// key for Gamma resolution. The quote is re-priced by re-fetching this key.
+    key: String,
+    /// Display title ("France vs. Sweden").
+    title: String,
+    /// Outcomes in the event's fixed order (sport: `[teamA, draw, teamB]`), matching
+    /// `gamma_resolution`'s idx convention. Names are already localized by the feed.
+    outcomes: Vec<markets::SourcedOutcome>,
     ends_at: i64,
     quoted_at: i64,
-    /// Chat the market was tapped in (the group brief) — the placed bet is
-    /// announced back here. Equals the DM when `/markets` was used privately.
+    /// Chat the event was tapped in (the group brief) — the placed bet is
+    /// announced back here. Equals the DM when `/events` was used privately.
     origin_chat: i64,
-    /// In a group, the message id of the posted prediction card (A vs B + side
-    /// buttons) the placed bet is announced as a reply to. 0 when private.
+    /// In a group, the message id of the posted prediction card the placed bet is
+    /// announced as a reply to. 0 when private.
     origin_msg: i64,
     /// The user this quote's stake board belongs to. In a group the board is a
     /// shared message anyone can *see*, so every builder/confirm/place step is
@@ -58,21 +60,14 @@ pub struct Quote {
 }
 
 impl Quote {
-    fn odds(&self, outcome: &str) -> Option<f64> {
-        match outcome {
-            "teamA" => self.odds_a,
-            "teamB" => self.odds_b,
-            "draw" => self.odds_draw,
-            _ => None,
-        }
+    /// YES odds (cents) for outcome `idx`, if priced (> 0).
+    fn yes(&self, idx: usize) -> Option<f64> {
+        self.outcomes.get(idx).and_then(|o| o.yes_cents).filter(|c| *c > 0.0)
     }
 
-    fn side_name(&self, lang: Lang, outcome: &str) -> String {
-        match outcome {
-            "teamA" => self.team_a.clone(),
-            "teamB" => self.team_b.clone(),
-            _ => i18n::draw_label(lang).to_string(),
-        }
+    /// Display name of outcome `idx` (already localized by the feed).
+    fn name(&self, idx: usize) -> String {
+        self.outcomes.get(idx).map(|o| o.name.clone()).unwrap_or_default()
     }
 
     fn fresh(&self, now: i64) -> bool {
@@ -128,12 +123,12 @@ fn now() -> i64 {
 /// `origin_chat`/`origin_msg` so the announcement still lands.
 async fn refetch_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
     let q = quotes(ctx).lock().get(qid)?;
-    let m = match markets::fetch_one(lang, &q.market_id).await {
+    let m = match markets::fetch_one(lang, &q.key).await {
         Ok(Some(m)) => m,
         Ok(None) => return None,
         Err(e) => {
-            eprintln!("[bet] feed fetch error (reprice {}): {e}", q.market_id);
-            notify_owner(ctx, &format!("match-bet reprice fetch failed ({}): {e}", q.market_id)).await;
+            eprintln!("[bet] feed fetch error (reprice {}): {e}", q.key);
+            notify_owner(ctx, &format!("match-bet reprice fetch failed ({}): {e}", q.key)).await;
             return None;
         }
     };
@@ -141,9 +136,7 @@ async fn refetch_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
         return None;
     }
     let renewed = Quote {
-        odds_a: m.odds_a,
-        odds_draw: m.odds_draw,
-        odds_b: m.odds_b,
+        outcomes: m.outcomes,
         ends_at: m.ends_at,
         quoted_at: now(),
         ..q
@@ -180,32 +173,32 @@ fn quote_owner_ok(ctx: &Context, qid: u64, uid: i64) -> Option<bool> {
     quotes(ctx).lock().get(qid).map(|q| q.owner == uid)
 }
 
-/// `[outcome]` rows (one per priced outcome) labelled `name <odds>`. The callback
-/// is `opt:<lang>:<fmt>:<market_id>:<outcome>` — it carries the **market id** (not
-/// a quote id) so the card is stateless (a tap re-prices on demand, surviving
-/// quote eviction / restart), plus the **locale and odds format the card was
-/// created in** so every re-render stays in that one language + format (a shared
-/// group card must not flip per tapper). `lang`/`fmt` store codes and the market
-/// id (a UUID) are all colon-free, so it parses back cleanly.
-fn option_rows(lang: Lang, q: &Quote, fmt: OddsFormat) -> Vec<tg::Row> {
+/// One row per priced outcome, labelled `name <odds>`. The callback is
+/// `opt:<lang>:<fmt>:<key>:<idx>` — it carries the **event key** (not a quote id)
+/// so the card is stateless (a tap re-prices on demand, surviving quote eviction /
+/// restart) plus the **locale and odds format the card was created in** so every
+/// re-render stays in that one language + format (a shared group card must not flip
+/// per tapper). `lang`/`fmt` store codes, the key (a slug), and the numeric `idx`
+/// are all colon-free, so it parses back cleanly.
+fn option_rows(q: &Quote, lang: Lang, fmt: OddsFormat) -> Vec<tg::Row> {
     let mut rows = Vec::new();
-    for outcome in ["teamA", "draw", "teamB"] {
-        if let Some(c) = q.odds(outcome).filter(|c| *c > 0.0) {
-            let label = format!("{} {}", q.side_name(lang, outcome), format_odds(c, fmt));
+    for (idx, _) in q.outcomes.iter().enumerate() {
+        if let Some(c) = q.yes(idx) {
+            let label = format!("{} {}", q.name(idx), format_odds(c, fmt));
             rows.push(vec![(
                 label,
-                format!("{OPT}{}:{}:{}:{outcome}", lang.store_code(), fmt.store_code(), q.market_id),
+                format!("{OPT}{}:{}:{}:{idx}", lang.store_code(), fmt.store_code(), q.key),
             )]);
         }
     }
     rows
 }
 
-fn quote_text(lang: Lang, q: &Quote, fmt: OddsFormat) -> String {
-    let mut s = format!("{} vs. {}\n", q.team_a, q.team_b);
-    for outcome in ["teamA", "draw", "teamB"] {
-        if let Some(c) = q.odds(outcome).filter(|c| *c > 0.0) {
-            s.push_str(&format!("· {} — {}\n", q.side_name(lang, outcome), format_odds(c, fmt)));
+fn quote_text(q: &Quote, lang: Lang, fmt: OddsFormat) -> String {
+    let mut s = format!("{}\n", q.title);
+    for (idx, _) in q.outcomes.iter().enumerate() {
+        if let Some(c) = q.yes(idx) {
+            s.push_str(&format!("· {} — {}\n", q.name(idx), format_odds(c, fmt)));
         }
     }
     s.push('\n');
@@ -213,28 +206,27 @@ fn quote_text(lang: Lang, q: &Quote, fmt: OddsFormat) -> String {
     s
 }
 
-/// `bet:<market_id>` — render that market's card. In both group and private chats
-/// the brief is replaced in place with the card, so the chat converges on one
-/// focal message. The card is **stateless** — its side buttons carry the market
-/// id, so a side tap re-prices on demand (`handle_opt`); nothing is stored in
-/// `QuoteStore` here.
+/// `bet:<key>` — render that event's card. In both group and private chats the
+/// brief is replaced in place with the card, so the chat converges on one focal
+/// message. The card is **stateless** — its outcome buttons carry the event key, so
+/// a tap re-prices on demand (`handle_opt`); nothing is stored in `QuoteStore` here.
 pub async fn handle_bet(
     ctx: &Context,
     cb: &CallbackQuery,
-    market_id: &str,
+    key: &str,
 ) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let m = match markets::fetch_one(lang, market_id).await {
+    let m = match markets::fetch_one(lang, key).await {
         Ok(Some(m)) => m,
         Ok(None) => {
-            // Fetched fine but the market isn't listed — stale button, expected.
-            eprintln!("[bet] market {market_id} not in feed (stale button)");
+            // Fetched fine but the event isn't listed — stale button, expected.
+            eprintln!("[bet] event {key} not in feed (stale button)");
             return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         }
         Err(e) => {
             // Genuine feed fetch/parse failure — alert the owner.
-            eprintln!("[bet] feed fetch error for {market_id}: {e}");
-            notify_owner(ctx, &format!("match-bet feed fetch failed ({market_id}): {e}")).await;
+            eprintln!("[bet] feed fetch error for {key}: {e}");
+            notify_owner(ctx, &format!("match-bet feed fetch failed ({key}): {e}")).await;
             return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         }
     };
@@ -242,19 +234,15 @@ pub async fn handle_bet(
         return answer(ctx, cb, i18n::bet_closed(lang), true).await;
     }
 
-    // Build the card from the freshly-fetched odds. It's stateless: the side
-    // buttons carry the market id (`option_rows`), so the brief becoming this card
-    // needs no stored quote — a side tap re-prices in `handle_opt`, and the placed
-    // bet is anchored/announced from the quote minted there. Replace the brief in
-    // place (group and private alike) so the chat converges on one message.
+    // Build the card from the freshly-fetched odds. It's stateless: the outcome
+    // buttons carry the event key (`option_rows`), so the brief becoming this card
+    // needs no stored quote — a tap re-prices in `handle_opt`, and the placed bet is
+    // anchored/announced from the quote minted there. Replace the brief in place
+    // (group and private alike) so the chat converges on one message.
     let q = Quote {
-        market_id: m.market_id.clone(),
-        slug: m.slug.clone(),
-        team_a: m.team_a.clone(),
-        team_b: m.team_b.clone(),
-        odds_a: m.odds_a,
-        odds_draw: m.odds_draw,
-        odds_b: m.odds_b,
+        key: m.key.clone(),
+        title: m.title.clone(),
+        outcomes: m.outcomes.clone(),
         ends_at: m.ends_at,
         quoted_at: now(),
         origin_chat: 0,
@@ -269,14 +257,14 @@ pub async fn handle_bet(
         ctx,
         cb.message_chat(),
         cb.message_id(),
-        &quote_text(lang, &q, fmt),
-        &option_rows(lang, &q, fmt),
+        &quote_text(&q, lang, fmt),
+        &option_rows(&q, lang, fmt),
     )
     .await;
     Ok(())
 }
 
-/// `opt:<lang>:<market_id>:<outcome>` — a side was tapped on the market card.
+/// `opt:<lang>:<fmt>:<key>:<idx>` — an outcome was tapped on the event card.
 /// **Always re-prices** from the live feed (cache-served, so ~free and
 /// self-healing — works even after the prior quote was evicted or the bot
 /// restarted), then opens the stake builder at 0. The **shared card stays in its
@@ -286,21 +274,21 @@ pub async fn handle_bet(
 /// Telegram returns "not modified" (no flicker, concurrent taps idempotent). In a
 /// **group** the builder is **DM'd** in the *tapper's* locale so it never clobbers
 /// the card; in a **private** chat the card itself becomes the builder in place. A
-/// gone/ended market turns the card into a "finished" notice; a transient feed
+/// gone/ended event turns the card into a "finished" notice; a transient feed
 /// error keeps the card and alerts the owner.
 pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let tapper_lang = cb_lang(ctx, cb);
     let tapper_fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let Some((card_lang, card_fmt, market_id, outcome)) = parse_card_opt(rest) else {
+    let Some((card_lang, card_fmt, key, idx)) = parse_card_opt(rest) else {
         return answer(ctx, cb, "", false).await;
     };
-    // Fetch in the card's locale so its team names stay stable across tappers.
-    let m = match markets::fetch_one(card_lang, &market_id).await {
+    // Fetch in the card's locale so its outcome names stay stable across tappers.
+    let m = match markets::fetch_one(card_lang, &key).await {
         Ok(Some(m)) => m,
         Ok(None) => return finish_card(ctx, cb, card_lang).await,
         Err(e) => {
-            eprintln!("[opt] feed fetch error for {market_id}: {e}");
-            notify_owner(ctx, &format!("match-bet odds fetch failed ({market_id}): {e}")).await;
+            eprintln!("[opt] feed fetch error for {key}: {e}");
+            notify_owner(ctx, &format!("match-bet odds fetch failed ({key}): {e}")).await;
             return answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await;
         }
     };
@@ -309,32 +297,28 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     }
     let group = is_group_chat(cb.message_chat());
     let q = Quote {
-        market_id: m.market_id.clone(),
-        slug: m.slug.clone(),
-        team_a: m.team_a.clone(),
-        team_b: m.team_b.clone(),
-        odds_a: m.odds_a,
-        odds_draw: m.odds_draw,
-        odds_b: m.odds_b,
+        key: m.key.clone(),
+        title: m.title.clone(),
+        outcomes: m.outcomes.clone(),
         ends_at: m.ends_at,
         quoted_at: now(),
         origin_chat: cb.message_chat(),
         // Anchor the placed-bet announcement to the group card; a private origin
         // is the caller's own DM (no announcement), so leave it 0 there.
         origin_msg: if group { cb.message_id() } else { 0 },
-        // The stake board is locked to whoever tapped the side.
+        // The stake board is locked to whoever tapped the outcome.
         owner: cb.from.id,
     };
-    // The tapped side must still be priced; if not, refresh the card (in its own
+    // The tapped outcome must still be priced; if not, refresh the card (in its own
     // locale) to the live buttons and tell the tapper.
-    if q.odds(&outcome).filter(|c| *c > 0.0).is_none() {
+    if q.yes(idx).is_none() {
         if group {
             let _ = tg::edit_with_buttons(
                 ctx,
                 cb.message_chat(),
                 cb.message_id(),
-                &quote_text(card_lang, &q, card_fmt),
-                &option_rows(card_lang, &q, card_fmt),
+                &quote_text(&q, card_lang, card_fmt),
+                &option_rows(&q, card_lang, card_fmt),
             )
             .await;
         }
@@ -344,7 +328,7 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     // Builder is per-user → render it in the tapper's locale + odds format, headed
     // by the tapper's name in a group so members can tell whose board it is.
     let Some((btext, brows)) =
-        builder_text_rows(tapper_lang, &q, qid, &outcome, 0, tapper_fmt, &full_name(&cb.from))
+        builder_text_rows(tapper_lang, &q, qid, idx, 0, tapper_fmt, &full_name(&cb.from))
     else {
         return answer(ctx, cb, "", false).await;
     };
@@ -357,8 +341,8 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
             ctx,
             cb.message_chat(),
             cb.message_id(),
-            &quote_text(card_lang, &q, card_fmt),
-            &option_rows(card_lang, &q, card_fmt),
+            &quote_text(&q, card_lang, card_fmt),
+            &option_rows(&q, card_lang, card_fmt),
         )
         .await;
         match tg::send_with_buttons_reply(ctx, cb.message_chat(), cb.message_id(), &btext, &brows).await {
@@ -374,24 +358,24 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     }
 }
 
-/// `sz:<qid>:<outcome>:<total>` — re-render the builder at the accumulated total
+/// `sz:<qid>:<idx>:<total>` — re-render the builder at the accumulated total
 /// (preset buttons add, `Clear` resets to 0, `Back` from confirm lands here).
 pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
+    let Some((qid, idx, total)) = parse_qid_outcome_total(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
         return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
     }
-    render_builder(ctx, cb, lang, qid, &outcome, total).await
+    render_builder(ctx, cb, lang, qid, idx, total).await
 }
 
-/// `szp:<qid>:<outcome>:<total>` — fired by the builder's **Confirm**: the only
+/// `szp:<qid>:<idx>:<total>` — fired by the builder's **Confirm**: the only
 /// step that moves money. Re-prices from the live feed, then **buys YES shares**
 /// of the picked outcome at that price (`spend → ⌊spend/price⌋ shares`,
 /// house-banked) via the unified market engine. The sourced event is materialised
-/// on first trade (keyed by the match slug for later Gamma resolution). Because a
+/// on first trade (keyed by the event key for later Gamma resolution). Because a
 /// share settles to 1 coin, the "potential payout" shown is the share count — the
 /// same number the old fixed-odds flow displayed — but the position can now also
 /// be sold back before settlement.
@@ -401,7 +385,7 @@ pub async fn handle_size_place(
     rest: &str,
 ) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((qid, outcome, total)) = parse_qid_outcome_total(rest) else {
+    let Some((qid, idx, total)) = parse_qid_outcome_total(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
@@ -417,23 +401,18 @@ pub async fn handle_size_place(
     let Some(q) = refetch_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
     };
-    let Some(price_cents) = q.odds(&outcome).filter(|c| *c > 0.0) else {
+    let Some(price_cents) = q.yes(idx) else {
         return answer(ctx, cb, "", false).await;
     };
 
     let database = db(ctx);
-    // Materialise the sourced event on first trade — keyed by the match slug so
-    // `/settle`/`/claim` can later resolve it against Polymarket. Outcomes are the
-    // fixed `[teamA, draw, teamB]` order (`outcome_idx`), matching the card.
-    let title = format!("{} vs. {}", q.team_a, q.team_b);
-    let outcomes = [
-        q.team_a.clone(),
-        i18n::draw_label(lang).to_string(),
-        q.team_b.clone(),
-    ];
+    // Materialise the sourced event on first trade — keyed by the event key so
+    // `/settle`/`/claim` can later resolve it against Polymarket. Outcomes keep the
+    // feed's fixed order (sport: `[teamA, draw, teamB]`), matching the card's idx.
+    let outcomes: Vec<String> = q.outcomes.iter().map(|o| o.name.clone()).collect();
     let event_id = match database.get_or_create_sourced_event(
-        &q.slug,
-        &title,
+        &q.key,
+        &q.title,
         lang.store_code(),
         "",
         None,
@@ -450,7 +429,7 @@ pub async fn handle_size_place(
     // Atomic debit + share credit in one transaction (house-banked).
     let shares = match database.sourced_buy(
         event_id,
-        outcome_idx(&outcome),
+        idx as i64,
         cb.from.id,
         spend_units,
         price_cents,
@@ -468,7 +447,7 @@ pub async fn handle_size_place(
     quotes(ctx).lock().remove(qid);
 
     // 1 share settles to 1 coin, so the share count *is* the potential payout.
-    let side = q.side_name(lang, &outcome);
+    let side = q.name(idx);
     let odds_str = format_odds(price_cents, database.get_odds_fmt(cb.from.id).unwrap_or_default());
     let placed = i18n::bet_placed(lang, &fmt_coins(spend_units), &side, &odds_str, &fmt_coins(shares));
     if is_group_chat(q.origin_chat) {
@@ -490,32 +469,22 @@ pub async fn handle_size_place(
     answer(ctx, cb, &placed, true).await
 }
 
-/// Map a card outcome key to its market index in the sourced event's fixed
-/// outcome list `[teamA, draw, teamB]`.
-fn outcome_idx(outcome: &str) -> i64 {
-    match outcome {
-        "draw" => 1,
-        "teamB" => 2,
-        _ => 0, // teamA
-    }
-}
-
-/// Build the stake-builder screen for `total` coins on `outcome`: presets that
-/// add, then a `[Confirm] [Clear]` row. `None` if the outcome isn't priced.
-/// Shared by the in-place editor (`render_builder`) and the group board path. In
-/// a group the text is prefixed with the owner's name (`owner_name`) so members
-/// can tell whose owner-locked board it is.
+/// Build the stake-builder screen for `total` coins on outcome `idx`: presets that
+/// add, then a `[Confirm] [Clear]` row. `None` if the outcome isn't priced. Shared
+/// by the in-place editor (`render_builder`) and the group board path. In a group
+/// the text is prefixed with the owner's name (`owner_name`) so members can tell
+/// whose owner-locked board it is.
 fn builder_text_rows(
     lang: Lang,
     q: &Quote,
     qid: u64,
-    outcome: &str,
+    idx: usize,
     total: i64,
     fmt: OddsFormat,
     owner_name: &str,
 ) -> Option<(String, Vec<tg::Row>)> {
-    let odds = q.odds(outcome).filter(|c| *c > 0.0)?;
-    let side = q.side_name(lang, outcome);
+    let odds = q.yes(idx)?;
+    let side = q.name(idx);
     // Builder runs from 0 upward, so `to_micro` (which rejects 0) doesn't fit;
     // saturate the display conversion instead so a crafted `total` can't overflow.
     let stake_units = total.max(0).saturating_mul(COIN);
@@ -527,14 +496,14 @@ fn builder_text_rows(
     );
     let add_row: tg::Row = SIZE_PRESETS
         .iter()
-        .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{outcome}:{}", total.saturating_add(*p))))
+        .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{idx}:{}", total.saturating_add(*p))))
         .collect();
     // Confirm places the bet straight away (re-pricing at place time) — no
     // separate confirmation screen. In a group the board is its own message, so
     // the owner's Dismiss rides on the same action row.
     let mut action_row = vec![
-        (i18n::bet_btn_confirm(lang).to_string(), format!("{SIZE_PLACE}{qid}:{outcome}:{total}")),
-        (i18n::bet_btn_clear(lang).to_string(), format!("{SIZE}{qid}:{outcome}:0")),
+        (i18n::bet_btn_confirm(lang).to_string(), format!("{SIZE_PLACE}{qid}:{idx}:{total}")),
+        (i18n::bet_btn_clear(lang).to_string(), format!("{SIZE}{qid}:{idx}:0")),
     ];
     if is_group_chat(q.origin_chat) {
         action_row.push((i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{}", q.owner)));
@@ -548,7 +517,7 @@ async fn render_builder(
     cb: &CallbackQuery,
     lang: Lang,
     qid: u64,
-    outcome: &str,
+    idx: usize,
     total: i64,
 ) -> Result<(), telexide::Error> {
     let Some(q) = fresh_quote(ctx, lang, qid).await else {
@@ -557,7 +526,7 @@ async fn render_builder(
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     // Owner-locked, so the presser is the owner — head the board with their name.
     let Some((text, rows)) =
-        builder_text_rows(lang, &q, qid, outcome, total, fmt, &full_name(&cb.from))
+        builder_text_rows(lang, &q, qid, idx, total, fmt, &full_name(&cb.from))
     else {
         return answer(ctx, cb, "", false).await;
     };
@@ -595,30 +564,29 @@ async fn edit(
     Ok(())
 }
 
-/// Parse `<lang>:<fmt>:<market_id>:<outcome>` from an `opt:` callback. `lang`/`fmt`
-/// are the store codes the card was created in (pin the shared card's locale +
-/// odds format so it can't flip per tapper); the market id is a colon-free UUID
-/// and `outcome` is teamA/teamB/draw, so the three colons split cleanly. Unknown
-/// lang → English, unknown fmt → Decimal.
-fn parse_card_opt(rest: &str) -> Option<(Lang, OddsFormat, String, String)> {
-    let mut it = rest.splitn(4, ':');
+/// Parse `<lang>:<fmt>:<key>:<idx>` from an `opt:` callback. `lang`/`fmt` are the
+/// store codes the card was created in (pin the shared card's locale + odds format
+/// so it can't flip per tapper); the key (a slug) is parsed off the front and the
+/// trailing `idx` split from it on the **last** colon, so a key with a stray colon
+/// still parses. Unknown lang → English, unknown fmt → Decimal.
+fn parse_card_opt(rest: &str) -> Option<(Lang, OddsFormat, String, usize)> {
+    let mut it = rest.splitn(3, ':');
     let lang = Lang::from_store_code(it.next()?).unwrap_or(Lang::En);
     let fmt = OddsFormat::from_store_code(it.next()?);
-    let market_id = it.next()?.to_string();
-    let outcome = it.next()?.to_string();
-    if market_id.is_empty() || outcome.is_empty() {
+    let (key, idx) = it.next()?.rsplit_once(':')?;
+    if key.is_empty() {
         return None;
     }
-    Some((lang, fmt, market_id, outcome))
+    Some((lang, fmt, key.to_string(), idx.parse().ok()?))
 }
 
-/// Parse `<qid>:<outcome>:<total>` (outcome is `teamA`/`teamB`/`draw`, no colon).
-fn parse_qid_outcome_total(rest: &str) -> Option<(u64, String, i64)> {
+/// Parse `<qid>:<idx>:<total>` (all numeric, colon-free).
+fn parse_qid_outcome_total(rest: &str) -> Option<(u64, usize, i64)> {
     let parts: Vec<&str> = rest.split(':').collect();
-    let [qid, outcome, total] = parts.as_slice() else {
+    let [qid, idx, total] = parts.as_slice() else {
         return None;
     };
-    Some((qid.parse().ok()?, (*outcome).to_string(), total.parse().ok()?))
+    Some((qid.parse().ok()?, idx.parse().ok()?, total.parse().ok()?))
 }
 
 /// Small extension so the handlers can read the message coordinates concisely.

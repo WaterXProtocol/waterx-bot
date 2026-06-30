@@ -45,13 +45,12 @@ async fn edit(ctx: &Context, cb: &CallbackQuery, text: &str, rows: &[tg::Row]) {
     let _ = tg::edit_with_buttons(ctx, chat, msg, text, rows).await;
 }
 
-/// Gamma outcome key for a sourced event's market index (`[teamA, draw, teamB]`).
-fn outcome_key(idx: i64) -> &'static str {
-    match idx {
-        1 => "draw",
-        2 => "teamB",
-        _ => "teamA",
-    }
+/// Current YES price (cents, > 0) of a sourced event's outcome `idx`, or `None`
+/// when the index isn't listed / unpriced. The held position's `market_idx` lines
+/// up with the feed event's outcome order (the same order the bet was placed in).
+fn outcome_price(ev: &markets::SourcedEvent, idx: i64) -> Option<f64> {
+    let i = usize::try_from(idx).ok()?;
+    ev.outcomes.get(i).and_then(|o| o.yes_cents).filter(|x| *x > 0.0)
 }
 
 /// `slpick` — edit the assets view into a picker: one button per open holding.
@@ -118,11 +117,11 @@ pub async fn handle_sell_place(
     let result = if c.kind == "amm" {
         db(ctx).amm_sell(eid, idx, cb.from.id, sell)
     } else {
-        // Sourced: re-price from the live feed at place time.
-        let Some(m) = markets::fetch_one_by_slug(lang, &c.source_ref).await.ok().flatten() else {
+        // Sourced: re-price from the live feed at place time (by the event key).
+        let Some(m) = markets::fetch_one(lang, &c.source_ref).await.ok().flatten() else {
             return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         };
-        let Some(price) = m.odds(outcome_key(idx)).filter(|x| *x > 0.0) else {
+        let Some(price) = outcome_price(&m, idx) else {
             return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         };
         db(ctx).sourced_sell(eid, idx, cb.from.id, sell, price)
@@ -161,8 +160,8 @@ async fn quote_proceeds(
     if c.kind == "amm" {
         db(ctx).amm_sell_quote(eid, idx, micro).ok().flatten()
     } else {
-        let m = markets::fetch_one_by_slug(lang, &c.source_ref).await.ok().flatten()?;
-        let price = m.odds(outcome_key(idx)).filter(|x| *x > 0.0)?;
+        let m = markets::fetch_one(lang, &c.source_ref).await.ok().flatten()?;
+        let price = outcome_price(&m, idx)?;
         Some((micro as f64 * price / 100.0).floor() as i64)
     }
 }
