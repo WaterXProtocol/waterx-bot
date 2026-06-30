@@ -12,13 +12,13 @@ use crate::commands::menu;
 use crate::commands::tg::{self, answer};
 use crate::commands::util::*;
 use crate::core::i18n::{self, Lang};
-use crate::database::{basis_for_sold, SellContext, TradeOutcome, COIN};
+use crate::database::{basis_for_sold, SellContext, TradeOutcome};
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
-/// Whole-share presets the builder adds (× `COIN` = micro-shares, since
-/// `SHARE == COIN`); `Max` sells the whole holding.
-const SELL_PRESETS: [i64; 3] = [10, 50, 100];
+/// Quick-pick fractions of the holding (percent) the builder offers; each button
+/// **sets** the sell amount to that fraction, and `Max` sells the whole holding.
+const SELL_FRACTIONS: [i64; 3] = [25, 50, 75];
 
 /// Callback prefixes — kept clear of the fruit `sell:` namespace.
 pub const SELL_PICK: &str = "slpick"; // exact — open the holdings picker
@@ -207,11 +207,12 @@ fn build_screen(
         }
         None => base,
     };
-    let preset_row: tg::Row = SELL_PRESETS
+    let preset_row: tg::Row = SELL_FRACTIONS
         .iter()
-        .map(|p| {
-            let next = micro.saturating_add(p.saturating_mul(COIN)).min(c.held);
-            (format!("+{p}"), format!("{SELL_BUILD}{eid}:{idx}:{next}"))
+        .map(|pct| {
+            // Each fraction button SETS the amount to that share of the holding.
+            let target = (c.held as i128 * *pct as i128 / 100) as i64;
+            (format!("{pct}%"), format!("{SELL_BUILD}{eid}:{idx}:{target}"))
         })
         .chain(std::iter::once(("Max".to_string(), format!("{SELL_BUILD}{eid}:{idx}:{}", c.held))))
         .collect();
@@ -235,6 +236,7 @@ fn parse3(rest: &str) -> Option<(i64, i64, i64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::COIN;
 
     fn ctx(held: i64, basis: i64) -> SellContext {
         SellContext {
@@ -254,13 +256,16 @@ mod tests {
     fn builder_shows_pnl_between_proceeds_and_hint() {
         // Hold 40 shares costing 20 coins; sell 20 at proceeds 16 → basis 10, P&L +6.
         let c = ctx(40 * COIN, 20 * COIN);
-        let (text, _) = build_screen(Lang::En, 1, 0, &c, 20 * COIN, Some(16 * COIN));
+        let (text, rows) = build_screen(Lang::En, 1, 0, &c, 20 * COIN, Some(16 * COIN));
         let pnl = text.find("📈").expect("P&L line shown");
         let proceeds = text.find("16").expect("proceeds shown");
-        let hint = text.find("Tap to add").expect("hint shown");
+        let hint = text.find("Choose amount").expect("hint shown");
         assert!(proceeds < pnl, "P&L comes after the proceeds line");
-        assert!(pnl < hint, "P&L comes before the tap-to-add hint");
+        assert!(pnl < hint, "P&L comes before the choose-amount hint");
         assert!(text.contains("+6"), "shows the +6 profit");
+        // The preset buttons are percentage-of-holding, ending in Max.
+        let labels: Vec<&str> = rows[0].iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(labels, ["25%", "50%", "75%", "Max"]);
     }
 
     #[test]
