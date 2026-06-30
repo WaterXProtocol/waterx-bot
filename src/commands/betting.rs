@@ -182,7 +182,7 @@ fn quote_owner_ok(ctx: &Context, qid: u64, uid: i64) -> Option<bool> {
 /// re-render stays in that one language + format (a shared group card must not flip
 /// per tapper). `lang`/`fmt` store codes, the key (a slug), and the numeric `idx`
 /// are all colon-free, so it parses back cleanly.
-fn option_rows(q: &Quote, lang: Lang, fmt: OddsFormat) -> Vec<tg::Row> {
+fn option_rows(q: &Quote, lang: Lang, fmt: OddsFormat, is_group: bool) -> Vec<tg::Row> {
     let mut rows = Vec::new();
     for (idx, _) in q.outcomes.iter().enumerate() {
         if let Some(c) = q.yes(idx) {
@@ -192,6 +192,12 @@ fn option_rows(q: &Quote, lang: Lang, fmt: OddsFormat) -> Vec<tg::Row> {
                 format!("{OPT}{}:{}:{}:{idx}", lang.store_code(), fmt.store_code(), q.key),
             )]);
         }
+    }
+    // Private only: the card replaced the brief in place, so offer a way back to
+    // it (today's matches). In a **group** the card is a shared surface — a back
+    // tap would yank everyone out of it — so it carries no back row.
+    if !is_group {
+        rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_MARKETS.to_string())]);
     }
     rows
 }
@@ -260,7 +266,7 @@ pub async fn handle_bet(
         cb.message_chat(),
         cb.message_id(),
         &quote_text(&q, lang, fmt),
-        &option_rows(&q, lang, fmt),
+        &option_rows(&q, lang, fmt, is_group_chat(cb.message_chat())),
     )
     .await;
     Ok(())
@@ -320,7 +326,7 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
                 cb.message_chat(),
                 cb.message_id(),
                 &quote_text(&q, card_lang, card_fmt),
-                &option_rows(&q, card_lang, card_fmt),
+                &option_rows(&q, card_lang, card_fmt, group),
             )
             .await;
         }
@@ -344,7 +350,7 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
             cb.message_chat(),
             cb.message_id(),
             &quote_text(&q, card_lang, card_fmt),
-            &option_rows(&q, card_lang, card_fmt),
+            &option_rows(&q, card_lang, card_fmt, group),
         )
         .await;
         match tg::send_with_buttons_reply(ctx, cb.message_chat(), cb.message_id(), &btext, &brows).await {
@@ -518,7 +524,17 @@ fn builder_text_rows(
     if is_group_chat(q.origin_chat) {
         action_row.push((i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{}", q.owner)));
     }
-    Some((text, vec![add_row, action_row]))
+    let mut rows = vec![add_row, action_row];
+    // Private: the builder replaced the card in place, so offer a way back to it
+    // (re-render via `bet:<key>`). In a group the builder is its own board with a
+    // Dismiss button, and the shared card is still there, so no back row is needed.
+    if !is_group_chat(q.origin_chat) {
+        rows.push(vec![(
+            i18n::bet_btn_back(lang).to_string(),
+            format!("{}{}", markets::BET, q.key),
+        )]);
+    }
+    Some((text, rows))
 }
 
 /// Render the accumulate screen in place (edits the DM builder message).
@@ -617,5 +633,39 @@ impl CbMessage for CallbackQuery {
     }
     fn message_id(&self) -> i64 {
         self.message.as_ref().map(|m| m.message_id).unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn quote() -> Quote {
+        Quote {
+            key: "sport-x".into(),
+            title: "A vs B".into(),
+            outcomes: vec![
+                markets::SourcedOutcome { name: "A".into(), yes_cents: Some(60.0) },
+                markets::SourcedOutcome { name: "B".into(), yes_cents: Some(40.0) },
+            ],
+            ends_at: 0,
+            quoted_at: 0,
+            origin_chat: 0,
+            origin_msg: 0,
+            owner: 0,
+        }
+    }
+
+    #[test]
+    fn card_has_back_to_brief_only_in_private() {
+        let q = quote();
+        // Private: the two outcome rows + a back-to-brief row.
+        let private = option_rows(&q, Lang::En, OddsFormat::Decimal, false);
+        assert_eq!(private.len(), 3);
+        assert_eq!(private.last().unwrap()[0].1.as_str(), menu::MENU_MARKETS);
+        // Group: a shared card — outcome rows only, no back row.
+        let group = option_rows(&q, Lang::En, OddsFormat::Decimal, true);
+        assert_eq!(group.len(), 2);
+        assert!(group.iter().all(|r| r[0].1.as_str() != menu::MENU_MARKETS));
     }
 }
