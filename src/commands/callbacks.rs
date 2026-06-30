@@ -114,6 +114,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_home(&ctx, &cb).await
     } else if data == menu::MENU_BALANCE {
         handle_menu_balance(&ctx, &cb).await
+    } else if data == menu::MENU_BETS {
+        handle_menu_bets(&ctx, &cb).await
     } else if data == menu::MENU_MARKETS {
         handle_menu_markets(&ctx, &cb).await
     } else if data == menu::MENU_RULE {
@@ -679,6 +681,30 @@ async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     }
     rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
     let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
+    Ok(())
+}
+
+/// `menu:bets` — edit the message into the caller's open-positions view (the
+/// `/bets` surface: positions only, no balance), with a `[💸 Sell]` button (when
+/// holding) + back-to-home. This is the sell flow's back target.
+async fn handle_menu_bets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    answer(ctx, cb, "", false).await?;
+    let pos = assets::positions_block(ctx, lang, &cb.from).await;
+    let body = if pos.is_empty() {
+        format!("{}\n{}", full_name(&cb.from), i18n::no_open_bets(lang))
+    } else {
+        format!("{}{pos}", full_name(&cb.from))
+    };
+    let mut rows = Vec::new();
+    if !pos.is_empty() {
+        rows.push(vec![(i18n::btn_sell(lang).to_string(), selling::SELL_PICK.to_string())]);
+    }
+    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
+    let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &body, &rows).await;
     Ok(())
 }
 

@@ -70,7 +70,7 @@ pub async fn handle_sell_pick(ctx: &Context, cb: &CallbackQuery) -> Result<(), t
             )]
         })
         .collect();
-    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_BALANCE.to_string())]);
+    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_BETS.to_string())]);
     edit(ctx, cb, i18n::positions_title(lang), &rows).await;
     Ok(())
 }
@@ -133,7 +133,7 @@ pub async fn handle_sell_place(
             let body = format!("{sold}\n{}", pnl_line(lang, coins - basis));
             let rows = vec![vec![(
                 i18n::bet_btn_back(lang).to_string(),
-                menu::MENU_BALANCE.to_string(),
+                menu::MENU_BETS.to_string(),
             )]];
             edit(ctx, cb, &body, &rows).await;
             answer(ctx, cb, &body, true).await

@@ -98,6 +98,8 @@ pub fn home_row(lang: Lang) -> Vec<Row> {
     vec![vec![(i18n::home_btn(lang), MENU_HOME.to_string())]]
 }
 pub const MENU_BALANCE: &str = "menu:balance";
+/// Edit-in-place `/bets` view (open positions only) — the sell flow's back target.
+pub const MENU_BETS: &str = "menu:bets";
 pub const MENU_MARKETS: &str = "menu:markets";
 pub const MENU_RULE: &str = "menu:rule";
 pub const MENU_INVITE: &str = "menu:invite";
