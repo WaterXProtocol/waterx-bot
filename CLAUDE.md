@@ -127,13 +127,10 @@ rather than the local DB. It `GET`s `https://api.waterx.app/predict/browse`
 (via `reqwest` with `rustls-tls`, reusing the rustls already in the tree) and
 renders a Jupiter-style "market brief": **allowlisted leagues only** (`kind ==
 "sport"` in `ALLOWED_LEAGUES` = `["FIFA_WC", "LOL"]` — World Cup + League of
-Legends), **kicking off today or already live** (`within_window` = live, or a
-kickoff within the caller's local calendar day in `tz_min` — the same day the
-brief's date header prints; so the brief shows the **full day's slate**, incl.
-games that already kicked off today, and does **not** bleed into tomorrow's
-matches) (team vs team, kickoff time, and per-outcome **decimal odds** =
-`100/oddsCents`, e.g. 65¢ → 1.54) — the feed's other esports `sport` matches
-(CS2/VALORANT/DOTA2),
+Legends), **kicking off within the next 24h or already live** (`within_window`,
+applied uniformly to both leagues — team vs team, kickoff time, and per-outcome
+**decimal odds** = `100/oddsCents`, e.g. 65¢ → 1.54) — the feed's other esports
+`sport` matches (CS2/VALORANT/DOTA2),
 `sport-award`, and crypto up/down pools are all filtered out. (An esports match
 has no draw side, so it collapses to a 2-outcome `[teamA, teamB]` event vs the
 World Cup's 1X2.) The brief shows **`PAGE_SIZE` = 8 matches

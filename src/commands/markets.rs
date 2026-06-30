@@ -151,7 +151,7 @@ pub(crate) async fn brief(
     let now = Utc::now().timestamp();
     let markets = match fetch_markets(lang).await {
         Ok(mut m) => {
-            m.retain(|x| within_window(x, now, tz_min));
+            m.retain(|x| within_window(x, now));
             m
         }
         Err(err) => {
@@ -261,18 +261,10 @@ pub(crate) async fn fetch_one(
     Ok(fetch_markets(lang).await?.into_iter().find(|m| m.key == key))
 }
 
-/// True when an event belongs in the brief: live, or kicking off **today** — the
-/// caller's local calendar day (the 24h window in `tz_min`, matching the date the
-/// brief prints via `fmt_local_date`). `tz_min` = 0 (UTC) for the shared group
-/// brief. So the brief shows the full day's slate, not just the next 24h.
-fn within_window(m: &SourcedEvent, now: i64, tz_min: i64) -> bool {
-    if m.live {
-        return true;
-    }
-    // Start of the caller's local day, back in UTC seconds (tz is a fixed shift).
-    let shift = tz_min * 60;
-    let day_start = (now + shift).div_euclid(86_400) * 86_400 - shift;
-    m.starts_at.is_some_and(|t| t >= day_start && t < day_start + 86_400)
+/// True when an event should appear in the brief: live, or kicking off within the
+/// next 24h. Applies uniformly to every allowlisted match (World Cup + LoL).
+fn within_window(m: &SourcedEvent, now: i64) -> bool {
+    m.live || m.starts_at.is_some_and(|t| t >= now && t <= now + 86_400)
 }
 
 /// Per-locale cache of the parsed feed: `locale → (fetched_at_unix, events)`.
@@ -690,22 +682,13 @@ mod tests {
     }
 
     #[test]
-    fn window_covers_the_whole_local_day() {
-        let day = 20_000_i64; // arbitrary day index
-        let now = day * 86_400 + 12 * 3600; // 12:00 UTC on that day
-
-        // UTC: anything kicking off today is in, regardless of being earlier than now.
-        assert!(within_window(&ev(Some(day * 86_400 + 3600), false), now, 0)); // 01:00 today
-        assert!(within_window(&ev(Some(day * 86_400 + 23 * 3600), false), now, 0)); // 23:00 today
-        assert!(!within_window(&ev(Some(day * 86_400 - 3600), false), now, 0)); // 23:00 yesterday
-        assert!(!within_window(&ev(Some((day + 1) * 86_400 + 3600), false), now, 0)); // tomorrow
-        // Live events always show.
-        assert!(within_window(&ev(Some(day * 86_400 - 99_999), true), now, 0));
-        assert!(within_window(&ev(None, true), now, 0));
-
-        // UTC+8: the local day starts 8h earlier in UTC, so 23:00-UTC-yesterday
-        // (07:00 local today) now counts as today.
-        assert!(within_window(&ev(Some(day * 86_400 - 3600), false), now, 480));
+    fn window_is_live_or_next_24h() {
+        let now = 1_000_000_i64;
+        assert!(within_window(&ev(Some(now + 3600), false), now)); // kicks off in 1h
+        assert!(within_window(&ev(Some(now + 86_400), false), now)); // exactly 24h out
+        assert!(!within_window(&ev(Some(now - 60), false), now)); // already kicked off
+        assert!(!within_window(&ev(Some(now + 86_401), false), now)); // > 24h out
+        assert!(within_window(&ev(None, true), now)); // live always shows
     }
 
     // --- Gamma resolution mapping (`GammaEvent::winning_idx`) ------------------
