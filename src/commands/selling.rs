@@ -190,18 +190,23 @@ fn build_screen(
     proceeds: Option<i64>,
 ) -> (String, Vec<tg::Row>) {
     let proceeds_str = proceeds.map(fmt_coins).unwrap_or_else(|| "—".to_string());
-    let mut text =
+    let base =
         i18n::sell_build(lang, &c.outcome, &fmt_coins(c.held), &fmt_coins(micro), &proceeds_str);
     // Estimated P&L for the selected amount at the current price = proceeds minus
     // the pro-rata cost basis of those shares (same `basis_for_sold` the sell
-    // executes with, so the estimate matches the result).
-    if micro > 0 {
-        if let Some(p) = proceeds {
-            let pnl = p - basis_for_sold(c.basis, micro, c.held);
-            text.push('\n');
-            text.push_str(&pnl_line(lang, pnl));
+    // executes with, so the estimate matches the result). Slot it right under the
+    // proceeds line, above the trailing "tap to add" hint (the template's last
+    // line in every locale).
+    let text = match (micro > 0).then_some(proceeds).flatten() {
+        Some(p) => {
+            let line = pnl_line(lang, p - basis_for_sold(c.basis, micro, c.held));
+            match base.rsplit_once('\n') {
+                Some((head, hint)) => format!("{head}\n{line}\n{hint}"),
+                None => format!("{base}\n{line}"),
+            }
         }
-    }
+        None => base,
+    };
     let preset_row: tg::Row = SELL_PRESETS
         .iter()
         .map(|p| {
@@ -225,4 +230,43 @@ fn parse3(rest: &str) -> Option<(i64, i64, i64)> {
     let b = it.next()?.parse().ok()?;
     let c = it.next()?.parse().ok()?;
     Some((a, b, c))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx(held: i64, basis: i64) -> SellContext {
+        SellContext {
+            kind: "sourced".into(),
+            source_ref: "k".into(),
+            b_param: 0,
+            fee_bps: 0,
+            q_shares: vec![],
+            held,
+            basis,
+            outcome: "France".into(),
+            title: "t".into(),
+        }
+    }
+
+    #[test]
+    fn builder_shows_pnl_between_proceeds_and_hint() {
+        // Hold 40 shares costing 20 coins; sell 20 at proceeds 16 → basis 10, P&L +6.
+        let c = ctx(40 * COIN, 20 * COIN);
+        let (text, _) = build_screen(Lang::En, 1, 0, &c, 20 * COIN, Some(16 * COIN));
+        let pnl = text.find("📈").expect("P&L line shown");
+        let proceeds = text.find("16").expect("proceeds shown");
+        let hint = text.find("Tap to add").expect("hint shown");
+        assert!(proceeds < pnl, "P&L comes after the proceeds line");
+        assert!(pnl < hint, "P&L comes before the tap-to-add hint");
+        assert!(text.contains("+6"), "shows the +6 profit");
+    }
+
+    #[test]
+    fn builder_hides_pnl_when_nothing_selected() {
+        let c = ctx(40 * COIN, 20 * COIN);
+        let (text, _) = build_screen(Lang::En, 1, 0, &c, 0, Some(0));
+        assert!(!text.contains("📈") && !text.contains("📉") && !text.contains("➖"));
+    }
 }
