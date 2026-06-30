@@ -120,14 +120,15 @@ access. `Database::{get_lang, set_lang}` are the persistence accessors.
 
 ### `/events` — read-only Polymarket feed (`markets.rs`)
 
-> The slash command is **`/events`** (the fn was renamed from `markets`); the feed module stays `markets.rs` and the internal `menu:markets` callback is unchanged. The browse feed is now distilled into the `SourcedEvent` model (**allowlisted leagues only** — `kind == "sport"` **and** `league ∈ ALLOWED_LEAGUES` = `["FIFA_WC", "LOL"]`, i.e. the World Cup + League of Legends, since the feed's `sport` bucket also carries other esports); display/bet odds are the feed's relayed YES prices (the old Gamma odds overlay was removed) — see below.
+> The slash command is **`/events`** (the fn was renamed from `markets`); the feed module stays `markets.rs` and the internal `menu:markets` callback is unchanged. The browse feed is now distilled into the `SourcedEvent` model (**allowlisted leagues only** — `kind == "sport"` filtered through `ALLOWED_LEAGUES` = `[("FIFA_WC", None), ("LOL", Some("Mid-Season Invitational"))]`, i.e. the World Cup + LoL's MSI, since the feed's `sport` bucket also carries other esports and small regional LoL leagues; a league's optional tournament marker keeps only matches naming it in the English `description`); display/bet odds are the feed's relayed YES prices (the old Gamma odds overlay was removed) — see below.
 
 `src/commands/markets.rs` is the one command that talks to an outside service
 rather than the local DB. It `GET`s `https://api.waterx.app/predict/browse`
 (via `reqwest` with `rustls-tls`, reusing the rustls already in the tree) and
 renders a Jupiter-style "market brief": **allowlisted leagues only** (`kind ==
-"sport"` in `ALLOWED_LEAGUES` = `["FIFA_WC", "LOL"]` — World Cup + League of
-Legends), **kicking off within the next 24h or already live** (`within_window`,
+"sport"` in `ALLOWED_LEAGUES` — World Cup + LoL's Mid-Season Invitational, the
+regional LoL leagues filtered out by the per-league tournament marker),
+**kicking off within the next 24h or already live** (`within_window`,
 applied uniformly to both leagues — team vs team, kickoff time, and per-outcome
 **decimal odds** = `100/oddsCents`, e.g. 65¢ → 1.54) — the feed's other esports
 `sport` matches (CS2/VALORANT/DOTA2),
@@ -166,13 +167,15 @@ relays the price). `markets::group_events` distils the feed into
 `SourcedEvent { key, title, outcomes: [{ name, yes_cents }], starts_at, ends_at,
 live }` — an outcome-list model (the bet/sell flow is **outcome-index based**), but
 **allowlisted leagues only**: `group_events` keeps only `kind == "sport"` matches
-whose `display.league` is in `ALLOWED_LEAGUES` = `["FIFA_WC", "LOL"]` (World Cup +
-League of Legends — add a league there to surface it), with outcomes in the fixed
-`[teamA, draw, teamB]` order (matching `gamma_resolution`'s idx convention; an
-esports match with no `draw` side collapses to `[teamA, teamB]`). The `sport`
-bucket also carries other **esports** (CS2/VALORANT/DOTA2, slug `sport-<game>-…`)
-— those are dropped along with `sport-award` (awards + props) and `crypto`, none
-of which are ingested — the
+whose `display.league` is in `ALLOWED_LEAGUES` = `[("FIFA_WC", None), ("LOL",
+Some("Mid-Season Invitational"))]` (World Cup + LoL/MSI — add a `(league,
+tournament?)` row to surface a league; a `Some(marker)` keeps only matches whose
+English `description` names that tournament, so LoL's small regional leagues like
+Prime League are dropped), with outcomes in the fixed `[teamA, draw, teamB]` order
+(matching `gamma_resolution`'s idx convention; an esports match with no `draw`
+side collapses to `[teamA, teamB]`). The `sport` bucket also carries other
+**esports** (CS2/VALORANT/DOTA2, slug `sport-<game>-…`) — those are dropped along
+with `sport-award` (awards + props) and `crypto`, none of which are ingested — the
 other feed categories were investigated and dropped: awards are multi-outcome (not
 wanted), crypto is up/down noise, and **props can't auto-resolve** — waterx exposes
 no identifier that maps to a prop's Gamma market (its slug is reworded+timestamped
