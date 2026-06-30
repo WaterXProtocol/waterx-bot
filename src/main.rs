@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Best-effort dotenv load — env vars set externally take precedence.
