@@ -42,8 +42,9 @@ pub struct Quote {
     key: String,
     /// Display title ("France vs. Sweden").
     title: String,
-    /// Outcomes in the event's fixed order (sport: `[teamA, draw, teamB]`), matching
-    /// `gamma_resolution`'s idx convention. Names are already localized by the feed.
+    /// Outcomes in the event's fixed order (`[teamA, draw?, teamB]` — 3 for a 1X2
+    /// match, 2 for a draw-less esports match), matching `gamma_resolution`'s idx
+    /// convention. Names are already localized by the feed.
     outcomes: Vec<markets::SourcedOutcome>,
     ends_at: i64,
     quoted_at: i64,

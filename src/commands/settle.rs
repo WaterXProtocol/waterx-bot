@@ -21,11 +21,11 @@ pub async fn settle(ctx: Context, message: Message) -> CommandResult {
     let database = db(&ctx);
     // Detect + cache Polymarket resolution for every open sourced event.
     let now = chrono::Utc::now().timestamp();
-    for (event_id, slug) in database.all_open_sourced().unwrap_or_default() {
+    for (event_id, slug, n_outcomes) in database.all_open_sourced().unwrap_or_default() {
         if slug.is_empty() {
             continue;
         }
-        if let Ok(Some(idx)) = markets::gamma_resolution(&slug).await {
+        if let Ok(Some(idx)) = markets::gamma_resolution(&slug, n_outcomes as usize).await {
             let _ = database.resolve_event(event_id, idx, now);
         }
     }

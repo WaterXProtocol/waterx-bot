@@ -24,11 +24,11 @@ pub async fn claim(ctx: Context, message: Message) -> CommandResult {
     // the winner on the event row (so every later claim/settle reuses it, no
     // re-fetch). Best-effort: a feed error or still-open event just leaves it.
     let now = chrono::Utc::now().timestamp();
-    for (event_id, slug) in db(&ctx).user_open_sourced(user.id).unwrap_or_default() {
+    for (event_id, slug, n_outcomes) in db(&ctx).user_open_sourced(user.id).unwrap_or_default() {
         if slug.is_empty() {
             continue;
         }
-        if let Ok(Some(idx)) = markets::gamma_resolution(&slug).await {
+        if let Ok(Some(idx)) = markets::gamma_resolution(&slug, n_outcomes as usize).await {
             let _ = db(&ctx).resolve_event(event_id, idx, now);
         }
     }

@@ -1586,14 +1586,33 @@ pub fn markets_unavailable(l: Lang) -> &'static str {
         "Não foi possível acessar os mercados 😵‍💫", "मार्केट तक नहीं पहुँच सके 😵‍💫", "تعذّر الوصول إلى الأسواق 😵‍💫")
 }
 
-/// "…and N more" tail when the brief is truncated.
-pub fn markets_more(l: Lang, n: &str) -> String {
+/// Page indicator shown when the brief spans more than one page.
+pub fn markets_page(l: Lang, cur: &str, total: &str) -> String {
     tr!(l;
-        "…and {n} more", "…還有 {n} 個", "…还有 {n} 个", "…ほか {n} 件", "…외 {n}개",
-        "…и ещё {n}", "…et {n} de plus", "…y {n} más", "…und {n} weitere", "…và {n} nữa",
-        "…dan {n} lagi", "…at {n} pa", "…และอีก {n} รายการ", "…en nog {n}", "…ve {n} tane daha",
-        "…e mais {n}", "…और {n} और", "…و{n} أخرى")
-    .replace("{n}", n)
+        "📄 Page {cur}/{total}", "📄 第 {cur}/{total} 頁", "📄 第 {cur}/{total} 页", "📄 {cur}/{total} ページ", "📄 {cur}/{total} 페이지",
+        "📄 Стр. {cur}/{total}", "📄 Page {cur}/{total}", "📄 Página {cur}/{total}", "📄 Seite {cur}/{total}", "📄 Trang {cur}/{total}",
+        "📄 Halaman {cur}/{total}", "📄 Pahina {cur}/{total}", "📄 หน้า {cur}/{total}", "📄 Pagina {cur}/{total}", "📄 Sayfa {cur}/{total}",
+        "📄 Página {cur}/{total}", "📄 पृष्ठ {cur}/{total}", "📄 صفحة {cur}/{total}")
+    .replace("{cur}", cur)
+    .replace("{total}", total)
+}
+
+/// "Next page" navigation button.
+pub fn markets_next(l: Lang) -> &'static str {
+    tr!(l;
+        "Next ▸", "下一頁 ▸", "下一页 ▸", "次へ ▸", "다음 ▸",
+        "Дальше ▸", "Suivant ▸", "Siguiente ▸", "Weiter ▸", "Tiếp ▸",
+        "Berikutnya ▸", "Susunod ▸", "ถัดไป ▸", "Volgende ▸", "İleri ▸",
+        "Próximo ▸", "आगे ▸", "▸ التالي")
+}
+
+/// "Previous page" navigation button.
+pub fn markets_prev(l: Lang) -> &'static str {
+    tr!(l;
+        "◂ Prev", "◂ 上一頁", "◂ 上一页", "◂ 前へ", "◂ 이전",
+        "◂ Назад", "◂ Précédent", "◂ Anterior", "◂ Zurück", "◂ Trước",
+        "◂ Sebelumnya", "◂ Nakaraan", "◂ ก่อนหน้า", "◂ Vorige", "◂ Geri",
+        "◂ Anterior", "◂ पिछला", "السابق ◂")
 }
 
 // ----------------------------------------------------------------------------
@@ -2082,7 +2101,7 @@ mod tests {
                 settle_line(l, "Alice", verb_won(l), "5"),
                 board_footer_open(l, "35"),
                 board_footer_closed(l, "35"),
-                markets_more(l, "3"),
+                markets_page(l, "1", "3"),
                 checkin_done(l, "10"),
                 menu_status(l, "10"),
                 checkin_already(l, "1h 2m"),

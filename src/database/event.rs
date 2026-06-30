@@ -1253,30 +1253,36 @@ impl Database {
         Ok(())
     }
 
-    /// Every open **sourced** event with its slug — the public `/settle` sweep
-    /// fetches each one's Polymarket resolution.
-    pub fn all_open_sourced(&self) -> SqlResult<Vec<(i64, String)>> {
+    /// Every open **sourced** event with its `(id, slug, outcome_count)` — the
+    /// public `/settle` sweep fetches each one's Polymarket resolution (the count
+    /// maps the Gamma winner to the event's stored outcome index).
+    pub fn all_open_sourced(&self) -> SqlResult<Vec<(i64, String, i64)>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, COALESCE(source_ref, '') FROM events WHERE kind = 'sourced' AND state = 'open'",
+            "SELECT id, COALESCE(source_ref, ''),
+                    (SELECT COUNT(*) FROM markets m WHERE m.event_id = events.id)
+             FROM events WHERE kind = 'sourced' AND state = 'open'",
         )?;
         let v = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<SqlResult<Vec<_>>>()?;
         Ok(v)
     }
 
-    /// The caller's distinct open **sourced** events with their slugs — for
-    /// detecting Polymarket resolution at `/claim` time.
-    pub fn user_open_sourced(&self, user: i64) -> SqlResult<Vec<(i64, String)>> {
+    /// The caller's distinct open **sourced** events with their `(id, slug,
+    /// outcome_count)` — for detecting Polymarket resolution at `/claim` time. The
+    /// outcome count comes from a correlated subquery so multiple positions in one
+    /// event don't inflate it.
+    pub fn user_open_sourced(&self, user: i64) -> SqlResult<Vec<(i64, String, i64)>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT DISTINCT e.id, COALESCE(e.source_ref, '')
+            "SELECT DISTINCT e.id, COALESCE(e.source_ref, ''),
+                    (SELECT COUNT(*) FROM markets m WHERE m.event_id = e.id)
              FROM positions p JOIN events e ON e.id = p.event_id
              WHERE p.user = ?1 AND e.kind = 'sourced' AND e.state = 'open'",
         )?;
         let v = stmt
-            .query_map(params![user], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map(params![user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<SqlResult<Vec<_>>>()?;
         Ok(v)
     }

@@ -128,6 +128,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_invite_fwd(&ctx, &cb).await
     } else if data == menu::INVITE_QR {
         handle_invite_qr(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(markets::PAGE) {
+        handle_events_page(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(markets::BET) {
         betting::handle_bet(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(betting::OPT) {
@@ -695,8 +697,34 @@ async fn handle_menu_markets(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         db(ctx).get_tz(cb.from.id).ok().flatten().unwrap_or(0)
     };
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let (text, mut rows) = markets::brief(lang, tz, fmt).await;
-    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
+    let (text, rows) = markets::brief(lang, tz, fmt, 0, true).await;
+    let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &text, &rows).await;
+    Ok(())
+}
+
+/// `evpage:<m|s>:<page>` — re-render the market brief at the requested page in
+/// place (edits the current message). The `m`/`s` flag (menu vs standalone) and
+/// the page number ride in the callback, so no server-side state is kept.
+async fn handle_events_page(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    rest: &str,
+) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(message) = cb.message.clone() else {
+        return Ok(());
+    };
+    answer(ctx, cb, "", false).await?;
+    let (flag, page_str) = rest.split_once(':').unwrap_or(("s", rest));
+    let page: usize = page_str.parse().unwrap_or(0);
+    let chat = message.chat.get_id();
+    let tz = if is_group_chat(chat) {
+        0
+    } else {
+        db(ctx).get_tz(cb.from.id).ok().flatten().unwrap_or(0)
+    };
+    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let (text, rows) = markets::brief(lang, tz, fmt, page, flag == "m").await;
     let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &text, &rows).await;
     Ok(())
 }
