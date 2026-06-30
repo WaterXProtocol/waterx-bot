@@ -38,8 +38,10 @@ pub enum FundOutcome {
 pub enum TradeOutcome {
     /// Executed. `shares` = signed micro-shares (+buy / −sell); `coins` = signed
     /// micro-coins on the trader's balance (−spent / +received); `fee` =
-    /// micro-coins retained in the pool for the host.
-    Filled { shares: i64, coins: i64, fee: i64 },
+    /// micro-coins retained in the pool for the host; `basis` = the cost basis
+    /// **removed** by the trade (0 for a buy; the pro-rata cost of the sold shares
+    /// for a sell), so realized P&L on a sell is `coins − basis`.
+    Filled { shares: i64, coins: i64, fee: i64, basis: i64 },
     /// Not enough balance (buy) or not enough shares held (sell), or the spend is
     /// too small to mint a whole micro-share. Nothing written.
     Rejected,
@@ -198,6 +200,17 @@ fn add_position(
         params![event_id, idx, user, add_shares, add_cost],
     )?;
     Ok(())
+}
+
+/// Cost basis attributable to `sold` of `held` shares carrying total `basis`:
+/// the whole `basis` on a full sell, else floored pro-rata. Realized P&L on a
+/// sell is `proceeds − basis_for_sold(...)`.
+fn basis_for_sold(basis: i64, sold: i64, held: i64) -> i64 {
+    if sold >= held || held <= 0 {
+        basis
+    } else {
+        (basis as i128 * sold as i128 / held as i128) as i64
+    }
 }
 
 /// Credit `amount` micro-coins to `user`, creating the balance row if absent.
@@ -610,7 +623,7 @@ impl Database {
         )?;
         tx.execute("UPDATE events SET pool = pool + ?1 WHERE id = ?2", params![spend, event_id])?;
         tx.commit()?;
-        Ok(TradeOutcome::Filled { shares, coins: -spend, fee })
+        Ok(TradeOutcome::Filled { shares, coins: -spend, fee, basis: 0 })
     }
 
     /// Sell `shares` micro-shares of outcome `idx` back to the AMM. The refund is
@@ -660,14 +673,15 @@ impl Database {
             params![shares, event_id, idx],
         )?;
         tx.execute("UPDATE events SET pool = pool - ?1 WHERE id = ?2", params![proceeds, event_id])?;
+        // Cost basis of the shares sold (the whole basis on a full sell, else
+        // pro-rata); realized P&L = proceeds − this.
+        let basis_removed = basis_for_sold(basis, shares, held);
         if held == shares {
             tx.execute(
                 "DELETE FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
                 params![event_id, idx, user],
             )?;
         } else {
-            // Reduce the cost basis in proportion to the shares sold.
-            let basis_removed = (basis as i128 * shares as i128 / held as i128) as i64;
             tx.execute(
                 "UPDATE positions SET shares = shares - ?1, cost = cost - ?2
                  WHERE event_id = ?3 AND market_idx = ?4 AND user = ?5",
@@ -675,7 +689,7 @@ impl Database {
             )?;
         }
         tx.commit()?;
-        Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee })
+        Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee, basis: basis_removed })
     }
 
     // --- Sourced (Polymarket-backed, house-banked) -------------------------
@@ -776,7 +790,7 @@ impl Database {
             params![shares, event_id, idx],
         )?;
         tx.commit()?;
-        Ok(TradeOutcome::Filled { shares, coins: -spend, fee: 0 })
+        Ok(TradeOutcome::Filled { shares, coins: -spend, fee: 0, basis: 0 })
     }
 
     /// Sell `shares` micro-shares of outcome `idx` in a sourced event at the live
@@ -830,13 +844,13 @@ impl Database {
             "UPDATE markets SET q_shares = q_shares - ?1 WHERE event_id = ?2 AND idx = ?3",
             params![shares, event_id, idx],
         )?;
+        let basis_removed = basis_for_sold(basis, shares, held);
         if held == shares {
             tx.execute(
                 "DELETE FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
                 params![event_id, idx, user],
             )?;
         } else {
-            let basis_removed = (basis as i128 * shares as i128 / held as i128) as i64;
             tx.execute(
                 "UPDATE positions SET shares = shares - ?1, cost = cost - ?2
                  WHERE event_id = ?3 AND market_idx = ?4 AND user = ?5",
@@ -844,7 +858,7 @@ impl Database {
             )?;
         }
         tx.commit()?;
-        Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee: 0 })
+        Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee: 0, basis: basis_removed })
     }
 
     // --- Resolution & settlement -------------------------------------------
@@ -1551,7 +1565,7 @@ mod tests {
         let p0 = price_of(&db, ev, 0);
 
         let out = db.amm_buy(ev, 0, 2, 100 * COIN).unwrap();
-        let TradeOutcome::Filled { shares, coins, fee } = out else {
+        let TradeOutcome::Filled { shares, coins, fee, .. } = out else {
             panic!("{out:?}")
         };
         assert!(shares > 0);
@@ -1656,7 +1670,7 @@ mod tests {
         let ev = sourced(&db);
         // Buy 10 coins of A at 50¢ → 20 shares; spend leaves circulation (no pool).
         let out = db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap();
-        let TradeOutcome::Filled { shares, coins, fee } = out else {
+        let TradeOutcome::Filled { shares, coins, fee, .. } = out else {
             panic!("{out:?}")
         };
         assert_eq!(shares, 20 * SHARE);
@@ -1664,6 +1678,48 @@ mod tests {
         assert_eq!(fee, 0);
         assert_eq!(db.get_user_info(2).unwrap().balance, 90 * COIN);
         assert_eq!(pool_of(&db, ev), 0, "sourced is house-banked, no pool");
+    }
+
+    #[test]
+    fn repeated_buys_merge_into_one_position_summing_shares_and_cost() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(2, 100 * COIN).unwrap();
+        let ev = sourced(&db);
+        // Two buys of the same outcome at different prices.
+        db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap(); // 20 shares, cost 10
+        db.sourced_buy(ev, 0, 2, 6 * COIN, 40.0).unwrap(); // 15 shares, cost 6
+        let pos = db.user_positions(2).unwrap();
+        assert_eq!(pos.len(), 1, "same market merges into one position");
+        assert_eq!(pos[0].shares, 35 * SHARE); // 20 + 15
+        assert_eq!(pos[0].cost, 16 * COIN); // 10 + 6 summed
+    }
+
+    #[test]
+    fn sell_reports_cost_basis_removed_for_pnl() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(2, 100 * COIN).unwrap();
+        let ev = sourced(&db);
+        db.sourced_buy(ev, 0, 2, 20 * COIN, 50.0).unwrap(); // 40 shares, cost 20
+                                                            // Sell half at 80¢: proceeds 16, basis removed = 10 → P&L +6.
+        let out = db.sourced_sell(ev, 0, 2, 20 * SHARE, 80.0).unwrap();
+        let TradeOutcome::Filled { coins, basis, .. } = out else {
+            panic!("{out:?}")
+        };
+        assert_eq!(coins, 16 * COIN); // 20 shares × 0.80
+        assert_eq!(basis, 10 * COIN); // half of the 20-coin basis
+        assert_eq!(coins - basis, 6 * COIN); // realized P&L = +6
+                                             // Remaining position keeps the other half of the basis.
+        let pos = db.user_positions(2).unwrap();
+        assert_eq!(pos[0].shares, 20 * SHARE);
+        assert_eq!(pos[0].cost, 10 * COIN);
+        // A full sell reports the whole remaining basis.
+        let out = db.sourced_sell(ev, 0, 2, 20 * SHARE, 30.0).unwrap();
+        let TradeOutcome::Filled { coins, basis, .. } = out else {
+            panic!("{out:?}")
+        };
+        assert_eq!(coins, 6 * COIN); // 20 × 0.30
+        assert_eq!(basis, 10 * COIN); // whole remaining basis
+        assert_eq!(coins - basis, -4 * COIN); // realized P&L = −4 (a loss)
     }
 
     #[test]

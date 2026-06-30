@@ -127,14 +127,24 @@ pub async fn handle_sell_place(
         db(ctx).sourced_sell(eid, idx, cb.from.id, sell, price)
     };
     match result {
-        Ok(TradeOutcome::Filled { shares, coins, .. }) => {
+        Ok(TradeOutcome::Filled { shares, coins, basis, .. }) => {
             let sold = i18n::sold(lang, &fmt_coins(-shares), &outcome, &fmt_coins(coins));
+            // Realized P&L on the sold shares = proceeds − their cost basis.
+            let pnl = coins - basis;
+            let emoji = if pnl > 0 {
+                "📈"
+            } else if pnl < 0 {
+                "📉"
+            } else {
+                "➖"
+            };
+            let body = format!("{sold}\n{}", i18n::sell_pnl(lang, emoji, &fmt_signed_coins(pnl)));
             let rows = vec![vec![(
                 i18n::bet_btn_back(lang).to_string(),
                 menu::MENU_BALANCE.to_string(),
             )]];
-            edit(ctx, cb, &sold, &rows).await;
-            answer(ctx, cb, &sold, true).await
+            edit(ctx, cb, &body, &rows).await;
+            answer(ctx, cb, &body, true).await
         }
         Ok(_) => answer(ctx, cb, i18n::bet_unavailable(lang), true).await,
         Err(e) => {

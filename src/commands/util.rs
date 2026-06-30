@@ -108,6 +108,17 @@ pub fn args(msg: &Message) -> Vec<String> {
 /// Format a micro-coin balance (6-decimal fixed-point; see `database::COIN`)
 /// as coins, trailing zeros trimmed, thousands separators on the whole part.
 /// `1_000_000 → "1"`, `1_500_000 → "1.5"`, `10_000 → "0.01"`, `-5_000_000 → "-5"`.
+/// Like [`fmt_coins`] but with an explicit leading sign for non-negative
+/// amounts (`+5`, `-3`, `0`) — for showing signed deltas like realized P&L.
+pub fn fmt_signed_coins(units: i64) -> String {
+    if units > 0 {
+        format!("+{}", fmt_coins(units))
+    } else {
+        // fmt_coins already prefixes a real loss with "-"; zero stays "0".
+        fmt_coins(units)
+    }
+}
+
 pub fn fmt_coins(units: i64) -> String {
     let coin = crate::database::COIN;
     let neg = units < 0;

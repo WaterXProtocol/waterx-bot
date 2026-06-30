@@ -1816,6 +1816,18 @@ pub fn sold(l: Lang, shares: &str, outcome: &str, proceeds: &str) -> String {
     .replace("{proceeds}", proceeds)
 }
 
+/// Realized profit/loss line appended to the sell confirmation. `pnl` is a
+/// pre-signed amount (e.g. `+5` / `-3`); the emoji conveys the direction.
+pub fn sell_pnl(l: Lang, emoji: &str, pnl: &str) -> String {
+    tr!(l;
+        "{emoji} P&L: {pnl} 🪙", "{emoji} 盈虧：{pnl} 🪙", "{emoji} 盈亏：{pnl} 🪙", "{emoji} 損益：{pnl} 🪙", "{emoji} 손익: {pnl} 🪙",
+        "{emoji} Прибыль/убыток: {pnl} 🪙", "{emoji} P&L : {pnl} 🪙", "{emoji} P&L: {pnl} 🪙", "{emoji} G&V: {pnl} 🪙", "{emoji} Lãi/lỗ: {pnl} 🪙",
+        "{emoji} L/R: {pnl} 🪙", "{emoji} Tubo/Lugi: {pnl} 🪙", "{emoji} กำไร/ขาดทุน: {pnl} 🪙", "{emoji} W/V: {pnl} 🪙", "{emoji} K/Z: {pnl} 🪙",
+        "{emoji} L&P: {pnl} 🪙", "{emoji} लाभ/हानि: {pnl} 🪙", "{emoji} الربح/الخسارة: {pnl} 🪙")
+    .replace("{emoji}", emoji)
+    .replace("{pnl}", pnl)
+}
+
 pub fn predict_ask_fee(l: Lang) -> &'static str {
     tr!(l;
         "💸 Pick your trading fee — you earn it on every trade (max 10%):", "💸 選擇你的交易手續費 — 每筆交易你都能賺取（上限 10%）：", "💸 选择你的交易手续费 — 每笔交易你都能赚取（上限 10%）：", "💸 取引手数料を選択 — すべての取引で獲得できます（最大10%）：", "💸 거래 수수료 선택 — 모든 거래에서 받습니다 (최대 10%):",
@@ -2096,6 +2108,7 @@ mod tests {
                 bought_toast(l, "🍎"),
                 sold_msg(l, "A", "🍎", "1"),
                 sold_toast(l, "1"),
+                sell_pnl(l, "📈", "+5"),
                 you_dont_have(l, "🍎"),
                 result_header(l, "X"),
                 settle_line(l, "Alice", verb_won(l), "5"),
