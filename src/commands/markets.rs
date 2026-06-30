@@ -56,6 +56,145 @@ impl MarketInfo {
     }
 }
 
+/// One outcome of a sourced (Polymarket) event, for the N-outcome model.
+#[derive(Debug, Clone)]
+pub struct SourcedOutcome {
+    pub name: String,
+    /// YES odds in cents (None = no quote).
+    pub yes_cents: Option<f64>,
+    /// Gamma market id this outcome trades/resolves on.
+    pub market_id: String,
+    /// Whether this is the YES leg of `market_id` — a Yes/No prop's "No" leg shares
+    /// the market with selection NO. Resolution: a YES outcome wins when its market's
+    /// YES price → 1, a NO outcome when it → 0.
+    pub is_yes: bool,
+}
+
+/// A sourced (Polymarket) event from the waterx feed, generalized to **any number
+/// of outcomes**: a 1X2 `sport` match (3), a grouped `sport-award` (N candidates),
+/// or a Yes/No prop (2). Supersedes the sport-only `MarketInfo`.
+#[derive(Debug, Clone)]
+pub struct SourcedEvent {
+    /// Short, colon-free identity carried in the `bet:`/`opt:` callbacks and used to
+    /// re-find the event in the feed: a `sport`'s slug, or `grp-<slugified award>`.
+    pub key: String,
+    pub title: String,
+    pub outcomes: Vec<SourcedOutcome>,
+    pub starts_at: Option<i64>,
+    pub ends_at: i64,
+    pub live: bool,
+}
+
+/// Lowercase-alphanumeric slug (`"2026 FIFA World Cup Winner"` →
+/// `2026-fifa-world-cup-winner`) — a stable, colon-free callback key for a group.
+#[allow(dead_code)] // wired into the bet flow in Phase 2
+fn slugify(s: &str) -> String {
+    let mut out = String::new();
+    let mut dash = false;
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if !out.is_empty() && !dash {
+            out.push('-');
+            dash = true;
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
+/// Group the browse feed into N-outcome sourced events: `sport` → one 3-outcome
+/// event; `sport-award` → grouped by `display.award` into an N-candidate event (a
+/// lone candidate becomes a 2-outcome Yes/No prop, shown most-likely-first); other
+/// kinds (`crypto`) dropped. Odds are the feed's relayed YES prices; each outcome
+/// keeps its Gamma `marketId` for resolution. `lang` localizes Draw/Yes/No.
+#[allow(dead_code)] // wired into fetch_markets / the bet flow in Phase 2
+fn group_events(items: &[Item], lang: Lang) -> Vec<SourcedEvent> {
+    let mut events: Vec<SourcedEvent> = Vec::new();
+    let mut award_at: HashMap<String, usize> = HashMap::new();
+    for it in items {
+        let Some(r) = it.next_round.as_ref() else { continue };
+        let live = r.phase.as_deref() == Some("live");
+        let d = &it.market.display;
+        match d.kind.as_deref() {
+            Some("sport") => {
+                let (Some(a), Some(b)) = (d.team_a.as_ref(), d.team_b.as_ref()) else { continue };
+                let side = |key: &str, name: String| -> Option<SourcedOutcome> {
+                    let s = r.sides.iter().find(|s| s.key == key)?;
+                    Some(SourcedOutcome {
+                        name,
+                        yes_cents: s.odds_cents,
+                        market_id: s.trade.as_ref().map(|t| t.market_id.clone()).unwrap_or_default(),
+                        is_yes: true,
+                    })
+                };
+                let outcomes: Vec<SourcedOutcome> = [
+                    side("teamA", a.name.clone()),
+                    side("draw", i18n::draw_label(lang).to_string()),
+                    side("teamB", b.name.clone()),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                if outcomes.is_empty() {
+                    continue;
+                }
+                events.push(SourcedEvent {
+                    key: it.market.slug.clone(),
+                    title: format!("{} vs. {}", a.name, b.name),
+                    outcomes,
+                    starts_at: r.starts_at,
+                    ends_at: r.ends_at.unwrap_or(0),
+                    live,
+                });
+            }
+            Some("sport-award") => {
+                let Some(award) = d.award.as_deref() else { continue };
+                let up = r.sides.iter().find(|s| s.key == "up");
+                let outcome = SourcedOutcome {
+                    name: d.candidate.as_ref().map(|c| c.name.clone()).unwrap_or_default(),
+                    yes_cents: up.and_then(|s| s.odds_cents),
+                    market_id: up
+                        .and_then(|s| s.trade.as_ref())
+                        .map(|t| t.market_id.clone())
+                        .unwrap_or_default(),
+                    is_yes: true,
+                };
+                let idx = *award_at.entry(award.to_string()).or_insert_with(|| {
+                    events.push(SourcedEvent {
+                        key: format!("grp-{}", slugify(award)),
+                        title: award.to_string(),
+                        outcomes: Vec::new(),
+                        starts_at: r.starts_at,
+                        ends_at: r.ends_at.unwrap_or(0),
+                        live,
+                    });
+                    events.len() - 1
+                });
+                events[idx].outcomes.push(outcome);
+                events[idx].live |= live;
+            }
+            _ => {} // crypto / unknown — dropped
+        }
+    }
+    // A lone-candidate award group is a Yes/No prop; many candidates → neg-risk,
+    // shown most-likely first.
+    for ev in events.iter_mut().filter(|e| e.key.starts_with("grp-")) {
+        if ev.outcomes.len() == 1 {
+            let c = ev.outcomes.remove(0);
+            ev.outcomes = vec![
+                SourcedOutcome { name: i18n::yes_label(lang).to_string(), yes_cents: c.yes_cents, market_id: c.market_id.clone(), is_yes: true },
+                SourcedOutcome { name: i18n::no_label(lang).to_string(), yes_cents: c.yes_cents.map(|y| 100.0 - y), market_id: c.market_id, is_yes: false },
+            ];
+        } else {
+            ev.outcomes.sort_by(|a, b| {
+                b.yes_cents.partial_cmp(&a.yes_cents).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+    }
+    events
+}
+
 #[command(description = "browse live prediction events")]
 pub async fn events(ctx: Context, message: Message) -> CommandResult {
     if paused_block(&ctx, &message).await? {
@@ -501,6 +640,13 @@ struct Display {
     team_a: Option<Team>,
     #[serde(rename = "teamB")]
     team_b: Option<Team>,
+    /// Grouping title for `sport-award` items (e.g. "2026 FIFA World Cup Winner"),
+    /// shared by every candidate item — the key the N-outcome event groups on.
+    #[serde(default)]
+    award: Option<String>,
+    /// This award item's candidate (e.g. `{name: "USA"}`) — one outcome.
+    #[serde(default)]
+    candidate: Option<Team>,
 }
 
 #[derive(Deserialize)]
@@ -526,6 +672,15 @@ struct Side {
     // (e.g. 99.9), so this must be a float or the whole feed fails to parse.
     #[serde(rename = "oddsCents")]
     odds_cents: Option<f64>,
+    /// Gamma trade target — carries the per-outcome `marketId` used for resolution.
+    #[serde(default)]
+    trade: Option<Trade>,
+}
+
+#[derive(Deserialize)]
+struct Trade {
+    #[serde(rename = "marketId", default)]
+    market_id: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -576,5 +731,90 @@ impl GammaMarket {
         let yes = outcomes.iter().position(|o| o.eq_ignore_ascii_case("yes"))?;
         let p: f64 = prices.get(yes)?.parse().ok()?;
         (p > 0.0).then_some(p * 100.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FIXTURE: &str = r#"{"data":{"items":[
+        {"market":{"id":"m1","slug":"sport-fra-swe","display":{"kind":"sport","teamA":{"name":"France"},"teamB":{"name":"Sweden"}}},
+         "nextRound":{"startsAt":100,"endsAt":200,"phase":"open","sides":[
+            {"key":"teamA","oddsCents":78.1,"trade":{"marketId":"0xA"}},
+            {"key":"draw","oddsCents":16.8,"trade":{"marketId":"0xD"}},
+            {"key":"teamB","oddsCents":8.4,"trade":{"marketId":"0xB"}}]}},
+        {"market":{"id":"m2","slug":"award-x-usa","display":{"kind":"sport-award","award":"WC Winner","candidate":{"name":"USA"}}},
+         "nextRound":{"startsAt":100,"endsAt":300,"phase":"open","sides":[
+            {"key":"up","oddsCents":2.8,"trade":{"marketId":"0xUSA"}},
+            {"key":"down","oddsCents":97.3,"trade":{"marketId":"0xUSA"}}]}},
+        {"market":{"id":"m3","slug":"award-x-mexico","display":{"kind":"sport-award","award":"WC Winner","candidate":{"name":"Mexico"}}},
+         "nextRound":{"startsAt":100,"endsAt":300,"phase":"live","sides":[
+            {"key":"up","oddsCents":6.0,"trade":{"marketId":"0xMEX"}}]}},
+        {"market":{"id":"m4","slug":"prop-trump","display":{"kind":"sport-award","award":"Trump to attend?","candidate":{"name":"Trump to attend?"}}},
+         "nextRound":{"startsAt":100,"endsAt":300,"phase":"open","sides":[
+            {"key":"up","oddsCents":40.0,"trade":{"marketId":"0xTRU"}},
+            {"key":"down","oddsCents":60.0,"trade":{"marketId":"0xTRU"}}]}},
+        {"market":{"id":"m5","slug":"crypto-btc","display":{"kind":"crypto"}},
+         "nextRound":{"phase":"open","sides":[]}}
+    ]}}"#;
+
+    fn grouped() -> Vec<SourcedEvent> {
+        let resp: BrowseResp = serde_json::from_str(FIXTURE).unwrap();
+        group_events(&resp.data.items, Lang::En)
+    }
+
+    #[test]
+    fn slugify_is_stable_and_colon_free() {
+        assert_eq!(slugify("2026 FIFA World Cup Winner"), "2026-fifa-world-cup-winner");
+        assert_eq!(slugify("World Cup: Unbeaten Champion?"), "world-cup-unbeaten-champion");
+        assert!(!slugify("a:b c").contains(':'));
+    }
+
+    #[test]
+    fn sport_becomes_a_three_outcome_event() {
+        let evs = grouped();
+        let s = evs.iter().find(|e| e.key == "sport-fra-swe").unwrap();
+        assert_eq!(s.title, "France vs. Sweden");
+        assert_eq!(s.outcomes.len(), 3);
+        let names: Vec<&str> = s.outcomes.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["France", "Draw", "Sweden"]);
+        assert_eq!(s.outcomes[0].market_id, "0xA");
+        assert_eq!(s.outcomes[2].market_id, "0xB");
+        assert!(s.outcomes.iter().all(|o| o.is_yes));
+    }
+
+    #[test]
+    fn award_candidates_group_into_one_event_most_likely_first() {
+        let evs = grouped();
+        let g = evs.iter().find(|e| e.key == "grp-wc-winner").unwrap();
+        assert_eq!(g.title, "WC Winner");
+        assert_eq!(g.outcomes.len(), 2);
+        // 6.0 (Mexico) sorts before 2.8 (USA).
+        assert_eq!(g.outcomes[0].name, "Mexico");
+        assert_eq!(g.outcomes[1].name, "USA");
+        assert_eq!(g.outcomes[0].market_id, "0xMEX");
+        assert!(g.live, "a live candidate makes the group live");
+    }
+
+    #[test]
+    fn lone_candidate_prop_becomes_yes_no() {
+        let evs = grouped();
+        let p = evs.iter().find(|e| e.key == "grp-trump-to-attend").unwrap();
+        assert_eq!(p.outcomes.len(), 2);
+        assert_eq!(p.outcomes[0].name, "Yes");
+        assert!(p.outcomes[0].is_yes);
+        assert_eq!(p.outcomes[0].yes_cents, Some(40.0));
+        assert_eq!(p.outcomes[1].name, "No");
+        assert!(!p.outcomes[1].is_yes);
+        assert_eq!(p.outcomes[1].yes_cents, Some(60.0)); // 100 − 40
+        assert_eq!(p.outcomes[1].market_id, "0xTRU"); // shares the prop's market
+    }
+
+    #[test]
+    fn crypto_and_unknown_kinds_are_dropped() {
+        let evs = grouped();
+        assert_eq!(evs.len(), 3, "sport + WC-winner group + Trump prop; crypto dropped");
+        assert!(!evs.iter().any(|e| e.key.contains("crypto")));
     }
 }
