@@ -8,6 +8,7 @@
 //! step (`gend:<minutes>`), which finalizes and posts the card.
 
 use crate::bot::Convo;
+use crate::commands::menu;
 use crate::commands::predmarket;
 use crate::commands::tg;
 use crate::commands::tg::answer;
@@ -438,7 +439,9 @@ pub async fn handle_predict_funding(
         Finalized::Failed => i18n::predict_post_failed(lang).to_string(),
     };
     if let Some(m) = &cb.message {
-        let _ = tg::edit_text_only(ctx, m.chat.get_id(), m.message_id, &msg).await;
+        let _ =
+            tg::edit_with_buttons(ctx, m.chat.get_id(), m.message_id, &msg, &menu::home_row(lang))
+                .await;
     }
     answer(ctx, cb, "", false).await
 }

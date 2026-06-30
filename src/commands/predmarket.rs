@@ -8,6 +8,7 @@
 //! (`void_event`); payouts are collected later via `/claim`. All board state
 //! lives in the DB (no in-memory map) — callbacks use the `pm:` namespace.
 
+use crate::commands::menu;
 use crate::commands::tg::{self, answer};
 use crate::commands::util::*;
 use crate::core::i18n::{self, Lang};
@@ -329,7 +330,7 @@ pub async fn handle_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
             let _ = send_text(ctx, chat, announce).await;
         }
     } else {
-        let _ = tg::edit_text_only(ctx, chat, msg, &placed).await;
+        let _ = tg::edit_with_buttons(ctx, chat, msg, &placed, &menu::home_row(lang)).await;
     }
     answer(ctx, cb, &placed, true).await
 }
@@ -462,7 +463,7 @@ pub async fn handle_fund_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
                     let _ = send_text(ctx, chat, announce).await;
                 }
             } else {
-                let _ = tg::edit_text_only(ctx, chat, msg, &done).await;
+                let _ = tg::edit_with_buttons(ctx, chat, msg, &done, &menu::home_row(lang)).await;
             }
             answer(ctx, cb, &done, true).await
         }

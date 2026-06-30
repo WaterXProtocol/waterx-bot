@@ -11,6 +11,7 @@
 
 use crate::bot::QuotesKey;
 use crate::commands::markets;
+use crate::commands::menu;
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
@@ -464,8 +465,16 @@ pub async fn handle_size_place(
             let _ = send_text(ctx, q.origin_chat, announce).await;
         }
     } else {
-        // Private `/events`: the board edits in place into the placed confirmation.
-        let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), &placed).await;
+        // Private `/events`: the board edits in place into the placed confirmation,
+        // with a way back to the home menu (otherwise it dead-ends).
+        let _ = tg::edit_with_buttons(
+            ctx,
+            cb.message_chat(),
+            cb.message_id(),
+            &placed,
+            &menu::home_row(lang),
+        )
+        .await;
     }
     answer(ctx, cb, &placed, true).await
 }
@@ -536,7 +545,14 @@ async fn render_builder(
 }
 
 async fn expire(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<(), telexide::Error> {
-    let _ = tg::edit_text_only(ctx, cb.message_chat(), cb.message_id(), i18n::bet_expired(lang)).await;
+    let _ = tg::edit_with_buttons(
+        ctx,
+        cb.message_chat(),
+        cb.message_id(),
+        i18n::bet_expired(lang),
+        &menu::home_row(lang),
+    )
+    .await;
     answer(ctx, cb, "", false).await
 }
 

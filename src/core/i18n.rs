@@ -953,6 +953,13 @@ fn menu_start(l: Lang) -> &'static str {
         "Página inicial", "होम", "الصفحة الرئيسية")
 }
 
+/// `🏠 Home page` button label — sends a terminal flow node (a placed bet, a
+/// funded stake, an expired board, a created prediction) back to the `/start`
+/// menu instead of dead-ending.
+pub fn home_btn(l: Lang) -> String {
+    format!("🏠 {}", menu_start(l))
+}
+
 
 fn menu_balance(l: Lang) -> &'static str {
     tr!(l;

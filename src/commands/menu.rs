@@ -90,6 +90,13 @@ pub fn tz_picker_rows(current: Option<i64>, settings: bool) -> Vec<Row> {
 }
 pub const MENU_CHECKIN: &str = "menu:checkin";
 pub const MENU_HOME: &str = "menu:home";
+
+/// A single `[🏠 Home page]` row → the `/start` menu (`MENU_HOME`), for terminal
+/// flow nodes (placed bet, funded stake, expired board, created prediction) that
+/// would otherwise dead-end with no way back.
+pub fn home_row(lang: Lang) -> Vec<Row> {
+    vec![vec![(i18n::home_btn(lang), MENU_HOME.to_string())]]
+}
 pub const MENU_BALANCE: &str = "menu:balance";
 pub const MENU_MARKETS: &str = "menu:markets";
 pub const MENU_RULE: &str = "menu:rule";
