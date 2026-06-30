@@ -103,6 +103,11 @@ pub struct AmmBoard {
     pub pool: i64,
     /// `(outcome name, net q_shares)` ordered by idx.
     pub options: Vec<(String, i64)>,
+    /// When the funding window closes → trading opens (`state == "funding"` only).
+    pub open_at: i64,
+    /// Per-outcome funding-stage allocation (micro-coins), ordered by idx — the
+    /// price-discovery tally shown on the funding board.
+    pub funded: Vec<i64>,
 }
 
 /// Everything the sell flow needs to price + execute a sell of one holding:
@@ -540,7 +545,9 @@ impl Database {
     /// opened-or-voided state. Kept separate from the trade tx because a trade that
     /// then finds the event voided early-returns and would otherwise roll the
     /// finalize back. No-op unless the event is a funding-stage AMM past `open_at`.
-    fn finalize_funding_if_due(&self, event_id: i64) -> SqlResult<()> {
+    /// Public so the board can flip a stale funding card to the open market on the
+    /// first interaction after the window closes.
+    pub fn finalize_funding_if_due(&self, event_id: i64) -> SqlResult<()> {
         let now = super::current_unix_time();
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
@@ -1257,7 +1264,7 @@ impl Database {
         let ev = conn
             .query_row(
                 "SELECT creator, title, state, lang, odds_fmt, COALESCE(tz_offset, 0), ends_at,
-                        COALESCE(b_param, 0), fee_bps, winning_market, pool
+                        COALESCE(b_param, 0), fee_bps, winning_market, pool, open_at
                  FROM events WHERE id = ?1 AND kind = 'amm'",
                 params![event_id],
                 |r| {
@@ -1273,23 +1280,40 @@ impl Database {
                         r.get::<_, i64>(8)?,
                         r.get::<_, Option<i64>>(9)?,
                         r.get::<_, i64>(10)?,
+                        r.get::<_, i64>(11)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((host, question, state, lang, odds_fmt, tz_offset, ends_at, b_param, fee_bps, winning_market, pool)) =
-            ev
+        let Some((
+            host,
+            question,
+            state,
+            lang,
+            odds_fmt,
+            tz_offset,
+            ends_at,
+            b_param,
+            fee_bps,
+            winning_market,
+            pool,
+            open_at,
+        )) = ev
         else {
             return Ok(None);
         };
-        let options = {
-            let mut stmt =
-                conn.prepare("SELECT name, q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+        let rows = {
+            let mut stmt = conn
+                .prepare("SELECT name, q_shares, funded FROM markets WHERE event_id = ?1 ORDER BY idx")?;
             let v = stmt
-                .query_map(params![event_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+                .query_map(params![event_id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+                })?
                 .collect::<SqlResult<Vec<_>>>()?;
             v
         };
+        let options: Vec<(String, i64)> = rows.iter().map(|(n, q, _)| (n.clone(), *q)).collect();
+        let funded: Vec<i64> = rows.iter().map(|(_, _, f)| *f).collect();
         Ok(Some(AmmBoard {
             event_id,
             host,
@@ -1304,6 +1328,8 @@ impl Database {
             winning_market,
             pool,
             options,
+            open_at,
+            funded,
         }))
     }
 

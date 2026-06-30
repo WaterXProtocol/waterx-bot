@@ -144,6 +144,14 @@ pub async fn on_callback(ctx: Context, update: Update) {
         selling::handle_sell_build(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(predict::PREDICT_FEE) {
         predict::handle_predict_fee(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predict::PREDICT_FUND) {
+        predict::handle_predict_funding(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_FPLACE) {
+        predmarket::handle_fund_place(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_FSIZE) {
+        predmarket::handle_fund_size(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(predmarket::PM_FUND) {
+        predmarket::handle_fund(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(predmarket::PM_PLACE) {
         predmarket::handle_place(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(predmarket::PM_SIZE) {

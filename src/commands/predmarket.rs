@@ -13,7 +13,7 @@ use crate::commands::util::*;
 use crate::core::i18n::{self, Lang};
 use crate::core::lmsr;
 use crate::core::types::OddsFormat;
-use crate::database::{AmmBoard, TradeOutcome, COIN};
+use crate::database::{AmmBoard, FundOutcome, TradeOutcome, COIN, MIN_SEED};
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
@@ -28,6 +28,10 @@ pub const PM_RESOLVE: &str = "pm:resolve:"; // pm:resolve:<event>
 pub const PM_WIN: &str = "pm:win:"; // pm:win:<event>:<idx>
 pub const PM_VOID: &str = "pm:void:"; // pm:void:<event>
 pub const PM_BACK: &str = "pm:back:"; // pm:back:<event>
+// Funding stage (LP price discovery): pick an outcome → amount builder → add.
+pub const PM_FUND: &str = "pm:fund:"; // pm:fund:<event>:<idx>
+pub const PM_FSIZE: &str = "pm:fsz:"; // pm:fsz:<event>:<idx>:<owner>:<amount>
+pub const PM_FPLACE: &str = "pm:fgo:"; // pm:fgo:<event>:<idx>:<owner>:<amount>
 
 fn circled(n: usize) -> String {
     const C: [&str; 10] = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
@@ -48,8 +52,64 @@ fn prices_cents(b: &AmmBoard) -> Vec<f64> {
     (0..b.options.len()).map(|i| lmsr::price(&q, b.b_param as f64, i) * 100.0).collect()
 }
 
+/// Implied opening prices (cents) from the funding tally `pₖ = fundedₖ / Σ`.
+fn funding_cents(b: &AmmBoard) -> Vec<f64> {
+    crate::core::lmsr_fund::opening_prices(&b.funded).iter().map(|p| p * 100.0).collect()
+}
+
+/// The funding-stage board: question + opening tally (each outcome's implied price
+/// + coins funded) + the pool status. Funding buttons live in `funding_board_rows`.
+fn funding_text(b: &AmmBoard) -> String {
+    let lang = Lang::from_store_code(&b.lang).unwrap_or(Lang::En);
+    let fmt = OddsFormat::from_store_code(&b.odds_fmt);
+    let mut s = format!("🎲 {}  ·  🌱\n", b.question);
+    let header = if b.open_at > now() {
+        fmt_local_time(b.open_at, b.tz_offset).map(|t| i18n::funding_until(lang, &t))
+    } else {
+        None
+    };
+    s.push_str(&header.unwrap_or_else(|| i18n::funding_open_now(lang).to_string()));
+    s.push('\n');
+    let cents = funding_cents(b);
+    for (i, (name, _)) in b.options.iter().enumerate() {
+        s.push_str(&format!(
+            "\n{} {name}   {}   {}🪙",
+            circled(i + 1),
+            format_odds(cents.get(i).copied().unwrap_or(0.0), fmt),
+            fmt_coins(b.funded.get(i).copied().unwrap_or(0))
+        ));
+    }
+    s.push_str(&format!("\n\n{}", i18n::funding_pool(lang, &fmt_coins(b.pool))));
+    if b.pool >= MIN_SEED.saturating_mul(COIN) {
+        s.push_str(&format!("  ·  {}", i18n::funding_ready(lang)));
+    } else {
+        s.push_str(&format!("  ·  {}", i18n::funding_need(lang, &MIN_SEED.to_string())));
+    }
+    s
+}
+
+/// Funding-board buttons: one `[💧 <name>]` per outcome (3/row) + the host's
+/// `[✖ Cancel]` (void). Shared message — any user can fund.
+fn funding_board_rows(b: &AmmBoard) -> Vec<tg::Row> {
+    let lang = Lang::from_store_code(&b.lang).unwrap_or(Lang::En);
+    let mut rows: Vec<tg::Row> = b
+        .options
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _))| (format!("💧 {name}"), format!("{PM_FUND}{}:{i}", b.event_id)))
+        .collect::<Vec<_>>()
+        .chunks(3)
+        .map(<[_]>::to_vec)
+        .collect();
+    rows.push(vec![(i18n::void_label(lang).to_string(), format!("{PM_VOID}{}", b.event_id))]);
+    rows
+}
+
 /// The board text (host's pinned lang + odds format — a shared message).
 fn board_text(b: &AmmBoard) -> String {
+    if b.state == "funding" {
+        return funding_text(b);
+    }
     let lang = Lang::from_store_code(&b.lang).unwrap_or(Lang::En);
     let fmt = OddsFormat::from_store_code(&b.odds_fmt);
     let emoji = match b.state.as_str() {
@@ -88,6 +148,9 @@ fn board_text(b: &AmmBoard) -> String {
 /// The live board's buttons: a buy button per outcome (3/row) + a host
 /// `[resolve]` row. Empty once the event is no longer open.
 fn board_rows(b: &AmmBoard) -> Vec<tg::Row> {
+    if b.state == "funding" {
+        return funding_board_rows(b);
+    }
     if b.state != "open" {
         return Vec::new();
     }
@@ -124,8 +187,10 @@ fn resolve_rows(b: &AmmBoard) -> Vec<tg::Row> {
     rows
 }
 
-/// Re-render the board card in place from the live DB state.
+/// Re-render the board card in place from the live DB state. A funding card whose
+/// window has closed flips to the open market here (first interaction wins).
 async fn refresh_card(ctx: &Context, event_id: i64) {
+    let _ = db(ctx).finalize_funding_if_due(event_id);
     let Ok(Some(board)) = db(ctx).amm_board(event_id) else {
         return;
     };
@@ -267,6 +332,150 @@ pub async fn handle_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
         let _ = tg::edit_text_only(ctx, chat, msg, &placed).await;
     }
     answer(ctx, cb, &placed, true).await
+}
+
+// --- Funding stage: LP liquidity provision ---------------------------------
+
+/// The per-LP funding amount builder for outcome `idx` (owner-locked). Previews
+/// the opening price this allocation would set.
+#[allow(clippy::too_many_arguments)]
+fn fund_builder(
+    lang: Lang,
+    fmt: OddsFormat,
+    b: &AmmBoard,
+    idx: i64,
+    owner: i64,
+    amount_whole: i64,
+    chat: i64,
+    owner_name: &str,
+) -> (String, Vec<tg::Row>) {
+    let name = b.options.get(idx as usize).map(|(n, _)| n.as_str()).unwrap_or("");
+    let amount_micro = amount_whole.max(0).saturating_mul(COIN);
+    // Implied opening price *after* this allocation (price discovery preview).
+    let mut funded = b.funded.clone();
+    if let Some(f) = funded.get_mut(idx as usize) {
+        *f = f.saturating_add(amount_micro);
+    }
+    let cents =
+        crate::core::lmsr_fund::opening_prices(&funded).get(idx as usize).copied().unwrap_or(0.0) * 100.0;
+    let body = i18n::fund_build(lang, name, &fmt_coins(amount_micro), &format_odds(cents, fmt));
+    let text = board_header(chat, owner_name, &body);
+    let preset_row: tg::Row = SPEND_PRESETS
+        .iter()
+        .map(|p| {
+            (format!("+{p}"), format!("{PM_FSIZE}{}:{idx}:{owner}:{}", b.event_id, amount_whole.saturating_add(*p)))
+        })
+        .collect();
+    let action_row = vec![
+        (i18n::bet_btn_confirm(lang).to_string(), format!("{PM_FPLACE}{}:{idx}:{owner}:{amount_whole}", b.event_id)),
+        (i18n::bet_btn_clear(lang).to_string(), format!("{PM_FSIZE}{}:{idx}:{owner}:0", b.event_id)),
+    ];
+    let mut rows = vec![preset_row, action_row];
+    if is_group_chat(chat) {
+        rows.push(vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}"))]);
+    }
+    (text, rows)
+}
+
+/// `pm:fund:<event>:<idx>` — open the tapper's funding builder for outcome `idx`.
+pub async fn handle_fund(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((event_id, idx)) = parse2(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    // If the window just closed, open the market and bounce the tapper to trading.
+    let _ = db(ctx).finalize_funding_if_due(event_id);
+    let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
+        return answer(ctx, cb, i18n::bet_expired(lang), true).await;
+    };
+    if board.state != "funding" {
+        refresh_card(ctx, event_id).await;
+        return answer(ctx, cb, i18n::fund_closed(lang), true).await;
+    }
+    if idx < 0 || idx as usize >= board.options.len() {
+        return answer(ctx, cb, "", false).await;
+    }
+    let (chat, msg) = cb_coords(cb);
+    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let (text, rows) = fund_builder(lang, fmt, &board, idx, cb.from.id, 0, chat, &full_name(&cb.from));
+    answer(ctx, cb, "", false).await?;
+    if is_group_chat(chat) {
+        let _ = tg::send_with_buttons_reply(ctx, chat, msg, &text, &rows).await;
+    } else {
+        let _ = tg::send_with_buttons(ctx, chat, &text, &rows).await;
+    }
+    Ok(())
+}
+
+/// `pm:fsz:<event>:<idx>:<owner>:<amount>` — re-render the funding builder.
+pub async fn handle_fund_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((event_id, idx, owner, amount)) = parse4(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    if owner != cb.from.id {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
+    let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
+        return answer(ctx, cb, i18n::bet_expired(lang), true).await;
+    };
+    let (chat, msg) = cb_coords(cb);
+    let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
+    let (text, rows) = fund_builder(lang, fmt, &board, idx, owner, amount, chat, &full_name(&cb.from));
+    let _ = tg::edit_with_buttons(ctx, chat, msg, &text, &rows).await;
+    answer(ctx, cb, "", false).await
+}
+
+/// `pm:fgo:<event>:<idx>:<owner>:<amount>` — provide liquidity via `add_liquidity`,
+/// refresh the board, and announce.
+pub async fn handle_fund_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((event_id, idx, owner, amount_whole)) = parse4(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    if owner != cb.from.id {
+        return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
+    }
+    let Some(amount) = to_micro(amount_whole) else {
+        return answer(ctx, cb, i18n::bad_stake(lang), true).await;
+    };
+    let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
+        return answer(ctx, cb, i18n::bet_expired(lang), true).await;
+    };
+    if idx < 0 || idx as usize >= board.options.len() {
+        return answer(ctx, cb, "", false).await;
+    }
+    let name = board.options.get(idx as usize).map(|(n, _)| n.clone()).unwrap_or_default();
+    let mut alloc = vec![0i64; board.options.len()];
+    alloc[idx as usize] = amount;
+    match db(ctx).add_liquidity(event_id, cb.from.id, &alloc, now()) {
+        Ok(FundOutcome::Funded { total }) => {
+            refresh_card(ctx, event_id).await;
+            let done = i18n::fund_done(lang, &name, &fmt_coins(total));
+            let (chat, msg) = cb_coords(cb);
+            if is_group_chat(chat) {
+                let _ = tg::delete_message(ctx, chat, msg).await;
+                let announce = i18n::fund_announce(lang, &full_name(&cb.from), &fmt_coins(total), &name);
+                if let Ok(Some((cchat, cmsg))) = db(ctx).event_card(event_id) {
+                    let _ = tg::send_text_reply(ctx, cchat, cmsg, &announce).await;
+                } else {
+                    let _ = send_text(ctx, chat, announce).await;
+                }
+            } else {
+                let _ = tg::edit_text_only(ctx, chat, msg, &done).await;
+            }
+            answer(ctx, cb, &done, true).await
+        }
+        Ok(FundOutcome::Rejected) => answer(ctx, cb, i18n::not_enough_money(lang), true).await,
+        Ok(FundOutcome::Unavailable) => {
+            refresh_card(ctx, event_id).await;
+            answer(ctx, cb, i18n::fund_closed(lang), true).await
+        }
+        Err(e) => {
+            eprintln!("add_liquidity error (event {event_id}): {e}");
+            answer(ctx, cb, i18n::db_error(lang), true).await
+        }
+    }
 }
 
 /// `pm:resolve:<event>` — host only: edit the board into the pick-a-winner view.

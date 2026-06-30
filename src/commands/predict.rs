@@ -12,9 +12,8 @@ use crate::commands::predmarket;
 use crate::commands::tg;
 use crate::commands::tg::answer;
 use crate::commands::util::*;
-use crate::core::lmsr;
 use crate::core::i18n::{self, Lang};
-use crate::database::{B_MEDIUM, FEE_BPS_MAX};
+use crate::database::{FEE_BPS_DEFAULT, FEE_BPS_MAX};
 use telexide::model::{CallbackQuery, UpdateContent, User};
 use telexide::prelude::*;
 
@@ -25,9 +24,17 @@ pub const PREDICT_FEE: &str = "pmfee:";
 /// deadline). Routed in `callbacks::on_callback`.
 pub const PREDICT_END: &str = "gend:";
 
+/// Callback prefix for the builder's funding-window presets: `pmfund:<minutes>`
+/// (how long funding stays open before trading lazily opens). Routed in
+/// `callbacks::on_callback`.
+pub const PREDICT_FUND: &str = "pmfund:";
+
 /// End-time presets shown after options: (minutes-from-now, label). 0 (no
 /// deadline) is a separate button.
 const END_PRESETS: &[(i64, &str)] = &[(60, "1h"), (360, "6h"), (720, "12h"), (1440, "24h"), (4320, "3d")];
+
+/// Funding-window presets: how long the funding stage stays open (minutes).
+const FUND_PRESETS: &[(i64, &str)] = &[(60, "1h"), (360, "6h"), (1440, "24h"), (4320, "3d")];
 
 /// Cap on a custom (or preset) deadline: 30 days from now.
 const MAX_PREDICT_MINUTES: i64 = 30 * 24 * 60;
@@ -46,8 +53,11 @@ pub struct PredictDraft {
     /// custom duration instead of being ignored.
     pub awaiting_custom: bool,
     /// Deadline (unix secs; 0 = none) chosen at the end-time step — set just
-    /// before the fee picker, then consumed by `finalize`.
+    /// before the fee picker.
     pub ends_at: Option<i64>,
+    /// Trading fee (bps) chosen at the fee step — set just before the
+    /// funding-window picker, then consumed by `finalize_funding`.
+    pub fee_bps: Option<i64>,
 }
 
 fn now() -> i64 {
@@ -73,6 +83,7 @@ pub(crate) async fn open_draft(ctx: &Context, host: &User, origin_chat: i64) -> 
                     options: None,
                     awaiting_custom: false,
                     ends_at: None,
+                    fee_bps: None,
                 }),
             );
             true
@@ -245,32 +256,38 @@ fn parse_duration(text: &str) -> Option<i64> {
     Some(total.min(MAX_PREDICT_MINUTES))
 }
 
-/// Outcome of finalizing a `/predict` draft into a posted AMM event.
+/// Outcome of finalizing a `/predict` draft into a posted funding-stage event.
 enum Finalized {
-    /// Card posted; the event is live.
+    /// Card posted; the event is open for funding.
     Posted,
-    /// The host can't fund the LMSR seed escrow (this many whole coins). Nothing
-    /// was charged or posted.
-    Unaffordable(i64),
     /// The card post or event creation failed.
     Failed,
 }
 
-/// Create the host AMM event from a completed draft and post its board. A
-/// placeholder card is posted **before** the host is charged the escrow, so an
-/// unaffordable or failed creation never leaves an orphaned charge. The event is
-/// pinned to the host's locale/odds-format/timezone (a shared board can't
-/// localize per viewer); the board re-renders on every bet from the DB.
-async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, fee_bps: i64) -> Finalized {
+/// Create the host funding-stage event from a completed draft and post its board.
+/// A placeholder card is posted first so the card slot exists before the event
+/// row references it. Nothing is charged — liquidity arrives via the board's
+/// fund flow; the opening prices + `b` are discovered when the funding window
+/// closes. `window_minutes` is how long funding stays open. The event is pinned to
+/// the host's locale / odds-format / timezone (a shared board can't localize per
+/// viewer); the board re-renders from the DB on every fund/trade.
+async fn finalize_funding(
+    ctx: &Context,
+    host_id: i64,
+    draft: PredictDraft,
+    window_minutes: i64,
+) -> Finalized {
     let (Some(description), Some(options)) = (draft.description, draft.options) else {
         return Finalized::Failed;
     };
     let lang = draft.lang;
     let ends_at = draft.ends_at.unwrap_or(0);
+    let fee_bps = draft.fee_bps.unwrap_or(FEE_BPS_DEFAULT);
     let fmt = db(ctx).get_odds_fmt(host_id).unwrap_or_default();
     let tz = db(ctx).get_tz(host_id).ok().flatten();
+    let open_at = now().saturating_add(window_minutes.saturating_mul(60));
 
-    // Placeholder first, so a card slot exists before any escrow is debited.
+    // Placeholder first, so a card slot exists before the event references it.
     let no_rows: Vec<tg::Row> = Vec::new();
     let sent = match tg::send_with_buttons(ctx, draft.origin_chat, &format!("🎲 {description}"), &no_rows).await
     {
@@ -282,7 +299,7 @@ async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, fee_bps: i64
     };
     let (chat, msg) = (sent.chat.get_id(), sent.message_id);
 
-    let event_id = match db(ctx).create_amm_event(
+    let event_id = match db(ctx).create_funding_event(
         host_id,
         &description,
         lang.store_code(),
@@ -290,18 +307,13 @@ async fn finalize(ctx: &Context, host_id: i64, draft: PredictDraft, fee_bps: i64
         tz,
         ends_at,
         &options,
-        B_MEDIUM,
         fee_bps,
+        open_at,
         now(),
     ) {
-        Ok(Some(id)) => id,
-        Ok(None) => {
-            let _ = tg::delete_message(ctx, chat, msg).await;
-            let escrow = lmsr::seed_escrow(B_MEDIUM as f64, options.len()).ceil() as i64;
-            return Finalized::Unaffordable(escrow);
-        }
+        Ok(id) => id,
         Err(e) => {
-            eprintln!("create_amm_event error: {e}");
+            eprintln!("create_funding_event error: {e}");
             let _ = tg::delete_message(ctx, chat, msg).await;
             return Finalized::Failed;
         }
@@ -372,9 +384,8 @@ pub async fn handle_predict_endtime(
     answer(ctx, cb, "", false).await
 }
 
-/// `pmfee:<bps>` — the host picked their trading fee: finalize the draft into an
-/// AMM event and post its board (confirming in the builder DM, or "need N coins"
-/// when the host can't fund the LMSR escrow).
+/// `pmfee:<bps>` — the host picked their trading fee: store it and show the
+/// funding-window picker (`finalize_funding` runs after that).
 pub async fn handle_predict_fee(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -384,14 +395,46 @@ pub async fn handle_predict_fee(
         return answer(ctx, cb, "", false).await;
     };
     let fee_bps = bps.clamp(0, FEE_BPS_MAX);
+    let lang = {
+        let convos_map = convos(ctx);
+        let mut g = convos_map.lock().await;
+        let Some(Convo::Predict(draft)) = g.get_mut(&cb.from.id) else {
+            return answer(ctx, cb, "", false).await;
+        };
+        draft.fee_bps = Some(fee_bps);
+        draft.lang
+    };
+    if let Some(m) = &cb.message {
+        let _ = tg::edit_with_buttons(
+            ctx,
+            m.chat.get_id(),
+            m.message_id,
+            i18n::predict_ask_funding(lang),
+            &funding_rows(lang),
+        )
+        .await;
+    }
+    answer(ctx, cb, "", false).await
+}
+
+/// `pmfund:<minutes>` — the host picked the funding-window length: finalize the
+/// draft into a posted funding-stage event (confirming in the builder DM).
+pub async fn handle_predict_funding(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    rest: &str,
+) -> Result<(), telexide::Error> {
+    let Ok(minutes) = rest.parse::<i64>() else {
+        return answer(ctx, cb, "", false).await;
+    };
+    let window = minutes.clamp(1, MAX_PREDICT_MINUTES);
     // Consume the draft (so a double-tap can't post twice).
     let Some(Convo::Predict(draft)) = convos(ctx).lock().await.remove(&cb.from.id) else {
         return answer(ctx, cb, "", false).await;
     };
     let lang = draft.lang;
-    let msg = match finalize(ctx, cb.from.id, draft, fee_bps).await {
+    let msg = match finalize_funding(ctx, cb.from.id, draft, window).await {
         Finalized::Posted => i18n::predict_created(lang).to_string(),
-        Finalized::Unaffordable(c) => i18n::predict_need_coins(lang, &c.to_string()),
         Finalized::Failed => i18n::predict_post_failed(lang).to_string(),
     };
     if let Some(m) = &cb.message {
@@ -407,6 +450,15 @@ fn fee_rows(_lang: Lang) -> Vec<tg::Row> {
         ("5%".to_string(), format!("{PREDICT_FEE}500")),
         ("10%".to_string(), format!("{PREDICT_FEE}1000")),
     ]]
+}
+
+/// Funding-window picker: how long the funding stage stays open (callback
+/// `pmfund:<minutes>`).
+fn funding_rows(_lang: Lang) -> Vec<tg::Row> {
+    vec![FUND_PRESETS
+        .iter()
+        .map(|(m, label)| ((*label).to_string(), format!("{PREDICT_FUND}{m}")))
+        .collect()]
 }
 
 #[cfg(test)]

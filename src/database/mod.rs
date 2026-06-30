@@ -11,8 +11,8 @@ mod wager;
 pub use buffer::OfferOutcome;
 pub use dashboard::Dashboard;
 pub use event::{
-    AmmBoard, ClaimKind, Payout, PositionView, SellContext, TradeOutcome, B_MEDIUM,
-    FEE_BPS_DEFAULT, FEE_BPS_MAX,
+    AmmBoard, ClaimKind, FundOutcome, Payout, PositionView, SellContext, TradeOutcome, B_MEDIUM,
+    FEE_BPS_DEFAULT, FEE_BPS_MAX, MIN_SEED,
 };
 pub use user::UserRow;
 pub use wager::decimal_payout;

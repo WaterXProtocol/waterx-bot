@@ -1796,6 +1796,97 @@ pub fn predict_ask_fee(l: Lang) -> &'static str {
         "💸 Escolha sua taxa — você ganha em cada negociação (máx. 10%):", "💸 अपना ट्रेडिंग शुल्क चुनें — हर ट्रेड पर आप कमाते हैं (अधिकतम 10%):", "💸 اختر رسوم التداول — تكسبها مع كل صفقة (بحد أقصى 10%):")
 }
 
+pub fn predict_ask_funding(l: Lang) -> &'static str {
+    tr!(l;
+        "🌱 How long should the funding window stay open? LPs seed the pool and set the opening odds.", "🌱 資金注入視窗要開多久？造市者出資並設定開盤賠率。", "🌱 资金注入窗口开多久？做市商出资并设定开盘赔率。", "🌱 資金提供の受付時間は？LPが資金を入れ、開始オッズを決めます。", "🌱 펀딩 창을 얼마나 열까요? LP가 풀을 채우고 시작 배당을 정합니다.",
+        "🌱 Сколько держать окно фондирования? LP наполняют пул и задают стартовые шансы.", "🌱 Combien de temps ouvrir le financement ? Les LP alimentent le pool et fixent la cote d'ouverture.", "🌱 ¿Cuánto dura la ventana de financiación? Los LP siembran el pool y fijan la cuota inicial.", "🌱 Wie lange soll das Funding-Fenster offen sein? LPs füllen den Pool und setzen die Eröffnungsquote.", "🌱 Cửa sổ góp vốn mở bao lâu? LP góp vốn và đặt tỷ lệ mở cửa.",
+        "🌱 Berapa lama jendela pendanaan dibuka? LP mengisi pool dan menetapkan odds awal.", "🌱 Gaano katagal ang funding window? Pinopondohan ng LP ang pool at itinatakda ang opening odds.", "🌱 เปิดช่วงระดมทุนนานแค่ไหน? LP เติมพูลและตั้งราคาเปิด", "🌱 Hoe lang blijft het funding-venster open? LP's vullen de pool en zetten de openingsodds.", "🌱 Fonlama penceresi ne kadar açık kalsın? LP'ler havuzu doldurur ve açılış oranını belirler.",
+        "🌱 Por quanto tempo a janela de financiamento fica aberta? Os LPs abastecem o pool e definem as odds de abertura.", "🌱 फंडिंग विंडो कितनी देर खुली रहे? LP पूल भरते हैं और शुरुआती ऑड्स तय करते हैं।", "🌱 كم تبقى نافذة التمويل مفتوحة؟ يموّل مزودو السيولة المجمع ويحددون الاحتمالات الافتتاحية.")
+}
+
+pub fn fund_build(l: Lang, name: &str, amount: &str, price: &str) -> String {
+    tr!(l;
+        "💧 Fund {name}\nAdd {amount} 🪙 · opens → {price}\nTap to add:", "💧 注資 {name}\n加 {amount} 🪙 · 開盤 → {price}\n點擊加注：", "💧 注资 {name}\n加 {amount} 🪙 · 开盘 → {price}\n点击加注：", "💧 {name} に出資\n{amount} 🪙 追加 · 開始 → {price}\nタップで追加：", "💧 {name} 펀딩\n{amount} 🪙 추가 · 시작 → {price}\n탭하여 추가:",
+        "💧 Фондировать {name}\n+{amount} 🪙 · открытие → {price}\nНажмите, чтобы добавить:", "💧 Financer {name}\n+{amount} 🪙 · ouverture → {price}\nAppuyez pour ajouter :", "💧 Financiar {name}\n+{amount} 🪙 · apertura → {price}\nToca para añadir:", "💧 {name} finanzieren\n+{amount} 🪙 · Eröffnung → {price}\nZum Hinzufügen tippen:", "💧 Góp vốn {name}\n+{amount} 🪙 · mở → {price}\nChạm để thêm:",
+        "💧 Danai {name}\n+{amount} 🪙 · pembukaan → {price}\nKetuk untuk menambah:", "💧 Pondohan ang {name}\n+{amount} 🪙 · pagbubukas → {price}\nI-tap para magdagdag:", "💧 เติมทุน {name}\n+{amount} 🪙 · เปิด → {price}\nแตะเพื่อเพิ่ม:", "💧 Financier {name}\n+{amount} 🪙 · opening → {price}\nTik om toe te voegen:", "💧 {name} fonla\n+{amount} 🪙 · açılış → {price}\nEklemek için dokun:",
+        "💧 Financiar {name}\n+{amount} 🪙 · abertura → {price}\nToque para adicionar:", "💧 {name} फंड करें\n+{amount} 🪙 · ओपनिंग → {price}\nजोड़ने के लिए टैप करें:", "💧 تمويل {name}\n+{amount} 🪙 · الافتتاح → {price}\nانقر للإضافة:")
+    .replace("{name}", name)
+    .replace("{amount}", amount)
+    .replace("{price}", price)
+}
+
+pub fn fund_done(l: Lang, name: &str, amount: &str) -> String {
+    tr!(l;
+        "💧 Funded {name} with {amount} 🪙", "💧 已為 {name} 注資 {amount} 🪙", "💧 已为 {name} 注资 {amount} 🪙", "💧 {name} に {amount} 🪙 出資しました", "💧 {name}에 {amount} 🪙 펀딩 완료",
+        "💧 Профондировано {name} на {amount} 🪙", "💧 {name} financé de {amount} 🪙", "💧 {name} financiado con {amount} 🪙", "💧 {name} mit {amount} 🪙 finanziert", "💧 Đã góp {amount} 🪙 cho {name}",
+        "💧 Mendanai {name} dengan {amount} 🪙", "💧 Napondohan ang {name} ng {amount} 🪙", "💧 เติมทุน {name} {amount} 🪙 แล้ว", "💧 {name} gefinancierd met {amount} 🪙", "💧 {name} {amount} 🪙 ile fonlandı",
+        "💧 {name} financiado com {amount} 🪙", "💧 {name} को {amount} 🪙 से फंड किया", "💧 تم تمويل {name} بمبلغ {amount} 🪙")
+    .replace("{name}", name)
+    .replace("{amount}", amount)
+}
+
+pub fn fund_announce(l: Lang, who: &str, amount: &str, name: &str) -> String {
+    tr!(l;
+        "💧 {who} seeded {amount} 🪙 on {name}", "💧 {who} 為 {name} 注資 {amount} 🪙", "💧 {who} 为 {name} 注资 {amount} 🪙", "💧 {who} が {name} に {amount} 🪙 出資", "💧 {who}님이 {name}에 {amount} 🪙 펀딩",
+        "💧 {who} вложил {amount} 🪙 в {name}", "💧 {who} a misé {amount} 🪙 sur {name}", "💧 {who} aportó {amount} 🪙 a {name}", "💧 {who} hat {amount} 🪙 in {name} gesetzt", "💧 {who} đã góp {amount} 🪙 vào {name}",
+        "💧 {who} mendanai {amount} 🪙 ke {name}", "💧 Pinondohan ni {who} ang {name} ng {amount} 🪙", "💧 {who} เติม {amount} 🪙 ให้ {name}", "💧 {who} zette {amount} 🪙 op {name}", "💧 {who}, {name} için {amount} 🪙 koydu",
+        "💧 {who} aportou {amount} 🪙 em {name}", "💧 {who} ने {name} पर {amount} 🪙 लगाए", "💧 {who} موّل {name} بمبلغ {amount} 🪙")
+    .replace("{who}", who)
+    .replace("{amount}", amount)
+    .replace("{name}", name)
+}
+
+pub fn funding_until(l: Lang, time: &str) -> String {
+    tr!(l;
+        "🌱 Funding — opens {time}", "🌱 資金注入中 — {time} 開盤", "🌱 资金注入中 — {time} 开盘", "🌱 資金提供中 — {time} に開始", "🌱 펀딩 중 — {time} 시작",
+        "🌱 Фондирование — открытие {time}", "🌱 Financement — ouverture {time}", "🌱 Financiación — abre {time}", "🌱 Funding — öffnet {time}", "🌱 Đang góp vốn — mở {time}",
+        "🌱 Pendanaan — buka {time}", "🌱 Pinopondohan — bubukas {time}", "🌱 กำลังระดมทุน — เปิด {time}", "🌱 Funding — opent {time}", "🌱 Fonlama — açılış {time}",
+        "🌱 Financiamento — abre {time}", "🌱 फंडिंग — {time} खुलेगा", "🌱 التمويل — يفتح {time}")
+    .replace("{time}", time)
+}
+
+pub fn funding_open_now(l: Lang) -> &'static str {
+    tr!(l;
+        "🌱 Funding closed — opens on the next trade", "🌱 資金注入結束 — 下一筆交易即開盤", "🌱 资金注入结束 — 下一笔交易即开盘", "🌱 資金提供終了 — 次の取引で開始", "🌱 펀딩 종료 — 다음 거래에서 시작",
+        "🌱 Фондирование закрыто — откроется при следующей сделке", "🌱 Financement clos — ouvre à la prochaine transaction", "🌱 Financiación cerrada — abre en la próxima operación", "🌱 Funding beendet — öffnet beim nächsten Trade", "🌱 Đã đóng góp vốn — mở ở giao dịch kế tiếp",
+        "🌱 Pendanaan ditutup — buka di transaksi berikutnya", "🌱 Sarado na ang funding — bubukas sa susunod na trade", "🌱 ปิดระดมทุน — เปิดเมื่อมีการเทรดถัดไป", "🌱 Funding gesloten — opent bij de volgende trade", "🌱 Fonlama kapandı — sıradaki işlemde açılır",
+        "🌱 Financiamento encerrado — abre na próxima negociação", "🌱 फंडिंग बंद — अगले ट्रेड पर खुलेगा", "🌱 انتهى التمويل — يفتح عند الصفقة التالية")
+}
+
+pub fn funding_pool(l: Lang, pool: &str) -> String {
+    tr!(l;
+        "💧 Pool: {pool} 🪙", "💧 資金池：{pool} 🪙", "💧 资金池：{pool} 🪙", "💧 プール：{pool} 🪙", "💧 풀: {pool} 🪙",
+        "💧 Пул: {pool} 🪙", "💧 Pool : {pool} 🪙", "💧 Pool: {pool} 🪙", "💧 Pool: {pool} 🪙", "💧 Pool: {pool} 🪙",
+        "💧 Pool: {pool} 🪙", "💧 Pool: {pool} 🪙", "💧 พูล: {pool} 🪙", "💧 Pool: {pool} 🪙", "💧 Havuz: {pool} 🪙",
+        "💧 Pool: {pool} 🪙", "💧 पूल: {pool} 🪙", "💧 المجمع: {pool} 🪙")
+    .replace("{pool}", pool)
+}
+
+pub fn funding_ready(l: Lang) -> &'static str {
+    tr!(l;
+        "✅ Ready to open", "✅ 可開盤", "✅ 可开盘", "✅ 開始可能", "✅ 시작 가능",
+        "✅ Готово к открытию", "✅ Prêt à ouvrir", "✅ Listo para abrir", "✅ Bereit zum Öffnen", "✅ Sẵn sàng mở",
+        "✅ Siap dibuka", "✅ Handa nang buksan", "✅ พร้อมเปิด", "✅ Klaar om te openen", "✅ Açılmaya hazır",
+        "✅ Pronto para abrir", "✅ खुलने को तैयार", "✅ جاهز للفتح")
+}
+
+pub fn funding_need(l: Lang, min: &str) -> String {
+    tr!(l;
+        "⚠️ Needs ≥ {min} 🪙 to open", "⚠️ 需 ≥ {min} 🪙 才能開盤", "⚠️ 需 ≥ {min} 🪙 才能开盘", "⚠️ 開始には {min} 🪙 以上が必要", "⚠️ 시작하려면 {min} 🪙 이상 필요",
+        "⚠️ Нужно ≥ {min} 🪙 для открытия", "⚠️ Besoin de ≥ {min} 🪙 pour ouvrir", "⚠️ Necesita ≥ {min} 🪙 para abrir", "⚠️ Braucht ≥ {min} 🪙 zum Öffnen", "⚠️ Cần ≥ {min} 🪙 để mở",
+        "⚠️ Butuh ≥ {min} 🪙 untuk buka", "⚠️ Kailangan ng ≥ {min} 🪙 para buksan", "⚠️ ต้องมี ≥ {min} 🪙 จึงเปิดได้", "⚠️ Heeft ≥ {min} 🪙 nodig om te openen", "⚠️ Açılmak için ≥ {min} 🪙 gerekir",
+        "⚠️ Precisa de ≥ {min} 🪙 para abrir", "⚠️ खुलने के लिए ≥ {min} 🪙 चाहिए", "⚠️ يحتاج ≥ {min} 🪙 للفتح")
+    .replace("{min}", min)
+}
+
+pub fn fund_closed(l: Lang) -> &'static str {
+    tr!(l;
+        "Funding has closed.", "資金注入已結束。", "资金注入已结束。", "資金提供は終了しました。", "펀딩이 마감되었습니다.",
+        "Фондирование закрыто.", "Le financement est clos.", "La financiación ha cerrado.", "Das Funding ist beendet.", "Đã đóng góp vốn.",
+        "Pendanaan sudah ditutup.", "Sarado na ang funding.", "ปิดระดมทุนแล้ว", "Funding is gesloten.", "Fonlama kapandı.",
+        "O financiamento foi encerrado.", "फंडिंग बंद हो गई है।", "انتهى التمويل.")
+}
+
 pub fn pm_resolved(l: Lang, winner: &str) -> String {
     tr!(l;
         "✅ Resolved: {winner}\nClaim your winnings with /claim", "✅ 已結算：{winner}\n用 /claim 領取獎金", "✅ 已结算：{winner}\n用 /claim 领取奖金", "✅ 確定：{winner}\n/claim で獲得分を受け取り", "✅ 확정: {winner}\n/claim 으로 수령하세요",
