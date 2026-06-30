@@ -554,6 +554,15 @@ pub fn positions_title(l: Lang) -> &'static str {
         "📊 Apostas abertas", "📊 खुले दांव", "📊 الرهانات المفتوحة")
 }
 
+/// Section heading above the caller's open liquidity-provider stakes in `/assets`.
+pub fn liquidity_title(l: Lang) -> &'static str {
+    tr!(l;
+        "💧 Liquidity provided", "💧 已提供流動性", "💧 已提供流动性", "💧 提供した流動性", "💧 제공한 유동성",
+        "💧 Предоставленная ликвидность", "💧 Liquidité fournie", "💧 Liquidez aportada", "💧 Bereitgestellte Liquidität", "💧 Thanh khoản đã góp",
+        "💧 Likuiditas disediakan", "💧 Liquidity na ibinigay", "💧 สภาพคล่องที่ให้ไว้", "💧 Verstrekte liquiditeit", "💧 Sağlanan likidite",
+        "💧 Liquidez fornecida", "💧 दी गई लिक्विडिटी", "💧 السيولة المقدَّمة")
+}
+
 /// Section heading above the caller's stakes in still-open self-host
 /// (`/predict`) games in `/status`.
 pub fn predictions_title(l: Lang) -> &'static str {

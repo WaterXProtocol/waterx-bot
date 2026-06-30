@@ -84,6 +84,19 @@ pub struct PositionView {
     pub cost: i64,
 }
 
+/// A user's open liquidity-provider stake in one host AMM event, for `/assets`.
+/// `liquidity` rows only survive while the event is unsettled (they're deleted
+/// when the residual is distributed), so every row is live capital in a pool.
+#[derive(Debug, Clone)]
+pub struct LiquidityView {
+    pub event_id: i64,
+    pub event_title: String,
+    /// Event state — `funding` (still seeding) or `open` (live trading).
+    pub state: String,
+    /// Micro-coins this user has committed to the pool.
+    pub contributed: i64,
+}
+
 /// Render data for a host AMM (`/predict`) event's shared board: the question +
 /// state + each outcome's net shares (the renderer derives prices via LMSR over
 /// `b_param`). `winning_market` is set once the host resolves.
@@ -1114,6 +1127,30 @@ impl Database {
         Ok(v)
     }
 
+    /// The user's open liquidity-provider stakes — host AMM events they've funded
+    /// that haven't settled yet (`funding` or `open`), with the event title +
+    /// state. For the `/assets` view; rows vanish once the residual is distributed.
+    pub fn user_liquidity(&self, user: i64) -> SqlResult<Vec<LiquidityView>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT l.event_id, e.title, e.state, l.contributed
+             FROM liquidity l JOIN events e ON e.id = l.event_id
+             WHERE l.user = ?1 AND l.contributed > 0
+             ORDER BY l.event_id",
+        )?;
+        let v = stmt
+            .query_map(params![user], |r| {
+                Ok(LiquidityView {
+                    event_id: r.get(0)?,
+                    event_title: r.get(1)?,
+                    state: r.get(2)?,
+                    contributed: r.get(3)?,
+                })
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(v)
+    }
+
     /// Context for selling one open holding (`None` if the event isn't open or the
     /// user holds nothing there). The handler prices the proceeds from this:
     /// sourced via Gamma (`source_ref`), amm via [`Database::amm_sell_quote`].
@@ -1952,5 +1989,29 @@ mod tests {
         assert_eq!(db.get_user_info(1).unwrap().balance, 100 * COIN);
         assert_eq!(db.get_user_info(2).unwrap().balance, 100 * COIN);
         assert_eq!(bal_sum(&db), supply, "every LP refunded, conserved");
+    }
+
+    #[test]
+    fn user_liquidity_lists_funded_events() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 100 * COIN).unwrap();
+        let opts = vec!["A".to_string(), "B".to_string()];
+        let ev1 = db
+            .create_funding_event(1, "Q1", "en", "", None, 0, &opts, 200, 9_999_999_999, 0)
+            .unwrap();
+        let ev2 = db
+            .create_funding_event(1, "Q2", "en", "", None, 0, &opts, 200, 9_999_999_999, 0)
+            .unwrap();
+        db.add_liquidity(ev1, 1, &[20 * COIN, 10 * COIN], 0).unwrap(); // 30
+        db.add_liquidity(ev2, 1, &[5 * COIN, 0], 0).unwrap(); // 5
+
+        let lps = db.user_liquidity(1).unwrap();
+        assert_eq!(lps.len(), 2);
+        assert_eq!(lps[0].event_id, ev1);
+        assert_eq!(lps[0].contributed, 30 * COIN);
+        assert_eq!(lps[0].state, "funding");
+        assert_eq!(lps[1].contributed, 5 * COIN);
+        // A user who's funded nothing sees nothing.
+        assert!(db.user_liquidity(999).unwrap().is_empty());
     }
 }

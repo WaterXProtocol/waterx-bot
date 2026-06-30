@@ -54,11 +54,11 @@ pub(crate) async fn balance_block(ctx: &Context, lang: Lang, user: &User) -> Str
     }
 }
 
-/// The caller's open positions — match bets (`positions_title`) + self-host
-/// predictions (`predictions_title`) — each section prefixed with "\n\n" and
-/// omitted when empty. Returns "" when the user has no open positions at all.
-/// Shared by `/bets` and the combined view. Lines are language-neutral (teams +
-/// numbers + symbols; the side name is already localized).
+/// The caller's open holdings — share positions (`positions_title`, from the
+/// unified engine) + liquidity-provider stakes (`liquidity_title`, host AMM pools
+/// they've funded) — each section prefixed with "\n\n" and omitted when empty.
+/// Returns "" when the user has nothing open. Shared by `/bets` and the combined
+/// view. Lines are language-neutral (titles + numbers + symbols).
 pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> String {
     let database = db(ctx);
     let mut body = String::new();
@@ -81,6 +81,25 @@ pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> S
                 fmt_coins(p.cost),
                 fmt_coins(p.shares),
             ));
+        }
+    }
+
+    // Open liquidity-provider stakes in host AMM events (funding-stage seed or a
+    // live pool). Committed capital that's repaid pro-rata at resolution, so it's
+    // shown separately from tradeable positions. A 🌱/🟢 tag marks funding vs live.
+    let lps = database.user_liquidity(user.id).unwrap_or_else(|e| {
+        eprintln!("user_liquidity error (user {}): {e}", user.id);
+        Vec::new()
+    });
+    if !lps.is_empty() {
+        body.push_str(&format!("\n\n{}", i18n::liquidity_title(lang)));
+        for lp in &lps {
+            let tag = match lp.state.as_str() {
+                "funding" => " 🌱",
+                "open" => " 🟢",
+                _ => "",
+            };
+            body.push_str(&format!("\n• {}\n  🪙{}{tag}", lp.event_title, fmt_coins(lp.contributed)));
         }
     }
 
