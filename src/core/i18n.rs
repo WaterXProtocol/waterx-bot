@@ -535,23 +535,6 @@ pub fn draw_label(l: Lang) -> &'static str {
         "Empate", "ड्रॉ", "تعادل")
 }
 
-/// "Yes"/"No" outcome labels for a Yes/No prop sourced from Polymarket.
-pub fn yes_label(l: Lang) -> &'static str {
-    tr!(l;
-        "Yes", "是", "是", "はい", "예",
-        "Да", "Oui", "Sí", "Ja", "Có",
-        "Ya", "Oo", "ใช่", "Ja", "Evet",
-        "Sim", "हाँ", "نعم")
-}
-
-pub fn no_label(l: Lang) -> &'static str {
-    tr!(l;
-        "No", "否", "否", "いいえ", "아니요",
-        "Нет", "Non", "No", "Nein", "Không",
-        "Tidak", "Hindi", "ไม่", "Nee", "Hayır",
-        "Não", "नहीं", "لا")
-}
-
 /// A self-host `/predict` settled as **void** — the result can't be determined,
 /// so every stake is refunded (distinct from a sports `draw_label`).
 pub fn void_label(l: Lang) -> &'static str {

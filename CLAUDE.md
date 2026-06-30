@@ -120,7 +120,7 @@ access. `Database::{get_lang, set_lang}` are the persistence accessors.
 
 ### `/events` — read-only Polymarket feed (`markets.rs`)
 
-> The slash command is **`/events`** (the fn was renamed from `markets`); the feed module stays `markets.rs` and the internal `menu:markets` callback is unchanged. The browse feed is now distilled into the generic `SourcedEvent` model (sport-only for now, N-outcome-ready); display/bet odds are the feed's relayed YES prices (the old Gamma odds overlay was removed) — see below.
+> The slash command is **`/events`** (the fn was renamed from `markets`); the feed module stays `markets.rs` and the internal `menu:markets` callback is unchanged. The browse feed is now distilled into the `SourcedEvent` model (**sport-only**); display/bet odds are the feed's relayed YES prices (the old Gamma odds overlay was removed) — see below.
 
 `src/commands/markets.rs` is the one command that talks to an outside service
 rather than the local DB. It `GET`s `https://api.waterx.app/predict/browse`
@@ -154,17 +154,17 @@ feed's `oddsCents` — itself Polymarket's relayed YES price — so there is **n
 separate per-event Gamma odds fetch** (an earlier overlay was removed: a
 multi-outcome event would mean one Gamma call per candidate, and waterx already
 relays the price). `markets::group_events` distils the feed into
-`SourcedEvent { key, title, outcomes: [{ name, yes_cents, market_id, is_yes }],
-starts_at, ends_at, live }` — a **generic N-outcome** model, though **only `sport`
-is ingested for now** (the 1X2 moneyline → 3 outcomes `[teamA, draw, teamB]`;
-`sport-award`/`crypto` dropped). The model is deliberately **N-outcome-ready**:
-`group_events` is a `match` on the feed kind with a documented placeholder arm, and
-`slugify` + the `display.award`/`candidate` feed fields + each outcome's
-`trade.marketId`/`is_yes` are kept as scaffolding, so a future grouped category
-(e.g. `sport-award` → an N-candidate event keyed `grp-<slugify(award)>`, a lone
-candidate → a Yes/No prop) slots into the `match` **without touching the bet/sell
-flow** — only `gamma_resolution` would gain a per-`market_id` branch (Gamma is
-blocked in the dev sandbox, so verify that path on the live bot). Gamma
+`SourcedEvent { key, title, outcomes: [{ name, yes_cents }], starts_at, ends_at,
+live }` — an outcome-list model (the bet/sell flow is **outcome-index based**), but
+**sport-only**: `group_events` skips any non-`sport` kind, so a match → 3 outcomes
+in the fixed `[teamA, draw, teamB]` order (matching `gamma_resolution`'s idx
+convention). `sport-award` (awards + props) and `crypto` are **not** ingested — the
+other feed categories were investigated and dropped: awards are multi-outcome (not
+wanted), crypto is up/down noise, and **props can't auto-resolve** — waterx exposes
+no identifier that maps to a prop's Gamma market (its slug is reworded+timestamped
+and its `trade.marketId` ≠ the Gamma `conditionId`), so a prop would need manual
+owner resolution. (Sport works only because its `sport-<ticker>` slug maps 1:1 to
+the Gamma event slug.) Gamma
 (`gamma-api.polymarket.com/events/slug/<ticker>`, `GAMMA_EVENT_URL`) is now hit
 **only by `gamma_resolution`** to detect a settled match (`outcomes`/`outcomePrices`
 arrive as JSON-encoded strings, parsed lazily by `GammaMarket::yes_cents` — YES

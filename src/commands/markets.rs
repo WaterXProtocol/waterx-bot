@@ -28,27 +28,22 @@ const MAX_MARKETS: usize = 8;
 /// Callback-data prefix: tapping a market number opens the bet flow.
 pub const BET: &str = "bet:";
 
-/// One outcome of a sourced (Polymarket) event, for the N-outcome model.
+/// One outcome of a sourced (Polymarket) event: a localized name + its YES odds.
 #[derive(Debug, Clone)]
 pub struct SourcedOutcome {
     pub name: String,
     /// YES odds in cents (None = no quote).
     pub yes_cents: Option<f64>,
-    /// Gamma market id this outcome trades/resolves on.
-    pub market_id: String,
-    /// Whether this is the YES leg of `market_id` — a Yes/No prop's "No" leg shares
-    /// the market with selection NO. Resolution: a YES outcome wins when its market's
-    /// YES price → 1, a NO outcome when it → 0.
-    pub is_yes: bool,
 }
 
-/// A sourced (Polymarket) event from the waterx feed, generalized to **any number
-/// of outcomes**: a 1X2 `sport` match (3), a grouped `sport-award` (N candidates),
-/// or a Yes/No prop (2). Supersedes the sport-only `MarketInfo`.
+/// A sourced (Polymarket) event from the waterx feed. Holds an ordered list of
+/// outcomes (a 1X2 sport match → 3: `[teamA, draw, teamB]`), so the bet/sell flow
+/// is outcome-index based. Supersedes the old sport-specific `MarketInfo`.
 #[derive(Debug, Clone)]
 pub struct SourcedEvent {
-    /// Short, colon-free identity carried in the `bet:`/`opt:` callbacks and used to
-    /// re-find the event in the feed: a `sport`'s slug, or `grp-<slugified award>`.
+    /// The event's slug — carried in the `bet:`/`opt:` callbacks, used to re-find
+    /// the event in the feed, and stored as the sourced event's `source_ref` (the
+    /// join key for `gamma_resolution`).
     pub key: String,
     pub title: String,
     pub outcomes: Vec<SourcedOutcome>,
@@ -57,82 +52,42 @@ pub struct SourcedEvent {
     pub live: bool,
 }
 
-/// Slugify to a stable, colon-free callback key
-/// (`"2026 FIFA World Cup Winner"` → `2026-fifa-world-cup-winner`). The grouping-key
-/// helper for **future grouped categories** (e.g. `sport-award`, where many
-/// candidate items merge into one event keyed `grp-<slugified award>`).
-#[allow(dead_code)] // scaffolding for future grouped categories
-fn slugify(s: &str) -> String {
-    let mut out = String::new();
-    let mut dash = false;
-    for c in s.chars() {
-        if c.is_ascii_alphanumeric() {
-            out.push(c.to_ascii_lowercase());
-            dash = false;
-        } else if !out.is_empty() && !dash {
-            out.push('-');
-            dash = true;
-        }
-    }
-    out.trim_end_matches('-').to_string()
-}
-
-/// Group the browse feed into sourced events. **Sport matches only** for now (the
-/// 1X2 moneyline → 3 outcomes `[teamA, draw, teamB]`); other kinds are dropped.
-/// The `SourcedEvent` model is already **N-outcome**, and each outcome keeps its
-/// Gamma `market_id` + `is_yes`, so a new category slots into the `match` below
-/// (see the placeholder arm) without touching the bet/sell flow — only
-/// `gamma_resolution` would gain a per-`market_id` branch for non-sport kinds.
-/// Odds are the feed's relayed YES prices; `lang` localizes the Draw label.
-// The single active `match` arm is deliberate — it's the extension point for
-// future categories (see the placeholder arm), so keep the `match` over `if let`.
-#[allow(clippy::single_match)]
+/// Group the browse feed into sourced events. **Sport matches only**: the 1X2
+/// moneyline → 3 outcomes in the fixed `[teamA, draw, teamB]` order (matching
+/// `gamma_resolution`'s idx convention); `sport-award`/`crypto` are dropped. Odds
+/// are the feed's relayed YES prices; `lang` localizes the Draw label.
 fn group_events(items: &[Item], lang: Lang) -> Vec<SourcedEvent> {
     let mut events: Vec<SourcedEvent> = Vec::new();
     for it in items {
         let Some(r) = it.next_round.as_ref() else { continue };
         let d = &it.market.display;
-        match d.kind.as_deref() {
-            // Sport 1X2: fixed `[teamA, draw, teamB]` order (matches
-            // `gamma_resolution`'s idx convention).
-            Some("sport") => {
-                let (Some(a), Some(b)) = (d.team_a.as_ref(), d.team_b.as_ref()) else { continue };
-                let side = |key: &str, name: String| -> Option<SourcedOutcome> {
-                    let s = r.sides.iter().find(|s| s.key == key)?;
-                    Some(SourcedOutcome {
-                        name,
-                        yes_cents: s.odds_cents,
-                        market_id: s.trade.as_ref().map(|t| t.market_id.clone()).unwrap_or_default(),
-                        is_yes: true,
-                    })
-                };
-                let outcomes: Vec<SourcedOutcome> = [
-                    side("teamA", a.name.clone()),
-                    side("draw", i18n::draw_label(lang).to_string()),
-                    side("teamB", b.name.clone()),
-                ]
-                .into_iter()
-                .flatten()
-                .collect();
-                if outcomes.is_empty() {
-                    continue;
-                }
-                events.push(SourcedEvent {
-                    key: it.market.slug.clone(),
-                    title: format!("{} vs. {}", a.name, b.name),
-                    outcomes,
-                    starts_at: r.starts_at,
-                    ends_at: r.ends_at.unwrap_or(0),
-                    live: r.phase.as_deref() == Some("live"),
-                });
-            }
-            // FUTURE CATEGORIES slot in here. Each produces one `SourcedEvent` — or,
-            // for grouped kinds, merges candidate items by `display.award` into one
-            // event keyed `grp-<slugify(award)>` (a lone candidate → a Yes/No prop
-            // via `is_yes`), every outcome carrying its `trade.marketId`. e.g.:
-            //   Some("sport-award") => { /* group by display.award */ }
-            _ => {} // crypto / unhandled — dropped for now
+        if d.kind.as_deref() != Some("sport") {
+            continue;
         }
+        let (Some(a), Some(b)) = (d.team_a.as_ref(), d.team_b.as_ref()) else { continue };
+        let side = |key: &str, name: String| -> Option<SourcedOutcome> {
+            let s = r.sides.iter().find(|s| s.key == key)?;
+            Some(SourcedOutcome { name, yes_cents: s.odds_cents })
+        };
+        let outcomes: Vec<SourcedOutcome> = [
+            side("teamA", a.name.clone()),
+            side("draw", i18n::draw_label(lang).to_string()),
+            side("teamB", b.name.clone()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if outcomes.is_empty() {
+            continue;
+        }
+        events.push(SourcedEvent {
+            key: it.market.slug.clone(),
+            title: format!("{} vs. {}", a.name, b.name),
+            outcomes,
+            starts_at: r.starts_at,
+            ends_at: r.ends_at.unwrap_or(0),
+            live: r.phase.as_deref() == Some("live"),
+        });
     }
     events
 }
@@ -403,17 +358,6 @@ struct Display {
     team_a: Option<Team>,
     #[serde(rename = "teamB")]
     team_b: Option<Team>,
-    /// Grouping title for `sport-award` items (e.g. "2026 FIFA World Cup Winner"),
-    /// shared by every candidate item — the key a grouped N-outcome event would
-    /// group on. Parsed + ready for a future grouped category (see `group_events`).
-    #[serde(default)]
-    #[allow(dead_code)]
-    award: Option<String>,
-    /// This award item's candidate (e.g. `{name: "USA"}`) — one outcome. Kept for
-    /// a future grouped category.
-    #[serde(default)]
-    #[allow(dead_code)]
-    candidate: Option<Team>,
 }
 
 #[derive(Deserialize)]
@@ -439,15 +383,6 @@ struct Side {
     // (e.g. 99.9), so this must be a float or the whole feed fails to parse.
     #[serde(rename = "oddsCents")]
     odds_cents: Option<f64>,
-    /// Gamma trade target — carries the per-outcome `marketId` used for resolution.
-    #[serde(default)]
-    trade: Option<Trade>,
-}
-
-#[derive(Deserialize)]
-struct Trade {
-    #[serde(rename = "marketId", default)]
-    market_id: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -524,13 +459,6 @@ mod tests {
     }
 
     #[test]
-    fn slugify_is_stable_and_colon_free() {
-        assert_eq!(slugify("2026 FIFA World Cup Winner"), "2026-fifa-world-cup-winner");
-        assert_eq!(slugify("World Cup: Unbeaten Champion?"), "world-cup-unbeaten-champion");
-        assert!(!slugify("a:b c").contains(':'));
-    }
-
-    #[test]
     fn sport_becomes_a_three_outcome_event() {
         let evs = grouped();
         let s = evs.iter().find(|e| e.key == "sport-fra-swe").unwrap();
@@ -538,16 +466,14 @@ mod tests {
         assert_eq!(s.outcomes.len(), 3);
         let names: Vec<&str> = s.outcomes.iter().map(|o| o.name.as_str()).collect();
         assert_eq!(names, ["France", "Draw", "Sweden"]);
-        assert_eq!(s.outcomes[0].market_id, "0xA");
-        assert_eq!(s.outcomes[2].market_id, "0xB");
-        assert!(s.outcomes.iter().all(|o| o.is_yes));
+        assert_eq!(s.outcomes[0].yes_cents, Some(78.1));
+        assert_eq!(s.outcomes[2].yes_cents, Some(8.4));
     }
 
     #[test]
     fn only_sport_kept_other_kinds_dropped() {
-        // The fixture has sport + sport-award candidates + a prop + crypto; for now
-        // only the sport match survives grouping (the rest are left for future
-        // categories — see the `group_events` placeholder arm).
+        // The fixture also has sport-award candidates, a prop, and crypto; only the
+        // sport match survives grouping (sourced `/events` is sport-only).
         let evs = grouped();
         assert_eq!(evs.len(), 1, "only the sport match is kept");
         assert_eq!(evs[0].key, "sport-fra-swe");
