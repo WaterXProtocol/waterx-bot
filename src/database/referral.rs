@@ -98,10 +98,14 @@ impl Database {
             let half = amount / 2;
             tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![half, referrer])?;
             tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount - half, co_referrer])?;
+            super::history::record(&tx, referrer, super::HK_REFERRAL, half, None, Some(referee))?;
+            super::history::record(&tx, co_referrer, super::HK_REFERRAL, amount - half, None, Some(referee))?;
         } else {
             tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, referrer])?;
+            super::history::record(&tx, referrer, super::HK_REFERRAL, amount, None, Some(referee))?;
         }
         tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, referee])?;
+        super::history::record(&tx, referee, super::HK_REFERRAL, amount, None, Some(referrer))?;
         tx.commit()?;
         Ok(())
     }

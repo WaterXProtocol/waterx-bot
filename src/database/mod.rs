@@ -3,6 +3,7 @@ mod chats;
 mod dashboard;
 mod event;
 mod fruit;
+mod history;
 mod meta;
 mod referral;
 mod user;
@@ -13,6 +14,13 @@ pub use dashboard::Dashboard;
 pub use event::{
     basis_for_sold, AmmBoard, ClaimKind, FundOutcome, LiquidityView, Payout, PositionView,
     SellContext, TradeOutcome, B_MEDIUM, FEE_BPS_DEFAULT, FEE_BPS_MAX, MIN_SEED,
+};
+pub use history::HistoryRow;
+// Action tags for `/history` — re-exported so the command's label mapping shares
+// the exact literals the record sites write (no drift).
+pub(crate) use history::{
+    HK_BUY, HK_CHECKIN, HK_CLAIM, HK_LP_FUND, HK_LP_RETURN, HK_MINT, HK_REFERRAL, HK_REFUND,
+    HK_SELL, HK_SEND_IN, HK_SEND_OUT,
 };
 pub use user::UserRow;
 pub use wager::decimal_payout;
@@ -98,6 +106,8 @@ impl Database {
         // Unified Polymarket-style market schema (events/markets/positions) — the
         // share-trading model. Schema owned by `event.rs`.
         Self::create_event_tables(&conn)?;
+        // Append-only per-user action log backing the user-facing `/history`.
+        Self::create_history_table(&conn)?;
         // Drop the dead legacy bet tables from any pre-rewrite data file (best-effort,
         // no-op on a fresh DB) — the share engine replaced both the fixed-odds
         // `wagers` and the pari-mutuel `games` system.
@@ -285,7 +295,8 @@ impl Database {
              DELETE FROM chats;
              DELETE FROM positions;
              DELETE FROM markets;
-             DELETE FROM events;",
+             DELETE FROM events;
+             DELETE FROM history;",
         )
     }
 
@@ -300,6 +311,7 @@ impl Database {
         let tx = conn.transaction()?;
         let deleted = tx.execute("DELETE FROM balance WHERE user = ?1", params![user_id])?;
         tx.execute("DELETE FROM positions WHERE user = ?1", params![user_id])?;
+        tx.execute("DELETE FROM history WHERE user = ?1", params![user_id])?;
         tx.commit()?;
         Ok(deleted == 1)
     }

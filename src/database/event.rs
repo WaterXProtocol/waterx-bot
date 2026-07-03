@@ -248,6 +248,7 @@ fn refund_liquidity(tx: &Transaction, event_id: i64) -> SqlResult<i64> {
     for (user, amount) in &lps {
         if *amount > 0 {
             credit(tx, *user, *amount)?;
+            super::history::record(tx, *user, super::HK_LP_RETURN, *amount, Some(event_id), None)?;
             total += amount;
         }
     }
@@ -275,12 +276,14 @@ fn distribute_residual(
     if residual > 0 {
         if lps.is_empty() {
             credit(tx, creator, residual)?;
+            super::history::record(tx, creator, super::HK_LP_RETURN, residual, Some(event_id), None)?;
         } else {
             let contributions: Vec<i64> = lps.iter().map(|(_, c)| *c).collect();
             let split = crate::core::lmsr_fund::pro_rata(&contributions, residual);
             for ((user, _), amount) in lps.iter().zip(split.iter()) {
                 if *amount > 0 {
                     credit(tx, *user, *amount)?;
+                    super::history::record(tx, *user, super::HK_LP_RETURN, *amount, Some(event_id), None)?;
                 }
             }
         }
@@ -566,6 +569,7 @@ impl Database {
             params![event_id, user, total],
         )?;
         tx.execute("UPDATE events SET pool = pool + ?1 WHERE id = ?2", params![total, event_id])?;
+        super::history::record(&tx, user, super::HK_LP_FUND, -total, Some(event_id), None)?;
         tx.commit()?;
         Ok(FundOutcome::Funded { total })
     }
@@ -626,6 +630,7 @@ impl Database {
             params![shares, event_id, idx],
         )?;
         tx.execute("UPDATE events SET pool = pool + ?1 WHERE id = ?2", params![spend, event_id])?;
+        super::history::record(&tx, user, super::HK_BUY, -spend, Some(event_id), None)?;
         tx.commit()?;
         Ok(TradeOutcome::Filled { shares, coins: -spend, fee, basis: 0 })
     }
@@ -692,6 +697,7 @@ impl Database {
                 params![shares, basis_removed, event_id, idx, user],
             )?;
         }
+        super::history::record(&tx, user, super::HK_SELL, proceeds, Some(event_id), None)?;
         tx.commit()?;
         Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee, basis: basis_removed })
     }
@@ -793,6 +799,7 @@ impl Database {
             "UPDATE markets SET q_shares = q_shares + ?1 WHERE event_id = ?2 AND idx = ?3",
             params![shares, event_id, idx],
         )?;
+        super::history::record(&tx, user, super::HK_BUY, -spend, Some(event_id), None)?;
         tx.commit()?;
         Ok(TradeOutcome::Filled { shares, coins: -spend, fee: 0, basis: 0 })
     }
@@ -861,6 +868,7 @@ impl Database {
                 params![shares, basis_removed, event_id, idx, user],
             )?;
         }
+        super::history::record(&tx, user, super::HK_SELL, proceeds, Some(event_id), None)?;
         tx.commit()?;
         Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee: 0, basis: basis_removed })
     }
@@ -1023,6 +1031,14 @@ impl Database {
                 tx.execute("UPDATE events SET pool = 0 WHERE id = ?1", params![event_id])?;
             }
             tx.execute("UPDATE events SET state = 'closed' WHERE id = ?1", params![event_id])?;
+        }
+        // Log each settled user's credit for their /history: a win pays `claim`, a
+        // void refund pays `refund`; a pure loss (coins == 0) has no money move to log.
+        for (u, (coins, kind)) in &per_user {
+            if *coins > 0 {
+                let tag = if *kind == ClaimKind::Refunded { super::HK_REFUND } else { super::HK_CLAIM };
+                super::history::record(&tx, *u, tag, *coins, Some(event_id), None)?;
+            }
         }
         tx.commit()?;
 

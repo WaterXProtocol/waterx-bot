@@ -64,6 +64,8 @@ impl Database {
             "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
             params![amount, to],
         )?;
+        super::history::record(&tx, from, super::HK_SEND_OUT, -amount, None, Some(to))?;
+        super::history::record(&tx, to, super::HK_SEND_IN, amount, None, Some(from))?;
         tx.commit()?;
         Ok(true)
     }
@@ -84,6 +86,8 @@ impl Database {
             "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
             params![amount, b],
         )?;
+        super::history::record(&tx, a, super::HK_REFERRAL, amount, None, Some(b))?;
+        super::history::record(&tx, b, super::HK_REFERRAL, amount, None, Some(a))?;
         tx.commit()?;
         Ok(())
     }
@@ -195,6 +199,7 @@ impl Database {
             "UPDATE balance SET balance = balance + ?1, last_checkin = ?2 WHERE user = ?3",
             params![reward, today, user_id],
         )?;
+        super::history::record(&tx, user_id, super::HK_CHECKIN, reward, None, None)?;
         // Referral cascade: pay the direct referrer and up to two levels above.
         let mut up: i64 = tx.query_row(
             "SELECT referrer FROM balance WHERE user = ?1",
@@ -218,11 +223,14 @@ impl Database {
                 tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![half, up])?;
                 tx.execute("INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')", params![co])?;
                 tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![bonus - half, co])?;
+                super::history::record(&tx, up, super::HK_REFERRAL, half, None, Some(user_id))?;
+                super::history::record(&tx, co, super::HK_REFERRAL, bonus - half, None, Some(user_id))?;
             } else {
                 tx.execute(
                     "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
                     params![bonus, up],
                 )?;
+                super::history::record(&tx, up, super::HK_REFERRAL, bonus, None, Some(user_id))?;
             }
             up = tx
                 .query_row(

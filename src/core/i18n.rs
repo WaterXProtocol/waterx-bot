@@ -848,11 +848,12 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 10] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 11] {
     [
         ("start", menu_start(l)),
         ("balance", menu_balance(l)),
         ("bets", menu_bets(l)),
+        ("history", menu_history(l)),
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
         ("events", menu_markets(l)),
@@ -2063,6 +2064,120 @@ pub fn bet_won(l: Lang, m: &str, payout: &str) -> String {
         "🎉 {market}\nSua aposta ganhou! +{payout} moedas", "🎉 {market}\nआपका दांव जीत गया! +{payout} कॉइन", "🎉 {market}\nفاز رهانك! +{payout} عملة")
     .replace("{market}", m)
     .replace("{payout}", payout)
+}
+
+// --- /history — user activity statement --------------------------------------
+
+pub fn history_title(l: Lang) -> &'static str {
+    tr!(l;
+        "🧾 Your recent activity", "🧾 你的近期動態", "🧾 你的近期动态", "🧾 最近のアクティビティ", "🧾 최근 활동",
+        "🧾 Ваша недавняя активность", "🧾 Ton activité récente", "🧾 Tu actividad reciente", "🧾 Deine letzten Aktivitäten", "🧾 Hoạt động gần đây của bạn",
+        "🧾 Aktivitas terbaru kamu", "🧾 Iyong kamakailang aktibidad", "🧾 กิจกรรมล่าสุดของคุณ", "🧾 Je recente activiteit", "🧾 Son etkinliğin",
+        "🧾 Sua atividade recente", "🧾 आपकी हाल की गतिविधि", "🧾 نشاطك الأخير")
+}
+
+pub fn history_empty(l: Lang) -> &'static str {
+    tr!(l;
+        "No activity yet 🫥", "還沒有任何動態 🫥", "还没有任何动态 🫥", "まだアクティビティはないよ 🫥", "아직 활동이 없어 🫥",
+        "Пока нет активности 🫥", "Aucune activité pour l'instant 🫥", "Aún no hay actividad 🫥", "Noch keine Aktivität 🫥", "Chưa có hoạt động nào 🫥",
+        "Belum ada aktivitas 🫥", "Wala pang aktibidad 🫥", "ยังไม่มีกิจกรรม 🫥", "Nog geen activiteit 🫥", "Henüz etkinlik yok 🫥",
+        "Ainda sem atividade 🫥", "अभी कोई गतिविधि नहीं 🫥", "لا يوجد نشاط بعد 🫥")
+}
+
+pub fn hist_buy(l: Lang) -> &'static str {
+    tr!(l;
+        "Bought shares", "買入份額", "买入份额", "シェアを購入", "지분 매수",
+        "Куплены доли", "Parts achetées", "Participaciones compradas", "Anteile gekauft", "Đã mua cổ phần",
+        "Beli saham", "Bumili ng shares", "ซื้อหุ้น", "Aandelen gekocht", "Pay alındı",
+        "Cotas compradas", "शेयर खरीदे", "شراء أسهم")
+}
+
+pub fn hist_sell(l: Lang) -> &'static str {
+    tr!(l;
+        "Sold shares", "賣出份額", "卖出份额", "シェアを売却", "지분 매도",
+        "Проданы доли", "Parts vendues", "Participaciones vendidas", "Anteile verkauft", "Đã bán cổ phần",
+        "Jual saham", "Nagbenta ng shares", "ขายหุ้น", "Aandelen verkocht", "Pay satıldı",
+        "Cotas vendidas", "शेयर बेचे", "بيع أسهم")
+}
+
+pub fn hist_send_out(l: Lang) -> &'static str {
+    tr!(l;
+        "Sent coins", "轉出金幣", "转出金币", "コインを送金", "코인 보냄",
+        "Отправлены монеты", "Pièces envoyées", "Monedas enviadas", "Münzen gesendet", "Đã gửi xu",
+        "Koin dikirim", "Nagpadala ng coins", "ส่งเหรียญ", "Munten verzonden", "Para gönderildi",
+        "Moedas enviadas", "कॉइन भेजे", "إرسال عملات")
+}
+
+pub fn hist_send_in(l: Lang) -> &'static str {
+    tr!(l;
+        "Received coins", "收到金幣", "收到金币", "コインを受取", "코인 받음",
+        "Получены монеты", "Pièces reçues", "Monedas recibidas", "Münzen erhalten", "Đã nhận xu",
+        "Koin diterima", "Nakatanggap ng coins", "รับเหรียญ", "Munten ontvangen", "Para alındı",
+        "Moedas recebidas", "कॉइन मिले", "استلام عملات")
+}
+
+pub fn hist_checkin(l: Lang) -> &'static str {
+    tr!(l;
+        "Daily check-in", "每日簽到", "每日签到", "デイリーチェックイン", "일일 출석",
+        "Ежедневный чек-ин", "Check-in quotidien", "Check-in diario", "Täglicher Check-in", "Điểm danh hằng ngày",
+        "Check-in harian", "Daily check-in", "เช็คอินรายวัน", "Dagelijkse check-in", "Günlük giriş",
+        "Check-in diário", "दैनिक चेक-इन", "تسجيل يومي")
+}
+
+pub fn hist_referral(l: Lang) -> &'static str {
+    tr!(l;
+        "Referral bonus", "推薦獎勵", "推荐奖励", "紹介ボーナス", "추천 보너스",
+        "Реферальный бонус", "Bonus de parrainage", "Bono de referido", "Empfehlungsbonus", "Thưởng giới thiệu",
+        "Bonus referral", "Referral bonus", "โบนัสแนะนำ", "Verwijzingsbonus", "Davet bonusu",
+        "Bônus de indicação", "रेफ़रल बोनस", "مكافأة الإحالة")
+}
+
+pub fn hist_claim(l: Lang) -> &'static str {
+    tr!(l;
+        "Winnings", "彩金", "彩金", "配当金", "당첨금",
+        "Выигрыш", "Gains", "Ganancias", "Gewinn", "Tiền thắng",
+        "Kemenangan", "Panalo", "เงินรางวัล", "Winst", "Kazanç",
+        "Prêmios", "जीत", "الأرباح")
+}
+
+pub fn hist_refund(l: Lang) -> &'static str {
+    tr!(l;
+        "Refund", "退款", "退款", "返金", "환불",
+        "Возврат", "Remboursement", "Reembolso", "Rückerstattung", "Hoàn tiền",
+        "Pengembalian", "Refund", "คืนเงิน", "Terugbetaling", "İade",
+        "Reembolso", "रिफ़ंड", "استرداد")
+}
+
+pub fn hist_mint(l: Lang) -> &'static str {
+    tr!(l;
+        "Minted", "發放", "发放", "付与", "지급",
+        "Начислено", "Crédité", "Acreditado", "Gutgeschrieben", "Được cấp",
+        "Diberikan", "Ipinagkaloob", "เติมเหรียญ", "Toegekend", "Eklendi",
+        "Creditado", "जमा किया", "منح")
+}
+
+pub fn hist_lp_fund(l: Lang) -> &'static str {
+    tr!(l;
+        "Provided liquidity", "提供流動性", "提供流动性", "流動性を提供", "유동성 공급",
+        "Предоставлена ликвидность", "Liquidité fournie", "Liquidez aportada", "Liquidität bereitgestellt", "Đã cấp thanh khoản",
+        "Menyediakan likuiditas", "Nagbigay ng liquidity", "ให้สภาพคล่อง", "Liquiditeit verstrekt", "Likidite sağlandı",
+        "Liquidez fornecida", "लिक्विडिटी दी", "توفير السيولة")
+}
+
+pub fn hist_lp_return(l: Lang) -> &'static str {
+    tr!(l;
+        "Liquidity returned", "流動性返還", "流动性返还", "流動性の返還", "유동성 반환",
+        "Ликвидность возвращена", "Liquidité restituée", "Liquidez devuelta", "Liquidität zurückgegeben", "Thanh khoản đã trả lại",
+        "Likuiditas dikembalikan", "Naibalik na liquidity", "คืนสภาพคล่อง", "Liquiditeit terugbetaald", "Likidite iade edildi",
+        "Liquidez devolvida", "लिक्विडिटी लौटाई", "إعادة السيولة")
+}
+
+pub fn menu_history(l: Lang) -> &'static str {
+    tr!(l;
+        "show your recent activity", "查看你的近期動態", "查看你的近期动态", "最近のアクティビティを見る", "최근 활동 보기",
+        "показать недавнюю активность", "voir ton activité récente", "ver tu actividad reciente", "deine letzten Aktivitäten zeigen", "xem hoạt động gần đây",
+        "lihat aktivitas terbaru", "ipakita ang kamakailang aktibidad", "ดูกิจกรรมล่าสุด", "je recente activiteit tonen", "son etkinliğini göster",
+        "ver sua atividade recente", "अपनी हाल की गतिविधि देखें", "عرض نشاطك الأخير")
 }
 
 #[cfg(test)]

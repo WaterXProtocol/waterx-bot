@@ -282,6 +282,11 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
         .unwrap_or_else(|| sender.clone());
 
     db(&ctx).force_change(receiver.id, units)?;
+    // Best-effort activity log (mint uses the generic force_change, outside an
+    // engine transaction) — a failed log must not fail the mint.
+    if let Err(e) = db(&ctx).record_action(receiver.id, crate::database::HK_MINT, units, None, None) {
+        eprintln!("record_action(mint) error: {e}");
+    }
     reply(
         &ctx,
         &message,
