@@ -146,13 +146,13 @@ the fields the brief reads (serde ignores the rest), and `oddsCents` **must** be
 Chinese users (Hant/Hans → Chinese team names) and `locale=en` for everyone
 else; the brief's chrome is localized separately via `render(lang, …)`. (Note:
 only the `?locale=` query form works — a `/en/predict/browse` path 404s.)
-`fetch_markets` is served from a process-wide **30-second per-locale cache**
-(`FEED_CACHE_TTL` = 30s, `feed_cache()` = `OnceLock<Mutex<FeedCache>>`, keyed by
+`fetch_markets` is served from a process-wide **5-second per-locale cache**
+(`FEED_CACHE_TTL` = 5s, `feed_cache()` = `OnceLock<Mutex<FeedCache>>`, keyed by
 the `en`/`zh` API locale) so repeated `/markets`, `menu:markets`, and `bet:` taps
 don't hammer the rate-limited API — the lock is never held across the network
 `.await`. Every real-money placement **re-prices from this cache at place time**
 (`betting::refetch_quote`, see the betting section), so a wager is always booked
-from a feed snapshot **at most `FEED_CACHE_TTL` (30s) old** — never the older
+from a feed snapshot **at most `FEED_CACHE_TTL` (5s) old** — never the older
 snapshot the quote was locked to. The
 displayed quote keeps its own 60s `QUOTE_TTL_SECS` purely for the build/confirm
 UI (auto-renewed past that). Concurrent cold-cache misses

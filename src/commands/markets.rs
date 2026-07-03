@@ -21,7 +21,7 @@ const GAMMA_EVENT_URL: &str = "https://gamma-api.polymarket.com/events/slug/";
 /// stay under the upstream rate limit. Every real-money bet is **re-priced from
 /// this cache at place time** (`betting::refetch_quote`), so a wager is booked at
 /// odds at most `FEED_CACHE_TTL` old — never an older locked snapshot.
-const FEED_CACHE_TTL: i64 = 30;
+const FEED_CACHE_TTL: i64 = 5;
 /// Matches shown per page (keeps each brief well under Telegram's 4096-char
 /// message limit); the rest are reachable via the `[next page]` button.
 const PAGE_SIZE: usize = 4;
