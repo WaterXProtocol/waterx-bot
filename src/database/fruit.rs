@@ -17,17 +17,17 @@ impl Database {
             let new_send = send_info.fruit.replacen(fruit, "", 1);
             // Debit sender + credit receiver atomically: a partial failure must
             // not destroy the sender's fruit without the receiver gaining it.
-            let mut conn = self.conn.lock();
-            let tx = conn.transaction()?;
-            tx.execute(
-                "UPDATE balance SET fruit = ?1 WHERE user = ?2",
-                params![new_send, sender],
-            )?;
-            tx.execute(
-                "UPDATE balance SET fruit = ?1 WHERE user = ?2",
-                params![new_recv, receiver],
-            )?;
-            tx.commit()?;
+            self.with_tx(|tx| {
+                tx.execute(
+                    "UPDATE balance SET fruit = ?1 WHERE user = ?2",
+                    params![new_send, sender],
+                )?;
+                tx.execute(
+                    "UPDATE balance SET fruit = ?1 WHERE user = ?2",
+                    params![new_recv, receiver],
+                )?;
+                Ok(())
+            })?;
         } else {
             // Bot is the receiver — fruit is eaten, not stored.
             let new_send = send_info.fruit.replacen(fruit, "", 1);

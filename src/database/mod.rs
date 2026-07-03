@@ -366,13 +366,12 @@ impl Database {
     /// report "not found" otherwise). It's a referral-test helper — it drops the
     /// positions outright (no settle/refund).
     pub fn delete_user(&self, user_id: i64) -> SqlResult<bool> {
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        let deleted = tx.execute("DELETE FROM balance WHERE user = ?1", params![user_id])?;
-        tx.execute("DELETE FROM positions WHERE user = ?1", params![user_id])?;
-        tx.execute("DELETE FROM history WHERE user = ?1", params![user_id])?;
-        tx.commit()?;
-        Ok(deleted == 1)
+        self.with_tx(|tx| {
+            let deleted = tx.execute("DELETE FROM balance WHERE user = ?1", params![user_id])?;
+            tx.execute("DELETE FROM positions WHERE user = ?1", params![user_id])?;
+            tx.execute("DELETE FROM history WHERE user = ?1", params![user_id])?;
+            Ok(deleted == 1)
+        })
     }
 
     /// Snapshot every user with coins **or** fruit as `(user, micro_coins, fruit)`
@@ -394,17 +393,16 @@ impl Database {
     /// **and** `fruit` (creating the row if needed), leaving every other column
     /// untouched, in one transaction. Returns the number of accounts written.
     pub fn import_accounts(&self, rows: &[(i64, i64, String)]) -> SqlResult<usize> {
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        for (user, balance, fruit) in rows {
-            tx.execute(
-                "INSERT INTO balance (user, balance, fruit) VALUES (?1, ?2, ?3)
-                 ON CONFLICT(user) DO UPDATE SET balance = excluded.balance, fruit = excluded.fruit",
-                params![user, balance, fruit],
-            )?;
-        }
-        tx.commit()?;
-        Ok(rows.len())
+        self.with_tx(|tx| {
+            for (user, balance, fruit) in rows {
+                tx.execute(
+                    "INSERT INTO balance (user, balance, fruit) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(user) DO UPDATE SET balance = excluded.balance, fruit = excluded.fruit",
+                    params![user, balance, fruit],
+                )?;
+            }
+            Ok(rows.len())
+        })
     }
 
     pub(super) fn ensure_row(&self, user_id: i64) -> SqlResult<()> {
@@ -414,6 +412,23 @@ impl Database {
             params![user_id],
         )?;
         Ok(())
+    }
+
+    /// Run `f` inside a single write transaction: **commit** on `Ok`, roll back on
+    /// `Err`. Encapsulates the `lock → transaction → commit` ceremony every money
+    /// mutation repeats. `f` receives `&Transaction` and must use only that (and
+    /// free helpers like [`credit`] / [`try_debit`]) — it must **not** call a
+    /// `&self` method that locks `self.conn` (the lock is already held: parking_lot
+    /// mutexes aren't reentrant, so that would deadlock). An early `Ok(reject)` from
+    /// `f` commits a transaction that made no writes — equivalent to a rollback, and
+    /// the invariant every reject path in this engine already upholds (rejects fire
+    /// before any write).
+    pub(super) fn with_tx<T>(&self, f: impl FnOnce(&Transaction) -> SqlResult<T>) -> SqlResult<T> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let out = f(&tx)?;
+        tx.commit()?;
+        Ok(out)
     }
 }
 

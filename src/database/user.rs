@@ -51,15 +51,14 @@ impl Database {
     pub fn transfer(&self, from: i64, to: i64, amount: i64) -> SqlResult<bool> {
         self.ensure_row(from)?;
         self.ensure_row(to)?;
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        if !super::try_debit(&tx, from, amount)? {
-            return Ok(false); // tx drops here → rollback, nothing written
-        }
-        super::history::record(&tx, from, super::HK_SEND_OUT, -amount, None, Some(to))?;
-        super::credit_and_log(&tx, to, amount, super::HK_SEND_IN, None, Some(from))?;
-        tx.commit()?;
-        Ok(true)
+        self.with_tx(|tx| {
+            if !super::try_debit(tx, from, amount)? {
+                return Ok(false); // no writes yet → the empty commit is a no-op (== rollback)
+            }
+            super::history::record(tx, from, super::HK_SEND_OUT, -amount, None, Some(to))?;
+            super::credit_and_log(tx, to, amount, super::HK_SEND_IN, None, Some(from))?;
+            Ok(true)
+        })
     }
 
     /// Credit `amount` (micro-coins) to **both** `a` and `b` in one transaction
@@ -68,12 +67,11 @@ impl Database {
     pub fn reward_referral(&self, a: i64, b: i64, amount: i64) -> SqlResult<()> {
         self.ensure_row(a)?;
         self.ensure_row(b)?;
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        super::credit_and_log(&tx, a, amount, super::HK_REFERRAL, None, Some(b))?;
-        super::credit_and_log(&tx, b, amount, super::HK_REFERRAL, None, Some(a))?;
-        tx.commit()?;
-        Ok(())
+        self.with_tx(|tx| {
+            super::credit_and_log(tx, a, amount, super::HK_REFERRAL, None, Some(b))?;
+            super::credit_and_log(tx, b, amount, super::HK_REFERRAL, None, Some(a))?;
+            Ok(())
+        })
     }
 
     /// The user's persisted UI locale, or `None` if they haven't picked one
@@ -166,60 +164,59 @@ impl Database {
     pub fn try_checkin(&self, user_id: i64, reward: i64) -> SqlResult<bool> {
         self.ensure_row(user_id)?;
         let today = super::current_unix_time() / 86_400;
-        let mut conn = self.conn.lock();
         // One transaction over the reward + the referral cascade: a mid-cascade
         // failure must not leave the user credited (and the day consumed) while
         // an upline referrer goes unpaid.
-        let tx = conn.transaction()?;
-        let last: i64 = tx.query_row(
-            "SELECT last_checkin FROM balance WHERE user = ?1",
-            params![user_id],
-            |r| r.get(0),
-        )?;
-        if last >= today {
-            return Ok(false); // already claimed today → rollback (no writes)
-        }
-        tx.execute(
-            "UPDATE balance SET balance = balance + ?1, last_checkin = ?2 WHERE user = ?3",
-            params![reward, today, user_id],
-        )?;
-        super::history::record(&tx, user_id, super::HK_CHECKIN, reward, None, None)?;
-        // Referral cascade: pay the direct referrer and up to two levels above.
-        let mut up: i64 = tx.query_row(
-            "SELECT referrer FROM balance WHERE user = ?1",
-            params![user_id],
-            |r| r.get(0),
-        )?;
-        // The referee's optional co-referrer (the group owner) shares the **direct**
-        // (level-1) reward 50/50 with the referrer; deeper levels follow the
-        // referrer's own chain.
-        let co: i64 = tx.query_row(
-            "SELECT co_referrer FROM balance WHERE user = ?1",
-            params![user_id],
-            |r| r.get(0),
-        )?;
-        for (level, bonus) in CHECKIN_UPLINE.into_iter().enumerate() {
-            if up == 0 {
-                break;
+        self.with_tx(|tx| {
+            let last: i64 = tx.query_row(
+                "SELECT last_checkin FROM balance WHERE user = ?1",
+                params![user_id],
+                |r| r.get(0),
+            )?;
+            if last >= today {
+                return Ok(false); // already claimed today → empty commit (no writes)
             }
-            if level == 0 && co > 0 && co != up {
-                let half = bonus / 2;
-                super::credit_and_log(&tx, up, half, super::HK_REFERRAL, None, Some(user_id))?;
-                super::credit_and_log(&tx, co, bonus - half, super::HK_REFERRAL, None, Some(user_id))?;
-            } else {
-                super::credit_and_log(&tx, up, bonus, super::HK_REFERRAL, None, Some(user_id))?;
+            tx.execute(
+                "UPDATE balance SET balance = balance + ?1, last_checkin = ?2 WHERE user = ?3",
+                params![reward, today, user_id],
+            )?;
+            super::history::record(tx, user_id, super::HK_CHECKIN, reward, None, None)?;
+            // Referral cascade: pay the direct referrer and up to two levels above.
+            let mut up: i64 = tx.query_row(
+                "SELECT referrer FROM balance WHERE user = ?1",
+                params![user_id],
+                |r| r.get(0),
+            )?;
+            // The referee's optional co-referrer (the group owner) shares the **direct**
+            // (level-1) reward 50/50 with the referrer; deeper levels follow the
+            // referrer's own chain.
+            let co: i64 = tx.query_row(
+                "SELECT co_referrer FROM balance WHERE user = ?1",
+                params![user_id],
+                |r| r.get(0),
+            )?;
+            for (level, bonus) in CHECKIN_UPLINE.into_iter().enumerate() {
+                if up == 0 {
+                    break;
+                }
+                if level == 0 && co > 0 && co != up {
+                    let half = bonus / 2;
+                    super::credit_and_log(tx, up, half, super::HK_REFERRAL, None, Some(user_id))?;
+                    super::credit_and_log(tx, co, bonus - half, super::HK_REFERRAL, None, Some(user_id))?;
+                } else {
+                    super::credit_and_log(tx, up, bonus, super::HK_REFERRAL, None, Some(user_id))?;
+                }
+                up = tx
+                    .query_row(
+                        "SELECT referrer FROM balance WHERE user = ?1",
+                        params![up],
+                        |r| r.get(0),
+                    )
+                    .optional()?
+                    .unwrap_or(0);
             }
-            up = tx
-                .query_row(
-                    "SELECT referrer FROM balance WHERE user = ?1",
-                    params![up],
-                    |r| r.get(0),
-                )
-                .optional()?
-                .unwrap_or(0);
-        }
-        tx.commit()?;
-        Ok(true)
+            Ok(true)
+        })
     }
 
     /// Whether a `balance` row already exists for `user_id` — **without** creating

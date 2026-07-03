@@ -92,18 +92,17 @@ impl Database {
         if split {
             self.ensure_row(co_referrer)?;
         }
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        if split {
-            let half = amount / 2;
-            super::credit_and_log(&tx, referrer, half, super::HK_REFERRAL, None, Some(referee))?;
-            super::credit_and_log(&tx, co_referrer, amount - half, super::HK_REFERRAL, None, Some(referee))?;
-        } else {
-            super::credit_and_log(&tx, referrer, amount, super::HK_REFERRAL, None, Some(referee))?;
-        }
-        super::credit_and_log(&tx, referee, amount, super::HK_REFERRAL, None, Some(referrer))?;
-        tx.commit()?;
-        Ok(())
+        self.with_tx(|tx| {
+            if split {
+                let half = amount / 2;
+                super::credit_and_log(tx, referrer, half, super::HK_REFERRAL, None, Some(referee))?;
+                super::credit_and_log(tx, co_referrer, amount - half, super::HK_REFERRAL, None, Some(referee))?;
+            } else {
+                super::credit_and_log(tx, referrer, amount, super::HK_REFERRAL, None, Some(referee))?;
+            }
+            super::credit_and_log(tx, referee, amount, super::HK_REFERRAL, None, Some(referrer))?;
+            Ok(())
+        })
     }
 }
 

@@ -94,10 +94,7 @@ impl Database {
     ) -> SqlResult<()> {
         // Delegate to the shared [`record`] so the INSERT lives in one place; a
         // one-statement transaction gives it the `&Transaction` it wants.
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        record(&tx, user, kind, delta, event_id, counter)?;
-        tx.commit()
+        self.with_tx(|tx| record(tx, user, kind, delta, event_id, counter))
     }
 
     /// The user's most recent actions, newest first, capped at `limit`. Left-joins
