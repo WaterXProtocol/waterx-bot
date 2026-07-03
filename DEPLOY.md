@@ -79,8 +79,11 @@ privileged commands granted.)
 `/etc/waterx-bot.env` to adapt to a non-systemd setup.
 
 **Flow**: owner sends `/redeploy` → bot spawns the trigger, replies "🚀
-Deploying…" → `waterx-deploy.service` runs `deploy/deploy.sh` (pull → build →
-`systemctl restart waterx-bot`) → systemd relaunches the freshly built binary.
+Deploying…" → `waterx-deploy.service` runs `deploy/deploy.sh` (checkout **dev** →
+pull → build → `systemctl restart waterx-bot`) → systemd relaunches the freshly
+built binary. This self-host box tracks the **`dev`** branch (Railway deploys
+`main`); the script `git checkout dev`s before pulling so a redeploy always lands
+on dev.
 
 ## Gotchas
 - **One instance per token** — never run two processes polling the same
@@ -89,4 +92,4 @@ Deploying…" → `waterx-deploy.service` runs `deploy/deploy.sh` (pull → buil
   VPS it can thrash. Consider building in CI and shipping the binary instead.
 - **Persist `waterx.db`** — it's the whole ledger; the `WorkingDirectory` holds it.
 - **Manual fallback** (no `/redeploy` needed):
-  `cd ~/waterx-bot && git pull && cargo build --release && sudo systemctl restart waterx-bot`.
+  `cd ~/waterx-bot && git checkout dev && git pull --ff-only origin dev && cargo build --release && sudo systemctl restart waterx-bot`.
