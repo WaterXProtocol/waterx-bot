@@ -41,6 +41,38 @@ impl Database {
         Ok(v.filter(|id| *id > 0))
     }
 
+    /// Record that `adder` added `member` to `chat` (a Telegram "new member"
+    /// service message). Keeps the **first** adder (`INSERT OR IGNORE`), mirroring
+    /// `set_group_adder`. Read lazily at the member's first interaction to pick the
+    /// member-specific referrer over the bot-adder (see `referral::maybe_bind_group`).
+    pub fn record_group_add(&self, chat_id: i64, member: i64, adder: i64) -> SqlResult<()> {
+        if adder <= 0 || adder == member {
+            return Ok(());
+        }
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT OR IGNORE INTO group_adds (chat, member, adder) VALUES (?1, ?2, ?3)",
+            params![chat_id, member, adder],
+        )?;
+        Ok(())
+    }
+
+    /// Who added `member` to `chat`, if recorded — the member-specific referrer that
+    /// takes priority over the bot-adder. `None` when unknown (the member self-joined
+    /// via an invite link, or the add predates this feature), so the caller falls
+    /// back to [`Database::group_adder`].
+    pub fn group_add_referrer(&self, chat_id: i64, member: i64) -> SqlResult<Option<i64>> {
+        let conn = self.conn.lock();
+        let v: Option<i64> = conn
+            .query_row(
+                "SELECT adder FROM group_adds WHERE chat = ?1 AND member = ?2",
+                params![chat_id, member],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(v.filter(|id| *id > 0))
+    }
+
     /// Cache the group's **owner** (Telegram creator), resolved lazily from
     /// `getChatAdministrators` — distinct from `added_by`. Creates the chat row if
     /// new; overwrites a prior value (the creator is a fact, not first-wins).

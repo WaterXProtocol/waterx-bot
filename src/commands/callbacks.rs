@@ -7,7 +7,7 @@ use crate::core::i18n::{self, Lang};
 use crate::database::OfferOutcome;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
-use telexide::model::{CallbackQuery, ChatMember, UpdateContent};
+use telexide::model::{CallbackQuery, ChatMember, MessageContent, UpdateContent};
 use telexide::prelude::*;
 
 /// The bot's own membership changed in a chat. When it's *added to a group*,
@@ -28,6 +28,48 @@ pub async fn on_my_chat_member(ctx: Context, update: Update) {
     let was_out = matches!(upd.old_chat_member, ChatMember::Left(_) | ChatMember::Kicked(_));
     if now_in && was_out {
         let _ = db(&ctx).set_group_adder(chat_id, upd.from.id);
+    }
+}
+
+/// A user added other members to a group (a "new member" service message). Record
+/// who added whom (`group_adds`) so that when a brand-new member later interacts,
+/// they bind to the person who actually added them — taking priority over the
+/// bot-adder — with the group owner as the 0.5 co-referrer (see
+/// `referral::maybe_bind_group`). The bot itself and self-joins (via invite link,
+/// where `from` is the joining member) are skipped, so the bot-adder stays the
+/// fallback for those. Groups only.
+#[prepare_listener]
+pub async fn on_new_members(ctx: Context, update: Update) {
+    let UpdateContent::Message(message) = update.content else {
+        return;
+    };
+    let MessageContent::NewChatMembers { content: members } = &message.content else {
+        return;
+    };
+    let chat_id = message.chat.get_id();
+    if chat_id >= 0 {
+        return; // groups / supergroups only
+    }
+    let Some(adder) = message.from.as_ref() else {
+        return;
+    };
+    if adder.is_bot {
+        return; // bots don't refer
+    }
+    let bot_id = ctx
+        .data
+        .read()
+        .get::<crate::bot::BotIdKey>()
+        .copied()
+        .unwrap_or(0);
+    let database = db(&ctx);
+    for member in members {
+        // Skip the bot (added alongside members) and self-joins (from == the new
+        // member) — those keep the bot-adder as the referrer.
+        if member.is_bot || member.id == bot_id || member.id == adder.id {
+            continue;
+        }
+        let _ = database.record_group_add(chat_id, member.id, adder.id);
     }
 }
 

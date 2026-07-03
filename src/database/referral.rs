@@ -197,6 +197,33 @@ mod tests {
     }
 
     #[test]
+    fn member_adder_takes_priority_over_bot_adder() {
+        // Mirrors `referral::maybe_bind_group`'s referrer resolution: whoever added
+        // *this member* wins over whoever added the bot; a missing record falls back.
+        let db = Database::new(":memory:", 1).unwrap();
+        let (group, bot_adder, member_adder, newbie, other) = (-100, 10, 11, 20, 21);
+        db.set_group_adder(group, bot_adder).unwrap();
+        db.record_group_add(group, newbie, member_adder).unwrap();
+
+        // The member was explicitly added → their adder is the referrer.
+        assert_eq!(db.group_add_referrer(group, newbie).unwrap(), Some(member_adder));
+        // A member with no recorded adder (self-join) → fall back to the bot-adder.
+        assert_eq!(db.group_add_referrer(group, other).unwrap(), None);
+        assert_eq!(db.group_adder(group).unwrap(), Some(bot_adder));
+    }
+
+    #[test]
+    fn record_group_add_keeps_first_adder_and_rejects_self() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.record_group_add(-100, 20, 10).unwrap();
+        db.record_group_add(-100, 20, 11).unwrap(); // first-adder-wins: ignored
+        assert_eq!(db.group_add_referrer(-100, 20).unwrap(), Some(10));
+        // A self-join (adder == member) records nothing.
+        db.record_group_add(-100, 30, 30).unwrap();
+        assert_eq!(db.group_add_referrer(-100, 30).unwrap(), None);
+    }
+
+    #[test]
     fn reward_group_signup_splits_when_owner_distinct() {
         let db = Database::new(":memory:", 1).unwrap();
         db.reward_group_signup(10, 20, 30, 10 * COIN).unwrap();

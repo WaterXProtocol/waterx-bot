@@ -153,6 +153,7 @@ pub async fn run() -> anyhow::Result<()> {
         ))
         .add_handler_func(callbacks::on_callback)
         .add_handler_func(callbacks::on_my_chat_member)
+        .add_handler_func(callbacks::on_new_members)
         .add_handler_func(crate::commands::predict::on_message)
         .add_handler_func(crate::commands::feedback::on_message);
     let client = builder.build();

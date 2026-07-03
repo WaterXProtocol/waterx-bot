@@ -236,6 +236,20 @@ impl Database {
             "ALTER TABLE chats ADD COLUMN reply_thread INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // Who added a specific member to a group (a Telegram "new member" service
+        // message). Consulted lazily at that member's first interaction to bind
+        // them to the person who actually added them — taking priority over the
+        // bot-adder (`chats.added_by`), with the group owner as the 0.5
+        // co-referrer. See `referral::maybe_bind_group`.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS group_adds (
+                chat   INTEGER NOT NULL,
+                member INTEGER NOT NULL,
+                adder  INTEGER NOT NULL,
+                PRIMARY KEY (chat, member)
+            )",
+            [],
+        )?;
         // `co_referrer` (the group owner, when distinct from the adder) — a
         // level-1 co-credit in the check-in cascade, for older DBs.
         let _ = conn.execute(
@@ -377,8 +391,8 @@ impl Database {
     }
 
     /// Wipe every table (dev-only `/reset` → [Everything]) — balances, chats, meta
-    /// flags, the buffer escrow, and the whole market engine (`events`/`markets`/
-    /// `positions`).
+    /// flags, the buffer escrow, the group-add referral map, and the whole market
+    /// engine (`events`/`markets`/`positions`).
     pub fn reset_all(&self) -> SqlResult<()> {
         let conn = self.conn.lock();
         conn.execute_batch(
@@ -386,6 +400,7 @@ impl Database {
              DELETE FROM buffer;
              DELETE FROM meta;
              DELETE FROM chats;
+             DELETE FROM group_adds;
              DELETE FROM positions;
              DELETE FROM markets;
              DELETE FROM events;
@@ -404,6 +419,9 @@ impl Database {
             let deleted = tx.execute("DELETE FROM balance WHERE user = ?1", params![user_id])?;
             tx.execute("DELETE FROM positions WHERE user = ?1", params![user_id])?;
             tx.execute("DELETE FROM history WHERE user = ?1", params![user_id])?;
+            // Forget who added them to any group, so they re-bind cleanly (via
+            // either the member-adder or the bot-adder) on the next interaction.
+            tx.execute("DELETE FROM group_adds WHERE member = ?1", params![user_id])?;
             Ok(deleted == 1)
         })
     }
@@ -479,6 +497,7 @@ mod reset_tests {
         db.insert_buffer(-200, 5, 100, 10).unwrap();
         db.touch_chat(-200).unwrap();
         db.set_group_adder(-200, 100).unwrap();
+        db.record_group_add(-200, 300, 100).unwrap();
         db.set_paused(true).unwrap();
 
         let total = |db: &Database| -> i64 {
@@ -490,7 +509,8 @@ mod reset_tests {
                           + (SELECT COUNT(*) FROM events)
                           + (SELECT COUNT(*) FROM positions)
                           + (SELECT COUNT(*) FROM meta)
-                          + (SELECT COUNT(*) FROM chats)",
+                          + (SELECT COUNT(*) FROM chats)
+                          + (SELECT COUNT(*) FROM group_adds)",
                     [],
                     |r| r.get(0),
                 )

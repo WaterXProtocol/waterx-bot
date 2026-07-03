@@ -37,16 +37,18 @@ pub(crate) async fn pay_referral(ctx: &Context, referrer: i64, referee: &User) {
     .await;
 }
 
-/// In a group, bind the acting `user` to the bot-adder (`chats.added_by`) **and**
-/// the group **owner** (Telegram creator) as **co-referrers** — but only when
-/// `user` is **brand-new** (no `balance` row yet, so the `INSERT OR IGNORE`
-/// actually inserts). Fires on **any** interaction the bot sees in a group: button
-/// taps (`callbacks::on_callback`) and text commands (`util::paused_block`). Both
-/// call sites run before the user's row is created, preserving the brand-new
-/// check. No-op in private chats, for existing users, or when the adder is unknown
-/// (`added_by = 0`). When the owner is distinct from the adder, the signup bonus
-/// is split 50/50 and the check-in level-1 reward will be too (see
-/// `Database::try_checkin`); otherwise the adder is the sole referrer (as before).
+/// In a group, bind the acting `user` to an **adder** **and** the group **owner**
+/// (Telegram creator) as **co-referrers** — but only when `user` is **brand-new**
+/// (no `balance` row yet, so the `INSERT OR IGNORE` actually inserts). The adder is
+/// whoever actually added *this member* (`group_adds`, recorded from a "new member"
+/// service message) if known, else whoever added the **bot** (`chats.added_by`) as
+/// the fallback. Fires on **any** interaction the bot sees in a group: button taps
+/// (`callbacks::on_callback`) and text commands (`util::paused_block`). Both call
+/// sites run before the user's row is created, preserving the brand-new check.
+/// No-op in private chats, for existing users, or when no adder is known. When the
+/// owner is distinct from the adder, the signup bonus is split 50/50 and the
+/// check-in level-1 reward will be too (see `Database::try_checkin`); otherwise the
+/// adder is the sole referrer.
 pub(crate) async fn maybe_bind_group(ctx: &Context, chat_id: i64, user: &User) {
     if !is_group_chat(chat_id) {
         return;
@@ -59,7 +61,15 @@ pub(crate) async fn maybe_bind_group(ctx: &Context, chat_id: i64, user: &User) {
     if database.user_exists(user.id).unwrap_or(true) {
         return;
     }
-    if let Ok(Some(adder)) = database.group_adder(chat_id) {
+    // Prefer whoever actually added *this member* (a recorded "new member" service
+    // message) over whoever added the bot to the group; either becomes the
+    // referrer, with the group owner as the 0.5 co-referrer.
+    let adder = database
+        .group_add_referrer(chat_id, user.id)
+        .ok()
+        .flatten()
+        .or_else(|| database.group_adder(chat_id).ok().flatten());
+    if let Some(adder) = adder {
         database.force_change(adder, 0).ok(); // ensure the adder has a row to refer from
                                               // The group owner co-refers when distinct from the adder.
         let owner = resolve_group_owner(ctx, chat_id).await.filter(|o| *o != adder);
