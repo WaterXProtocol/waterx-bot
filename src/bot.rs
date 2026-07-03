@@ -24,6 +24,11 @@ const STARTUP_BACKOFF_MAX: Duration = Duration::from_secs(30);
 /// first snapshot is one interval *after* boot, so a crash-looping deploy (which
 /// restarts within seconds) can't reach a snapshot and clobber the last good backup.
 const BACKUP_INTERVAL: Duration = Duration::from_secs(300);
+/// How often the background task auto-settles resolved markets: detect Polymarket
+/// (Gamma) resolution for open `/events`, then pay out every resolved/void
+/// position (sourced + any host-resolved AMM the resolve-time settle missed). So
+/// winners are paid within this window without anyone running `/settle`.
+const AUTO_SETTLE_INTERVAL: Duration = Duration::from_secs(300);
 
 pub struct DbKey;
 impl TypeMapKey for DbKey {
@@ -102,6 +107,21 @@ pub async fn run() -> anyhow::Result<()> {
         });
     }
 
+    // Auto-settle resolved markets on a timer (replaces the manual `/claim`):
+    // detect Gamma resolution for open `/events` + pay out every resolved/void
+    // position. Best-effort; `/settle` remains as the manual fallback.
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(AUTO_SETTLE_INTERVAL);
+            tick.tick().await; // consume the immediate first tick
+            loop {
+                tick.tick().await;
+                crate::commands::settle::auto_settle(&db).await;
+            }
+        });
+    }
+
     // Resolve the bot's real @username via getMe BEFORE building the framework
     // — telexide's command router compares group-chat command suffixes against
     // this string (e.g. `/predict@BotUsername`). Using anything other than the
@@ -159,7 +179,6 @@ pub async fn run() -> anyhow::Result<()> {
             sell,
             buy,
             events,
-            claim,
             checkin,
             settings,
             timezone,

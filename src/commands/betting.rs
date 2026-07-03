@@ -402,9 +402,10 @@ pub async fn handle_size_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
     };
 
     let database = db(ctx);
-    // Materialise the sourced event on first trade — keyed by the event key so
-    // `/settle`/`/claim` can later resolve it against Polymarket. Outcomes keep the
-    // feed's fixed order (sport: `[teamA, draw, teamB]`), matching the card's idx.
+    // Materialise the sourced event on first trade — keyed by the event key so the
+    // auto-settle sweep (and `/settle`) can later resolve it against Polymarket.
+    // Outcomes keep the feed's fixed order (sport: `[teamA, draw, teamB]`), matching
+    // the card's idx.
     let outcomes: Vec<String> = q.outcomes.iter().map(|o| o.name.clone()).collect();
     let event_id = match database.get_or_create_sourced_event(
         &q.key,

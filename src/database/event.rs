@@ -65,8 +65,8 @@ pub enum ClaimKind {
     Refunded,
 }
 
-/// One user's settlement result for one event (the unit `/claim` and `/settle`
-/// report and DM).
+/// One user's settlement result for one event (the unit the auto-settle task and
+/// `/settle` sum over).
 #[derive(Debug, Clone)]
 pub struct Payout {
     pub event_id: i64,
@@ -867,8 +867,9 @@ impl Database {
 
     /// Record the winning outcome on an open event (sourced: from the Gamma
     /// oracle; amm: declared by the host). Returns `true` if it flipped an open
-    /// event to `resolved`. Payouts happen later via [`Database::claim`] /
-    /// [`Database::settle_all_sourced`].
+    /// event to `resolved`. Payout happens via [`Database::settle_event`] —
+    /// immediately for an AMM host-resolve, or on the next auto-settle /
+    /// [`Database::settle_all_resolved`] sweep.
     /// Flip an event's `state` via `set_sql` (a parameterised
     /// `UPDATE events SET … WHERE id = ? AND state …`), then — if a row actually
     /// changed — settle immediately when no positions remain. Returns whether the
@@ -907,8 +908,9 @@ impl Database {
 
     /// After a resolve/void, eagerly settle **iff the event has no positions** — so
     /// an AMM event that never traded (a funding-stage void, or an opened market
-    /// nobody touched) still returns its pooled liquidity to the LPs without waiting
-    /// for a `/claim` that will never come. Events with positions stay lazy.
+    /// nobody touched) still returns its pooled liquidity to the LPs rather than
+    /// stranding it (the auto-settle sweep, [`Database::settle_all_resolved`], only
+    /// touches events that *have* positions). Events with positions settle in full.
     fn settle_if_no_positions(&self, event_id: i64) -> SqlResult<()> {
         let has_positions = {
             let conn = self.conn.lock();
@@ -927,10 +929,11 @@ impl Database {
     /// Settle the positions of one resolved/void event — for one user
     /// (`only_user`) or everyone (`None`). Winning shares pay 1 coin each; losers
     /// 0; a void refunds cost basis. AMM payouts/refunds come **from the pool**
-    /// (and the residual returns to the host once the last position is settled,
+    /// (and the residual returns to the LPs once the last position is settled,
     /// flipping the event to `closed`); sourced payouts are house-banked. One
-    /// transaction. Returns one [`Payout`] per affected user.
-    fn settle_event(&self, event_id: i64, only_user: Option<i64>) -> SqlResult<Vec<Payout>> {
+    /// transaction. Returns one [`Payout`] per affected user. Public so the AMM
+    /// host-resolve path settles all winners immediately (`predmarket::handle_win`).
+    pub fn settle_event(&self, event_id: i64, only_user: Option<i64>) -> SqlResult<Vec<Payout>> {
         use std::collections::BTreeMap;
         self.with_tx(|tx| {
             let Some((kind, state, winning, mut pool, creator, title)) = tx
@@ -1053,36 +1056,16 @@ impl Database {
         })
     }
 
-    /// Collect a user's winnings: settle their positions across every
-    /// resolved/void event they hold. Returns the per-event payouts (for the DM
-    /// summary).
-    pub fn claim(&self, user: i64) -> SqlResult<Vec<Payout>> {
+    /// Settle **every** resolved/void event with open positions — **both** sourced
+    /// and AMM. The periodic auto-settle task's payout step: sourced events are
+    /// marked resolved by the Gamma detect pass first, AMM events by their host, so
+    /// this just flushes whatever is pending (and catches an AMM event whose
+    /// resolve-time settle failed). Returns every payout made.
+    pub fn settle_all_resolved(&self) -> SqlResult<Vec<Payout>> {
         let ids: Vec<i64> = {
             let conn = self.conn.lock();
             let mut stmt = conn.prepare(
-                "SELECT DISTINCT p.event_id FROM positions p JOIN events e ON e.id = p.event_id
-                 WHERE p.user = ?1 AND e.state IN ('resolved', 'void')",
-            )?;
-            let v = stmt
-                .query_map(params![user], |r| r.get(0))?
-                .collect::<SqlResult<Vec<_>>>()?;
-            v
-        };
-        let mut out = Vec::new();
-        for ev in ids {
-            out.extend(self.settle_event(ev, Some(user))?);
-        }
-        Ok(out)
-    }
-
-    /// Public `/settle` sweep — settle **all** positions of every resolved/void
-    /// **sourced** event (Polymarket is the oracle). AMM events are skipped (they
-    /// settle via the host + `/claim`). Returns every payout made.
-    pub fn settle_all_sourced(&self) -> SqlResult<Vec<Payout>> {
-        let ids: Vec<i64> = {
-            let conn = self.conn.lock();
-            let mut stmt = conn.prepare(
-                "SELECT id FROM events WHERE kind = 'sourced' AND state IN ('resolved', 'void')
+                "SELECT id FROM events WHERE state IN ('resolved', 'void')
                  AND EXISTS (SELECT 1 FROM positions WHERE event_id = events.id)",
             )?;
             let v = stmt.query_map([], |r| r.get(0))?.collect::<SqlResult<Vec<_>>>()?;
@@ -1141,7 +1124,7 @@ impl Database {
 
     /// The user's open share holdings (events still `open`), joined with their
     /// event title + outcome name — for the `/assets` / `/bets` view. Resolved
-    /// events are excluded (they're collected via `/claim`).
+    /// events are excluded (they're auto-settled, then gone).
     pub fn user_positions(&self, user: i64) -> SqlResult<Vec<PositionView>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
@@ -1294,24 +1277,6 @@ impl Database {
         )?;
         let v = stmt
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        Ok(v)
-    }
-
-    /// The caller's distinct open **sourced** events with their `(id, slug,
-    /// outcome_count)` — for detecting Polymarket resolution at `/claim` time. The
-    /// outcome count comes from a correlated subquery so multiple positions in one
-    /// event don't inflate it.
-    pub fn user_open_sourced(&self, user: i64) -> SqlResult<Vec<(i64, String, i64)>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT e.id, COALESCE(e.source_ref, ''),
-                    (SELECT COUNT(*) FROM markets m WHERE m.event_id = e.id)
-             FROM positions p JOIN events e ON e.id = p.event_id
-             WHERE p.user = ?1 AND e.kind = 'sourced' AND e.state = 'open'",
-        )?;
-        let v = stmt
-            .query_map(params![user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<SqlResult<Vec<_>>>()?;
         Ok(v)
     }
@@ -1734,7 +1699,7 @@ mod tests {
         let ev = sourced(&db);
         db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap(); // 20 shares, bal 90
         assert!(db.resolve_event(ev, 0, 200).unwrap());
-        let payouts = db.claim(2).unwrap();
+        let payouts = db.settle_all_resolved().unwrap();
         assert_eq!(payouts.len(), 1);
         assert_eq!(payouts[0].kind, ClaimKind::Won);
         assert_eq!(payouts[0].coins, 20 * COIN); // 20 winning shares → 20 coins
@@ -1749,7 +1714,7 @@ mod tests {
         let ev = sourced(&db);
         db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap();
         db.resolve_event(ev, 1, 200).unwrap(); // B wins; user held A
-        let payouts = db.claim(2).unwrap();
+        let payouts = db.settle_all_resolved().unwrap();
         assert_eq!(payouts[0].kind, ClaimKind::Lost);
         assert_eq!(payouts[0].coins, 0);
         assert_eq!(db.get_user_info(2).unwrap().balance, 90 * COIN); // lost the 10
@@ -1769,8 +1734,7 @@ mod tests {
         db.amm_buy(ev, 0, 2, 80 * COIN).unwrap();
         db.amm_buy(ev, 1, 3, 40 * COIN).unwrap();
         db.resolve_event(ev, 0, 200).unwrap(); // A wins
-        db.claim(2).unwrap();
-        db.claim(3).unwrap();
+        db.settle_all_resolved().unwrap();
         assert_eq!(coin_total(&db), before, "AMM settlement conserves total coins");
         assert_eq!(pool_of(&db, ev), 0, "pool drained to winner + host residual");
         assert_eq!(state_of(&db, ev), "closed");
@@ -1796,7 +1760,7 @@ mod tests {
             .unwrap();
         db.amm_buy(ev, 0, 2, 60 * COIN).unwrap();
         db.void_event(ev, 200).unwrap();
-        let payouts = db.claim(2).unwrap();
+        let payouts = db.settle_all_resolved().unwrap();
         assert_eq!(payouts[0].kind, ClaimKind::Refunded);
         assert_eq!(
             db.get_user_info(2).unwrap().balance,
@@ -1813,7 +1777,7 @@ mod tests {
     }
 
     #[test]
-    fn settle_all_sourced_skips_amm_events() {
+    fn settle_all_resolved_settles_sourced_and_amm() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(1, 1000 * COIN).unwrap();
         db.force_change(2, 1000 * COIN).unwrap();
@@ -1827,13 +1791,15 @@ mod tests {
         db.amm_buy(amm, 0, 2, 20 * COIN).unwrap();
         db.resolve_event(amm, 0, 200).unwrap();
 
-        let payouts = db.settle_all_sourced().unwrap();
+        // The auto-settle sweep settles **both** kinds in one pass.
+        let payouts = db.settle_all_resolved().unwrap();
+        let events: std::collections::HashSet<i64> = payouts.iter().map(|p| p.event_id).collect();
         assert!(
-            payouts.iter().all(|p| p.event_id == src),
-            "only the sourced event settled"
+            events.contains(&src) && events.contains(&amm),
+            "both kinds settled"
         );
         assert_eq!(state_of(&db, src), "closed");
-        assert_eq!(state_of(&db, amm), "resolved", "amm untouched by /settle");
+        assert_eq!(state_of(&db, amm), "closed", "amm settled too now");
     }
 
     #[test]
@@ -1850,7 +1816,7 @@ mod tests {
         assert_eq!(v[0].shares, 20 * SHARE);
         assert_eq!(v[0].cost, 10 * COIN);
         // Once resolved, the event leaves 'open' → dropped from the live view
-        // (collected via /claim instead).
+        // (auto-settled instead).
         db.resolve_event(ev, 0, 200).unwrap();
         assert!(db.user_positions(2).unwrap().is_empty());
     }
@@ -2059,9 +2025,9 @@ mod tests {
             "the trade conserves balance + pool"
         );
 
-        // Host resolves A; trader claims → pool fully distributed, supply restored.
+        // Host resolves A; auto-settle → pool fully distributed, supply restored.
         assert!(db.resolve_event(ev, 0, 2_000_000_000).unwrap());
-        let _ = db.claim(3).unwrap();
+        db.settle_all_resolved().unwrap();
         assert_eq!(pool_sum(&db), 0, "residual fully distributed to LPs");
         assert_eq!(bal_sum(&db), supply, "AMM minted / burned nothing end to end");
     }
