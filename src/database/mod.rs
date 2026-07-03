@@ -53,6 +53,23 @@ pub fn db_filename(dev: bool) -> &'static str {
     }
 }
 
+/// Directory for the bot's **persistent** files — the SQLite DB and the
+/// `/backup` snapshots. Set `DATA_DIR` to a mounted volume path on hosts with an
+/// ephemeral filesystem (Railway, Fly, Docker) so the coin ledger survives a
+/// redeploy; unset falls back to the current working directory (self-host + dev).
+/// A trailing slash is trimmed.
+pub fn data_dir() -> String {
+    match std::env::var("DATA_DIR") {
+        Ok(d) if !d.trim().is_empty() => d.trim_end_matches('/').to_string(),
+        _ => ".".to_string(),
+    }
+}
+
+/// Full path to the SQLite DB for this run — `<data_dir>/<db_filename>`.
+pub fn db_path(dev: bool) -> String {
+    format!("{}/{}", data_dir(), db_filename(dev))
+}
+
 /// Buffer rows are pruned this many seconds after creation, with their escrow
 /// refunded to the original owner. Matches "drop stale offers/envelopes on
 /// restart" semantics — restarts are rare enough that this is a cheap cleanup

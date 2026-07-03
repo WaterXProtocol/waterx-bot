@@ -1,0 +1,19 @@
+# Keep the build context small and never ship local state/secrets into the image.
+target/
+.git/
+.github/
+# Local SQLite data + backups (must live on the mounted volume, not the image).
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+balances-*.json
+redeploy.notify
+# Secrets / local env (config is injected as environment variables on the host).
+.env
+.env.*
+!.env.example
+!.env.dev.example
+# Docs / self-host deploy assets not needed in the image.
+*.md
+deploy/

@@ -472,7 +472,10 @@ fn backup_balances(ctx: &Context) -> Result<String, String> {
     let rows = db(ctx).export_accounts().map_err(|e| e.to_string())?;
     let json = serde_json::to_string(&rows).map_err(|e| e.to_string())?;
     let file = format!("balances-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
-    std::fs::write(&file, json).map_err(|e| e.to_string())?;
+    // Persist alongside the DB (a mounted volume on Railway/Fly), not the ephemeral
+    // CWD; the returned value stays the bare, separator-free filename for `/load`.
+    let path = format!("{}/{}", crate::database::data_dir(), file);
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(file)
 }
 
@@ -489,7 +492,7 @@ fn valid_backup_name(name: &str) -> bool {
 /// Balance-backup files in the working directory, newest first (timestamped names
 /// sort lexicographically, so a reversed sort puts the newest on top).
 fn list_backup_files() -> Vec<String> {
-    let mut files: Vec<String> = std::fs::read_dir(".")
+    let mut files: Vec<String> = std::fs::read_dir(crate::database::data_dir())
         .into_iter()
         .flatten()
         .flatten()
@@ -535,7 +538,10 @@ pub async fn load(ctx: Context, message: Message) -> CommandResult {
         .await?;
         return Ok(());
     }
-    let content = match std::fs::read_to_string(name) {
+    // `name` is `valid_backup_name`-checked above (no path separators), so joining
+    // it onto the data dir can't traverse out of it.
+    let path = format!("{}/{}", crate::database::data_dir(), name);
+    let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) => {
             reply(&ctx, &message, format!("⚠️ Can't read {name}: {e}")).await?;

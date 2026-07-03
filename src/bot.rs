@@ -1,6 +1,6 @@
 use crate::commands::{callbacks, *};
 use crate::core::types::BotConfig;
-use crate::database::{db_filename, Database};
+use crate::database::{db_path, Database};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use telexide::{
     api::{types::GetUpdates, APIEndpoint, API},
@@ -72,7 +72,7 @@ pub async fn run() -> anyhow::Result<()> {
         .next()
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| anyhow::anyhow!("malformed bot token (expected `<id>:<secret>`)"))?;
-    let db = Arc::new(Database::new(db_filename(cfg.dev), bot_id)?);
+    let db = Arc::new(Database::new(&db_path(cfg.dev), bot_id)?);
     let cfg_arc = Arc::new(cfg.clone());
 
     // Resolve the bot's real @username via getMe BEFORE building the framework
