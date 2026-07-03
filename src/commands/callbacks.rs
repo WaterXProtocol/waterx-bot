@@ -321,11 +321,12 @@ async fn handle_set_lang(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
         // Groups skip it (shared message) and go straight to the menu.
         if in_group {
             let available = true;
+            let tz = db.get_tz(cb.from.id).ok().flatten();
             let _ = tg::edit_with_buttons(
                 ctx,
                 chat,
                 message.message_id,
-                &menu::menu_text(lang),
+                &menu::menu_text(lang, tz),
                 &menu::main_menu_rows(lang, available, in_group),
             )
             .await;
@@ -357,11 +358,12 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
         let chat = message.chat.get_id();
         let in_group = is_group_chat(chat);
         let available = in_group || db.checkin_available(cb.from.id).unwrap_or(true);
+        // The user just picked this offset — greet in their new local time now.
         let _ = tg::edit_with_buttons(
             ctx,
             chat,
             message.message_id,
-            &menu::menu_text(lang),
+            &menu::menu_text(lang, Some(minutes)),
             &menu::main_menu_rows(lang, available, in_group),
         )
         .await;
@@ -484,11 +486,12 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         Ok(true) => {
             if let Some(message) = cb.message.clone() {
                 if !is_group_chat(message.chat.get_id()) {
+                    let tz = db.get_tz(cb.from.id).ok().flatten();
                     let _ = tg::edit_with_buttons(
                         ctx,
                         message.chat.get_id(),
                         message.message_id,
-                        &menu::menu_text(lang),
+                        &menu::menu_text(lang, tz),
                         &menu::main_menu_rows(lang, false, false),
                     )
                     .await;
@@ -548,11 +551,12 @@ async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let chat = message.chat.get_id();
     let in_group = is_group_chat(chat);
     let available = in_group || db(ctx).checkin_available(cb.from.id).unwrap_or(true);
+    let tz = db(ctx).get_tz(cb.from.id).ok().flatten();
     let _ = tg::edit_with_buttons(
         ctx,
         chat,
         message.message_id,
-        &menu::menu_text(lang),
+        &menu::menu_text(lang, tz),
         &menu::main_menu_rows(lang, available, in_group),
     )
     .await;

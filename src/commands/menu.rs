@@ -4,7 +4,7 @@
 //! these so the keyboards stay in one place.
 
 use crate::commands::tg::Row;
-use crate::commands::util::{format_odds, tz_button_label};
+use crate::commands::util::{day_part, format_odds, tz_button_label};
 use crate::core::i18n::{self, Lang};
 use crate::core::types::OddsFormat;
 
@@ -140,10 +140,12 @@ pub fn lang_picker_rows(current: Option<Lang>, settings: bool) -> Vec<Row> {
         .collect()
 }
 
-/// The Wixy main-menu body — the static intro/pitch. No per-user name or balance
-/// (the home page has a [Check assets] button for the balance).
-pub fn menu_text(lang: Lang) -> String {
-    i18n::intro(lang).to_string()
+/// The Wixy main-menu body — a **time-aware greeting** (`i18n::greeting`, picked
+/// from the caller's local time via their `tz` offset) + the static intro/pitch
+/// (`i18n::intro`). No per-user name or balance (the [Check assets] button covers
+/// that). `tz` = the caller's saved UTC offset in minutes (`None` = not picked).
+pub fn menu_text(lang: Lang, tz: Option<i64>) -> String {
+    format!("{} {}", i18n::greeting(lang, day_part(tz)), i18n::intro(lang))
 }
 
 /// The Wixy main-menu keyboard: today's markets, the daily check-in button
