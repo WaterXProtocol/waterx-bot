@@ -1,5 +1,5 @@
 //! Shared builders for the button-driven `/start` flow: the language picker and
-//! the Xaliah main menu. Both the `/start` command (which *sends* a fresh
+//! the Wixy main menu. Both the `/start` command (which *sends* a fresh
 //! message) and the callback handlers (which *edit* the existing one) reuse
 //! these so the keyboards stay in one place.
 
@@ -140,15 +140,13 @@ pub fn lang_picker_rows(current: Option<Lang>, settings: bool) -> Vec<Row> {
         .collect()
 }
 
-/// The Xaliah main-menu body: intro line followed by the user's current
-/// balance. (Fruit is hidden until the fruit feature is designed.)
-pub fn menu_text(lang: Lang, name: &str) -> String {
-    // Balance is intentionally not shown here — the home page has a
-    // [Check assets] button for that. The menu body is just the greeting.
-    i18n::intro(lang, name)
+/// The Wixy main-menu body — the static intro/pitch. No per-user name or balance
+/// (the home page has a [Check assets] button for the balance).
+pub fn menu_text(lang: Lang) -> String {
+    i18n::intro(lang).to_string()
 }
 
-/// The Xaliah main-menu keyboard: today's markets, the daily check-in button
+/// The Wixy main-menu keyboard: today's markets, the daily check-in button
 /// (only when claimable), and the invite button. The home page shows the user's
 /// balance/fruit, so it deliberately carries **no** referral deep-link button —
 /// the `[Play]` URL button lives only in the `menu:invite` output, which has no

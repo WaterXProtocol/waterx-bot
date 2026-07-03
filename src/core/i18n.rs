@@ -1215,13 +1215,26 @@ pub fn choose_timezone(l: Lang) -> &'static str {
         "🕒 Escolha seu fuso horário:", "🕒 अपना टाइमज़ोन चुनें:", "🕒 اختر منطقتك الزمنية:")
 }
 
-pub fn intro(l: Lang, name: &str) -> String {
+pub fn intro(l: Lang) -> &'static str {
     tr!(l;
-        "Hi, {name}. I'm Xaliah! 😊\nWhat can I do for you?", "嗨，{name}。我是 Xaliah！😊\n有什麼可以幫你的嗎？", "嗨，{name}。我是 Xaliah！😊\n有什么可以帮你的吗？", "やあ、{name}。私は Xaliah！😊\n何かできることはある？", "안녕, {name}. 나는 Xaliah! 😊\n뭘 도와줄까?",
-        "Привет, {name}. Я Xaliah! 😊\nЧем могу помочь?", "Salut, {name}. Je suis Xaliah ! 😊\nQue puis-je faire pour toi ?", "Hola, {name}. ¡Soy Xaliah! 😊\n¿Qué puedo hacer por ti?", "Hi, {name}. Ich bin Xaliah! 😊\nWas kann ich für dich tun?", "Chào, {name}. Mình là Xaliah! 😊\nMình giúp gì được nào?",
-        "Hai, {name}. Aku Xaliah! 😊\nAda yang bisa kubantu?", "Hi, {name}. Ako si Xaliah! 😊\nAno'ng maitutulong ko?", "สวัสดี {name} ฉันชื่อ Xaliah! 😊\nมีอะไรให้ช่วยไหม?", "Hoi, {name}. Ik ben Xaliah! 😊\nWat kan ik voor je doen?", "Selam, {name}. Ben Xaliah! 😊\nSenin için ne yapabilirim?",
-        "Oi, {name}. Eu sou a Xaliah! 😊\nO que posso fazer por você?", "नमस्ते, {name}। मैं Xaliah हूँ! 😊\nमैं आपके लिए क्या कर सकती हूँ?", "مرحبًا {name}. أنا Xaliah! 😊\nكيف يمكنني مساعدتك؟")
-    .replace("{name}", name)
+        "Hey 👋 I'm Wixy.\nThe World Cup is live. Make your call and prove you know ball ⚽\nCheck in, Predict. Earn coins 👇",
+        "嗨 👋 我是 Wixy。\n世界盃正熱烈開打！下好離手，證明你最懂球 ⚽\n簽到、預測，賺取金幣 👇",
+        "嗨 👋 我是 Wixy。\n世界杯正火热开打！下好离手，证明你最懂球 ⚽\n签到、预测，赚取金币 👇",
+        "やあ 👋 ぼくは Wixy。\nワールドカップ開催中！予想を立てて、サッカー通なところを見せて ⚽\nチェックイン、予測してコインを稼ごう 👇",
+        "안녕 👋 나는 Wixy야.\n월드컵이 한창이야. 예측을 걸고 축구 실력을 증명해 봐 ⚽\n출석하고 예측해서 코인을 벌자 👇",
+        "Привет 👋 Я Wixy.\nЧемпионат мира в разгаре. Сделай прогноз и докажи, что разбираешься в футболе ⚽\nОтмечайся, предсказывай, зарабатывай монеты 👇",
+        "Salut 👋 Je suis Wixy.\nLa Coupe du monde est lancée. Fais ton pronostic et prouve que tu t'y connais en foot ⚽\nPointe-toi, prédis, gagne des pièces 👇",
+        "¡Hola 👋 Soy Wixy!\nEl Mundial está en marcha. Haz tu pronóstico y demuestra que sabes de fútbol ⚽\nRegístrate, predice y gana monedas 👇",
+        "Hey 👋 Ich bin Wixy.\nDie WM läuft. Tipp ab und beweise, dass du was von Fußball verstehst ⚽\nEinchecken, tippen, Coins verdienen 👇",
+        "Chào 👋 Mình là Wixy.\nWorld Cup đang diễn ra. Đặt kèo và chứng minh bạn rành bóng đá ⚽\nĐiểm danh, dự đoán, kiếm xu 👇",
+        "Hai 👋 Aku Wixy.\nPiala Dunia sedang berlangsung. Buat tebakanmu dan buktikan kamu paham bola ⚽\nCheck-in, prediksi, kumpulkan koin 👇",
+        "Uy 👋 Ako si Wixy.\nBuhay ang World Cup. Itaya ang hula mo at patunayang marunong ka sa bola ⚽\nMag-check-in, mag-predict, kumita ng coins 👇",
+        "สวัสดี 👋 ฉันชื่อ Wixy\nฟุตบอลโลกกำลังแข่งอยู่ ทายผลแล้วพิสูจน์ว่าคุณรู้จริงเรื่องบอล ⚽\nเช็คอิน ทายผล รับเหรียญ 👇",
+        "Hoi 👋 Ik ben Wixy.\nHet WK is bezig. Doe je voorspelling en bewijs dat je verstand van voetbal hebt ⚽\nCheck in, voorspel, verdien munten 👇",
+        "Selam 👋 Ben Wixy.\nDünya Kupası başladı. Tahminini yap ve topdan anladığını kanıtla ⚽\nGiriş yap, tahmin et, coin kazan 👇",
+        "Oi 👋 Eu sou a Wixy.\nA Copa do Mundo está rolando. Faça seu palpite e prove que manja de futebol ⚽\nFaça check-in, preveja e ganhe moedas 👇",
+        "नमस्ते 👋 मैं Wixy हूँ।\nवर्ल्ड कप जारी है। अपनी भविष्यवाणी करो और साबित करो कि तुम फ़ुटबॉल के उस्ताद हो ⚽\nचेक-इन करो, भविष्यवाणी करो, सिक्के कमाओ 👇",
+        "مرحبًا 👋 أنا Wixy.\nكأس العالم مستمرة. توقّع النتيجة وأثبت أنك تفهم في كرة القدم ⚽\nسجّل حضورك وتوقّع واكسب العملات 👇")
 }
 
 /// Closing prompt shown as the last line of the menu, after the status block.
@@ -1524,10 +1537,10 @@ pub fn invite_copy(l: Lang, link: &str) -> String {
 /// survives a forward (inline keyboards don't).
 pub fn invite_forward(l: Lang, link: &str) -> String {
     tr!(l;
-        "🎮 Come play with me on Xaliah!\n{link}", "🎮 來跟 Xaliah 一起玩！\n{link}", "🎮 来跟 Xaliah 一起玩！\n{link}", "🎮 Xaliah で一緒に遊ぼう！\n{link}", "🎮 Xaliah에서 같이 놀자!\n{link}",
-        "🎮 Заходи играть со мной в Xaliah!\n{link}", "🎮 Viens jouer avec moi sur Xaliah !\n{link}", "🎮 ¡Ven a jugar conmigo en Xaliah!\n{link}", "🎮 Komm und spiel mit mir auf Xaliah!\n{link}", "🎮 Vào chơi với mình trên Xaliah nhé!\n{link}",
-        "🎮 Ayo main bareng aku di Xaliah!\n{link}", "🎮 Halika't maglaro tayo sa Xaliah!\n{link}", "🎮 มาเล่นกับฉันบน Xaliah สิ!\n{link}", "🎮 Kom met me spelen op Xaliah!\n{link}", "🎮 Gel Xaliah'da birlikte oynayalım!\n{link}",
-        "🎮 Venha jogar comigo no Xaliah!\n{link}", "🎮 Xaliah पर मेरे साथ खेलने आओ!\n{link}", "🎮 تعال نلعب معًا على Xaliah!\n{link}")
+        "🎮 Come play with me on Wixy!\n{link}", "🎮 來跟 Wixy 一起玩！\n{link}", "🎮 来跟 Wixy 一起玩！\n{link}", "🎮 Wixy で一緒に遊ぼう！\n{link}", "🎮 Wixy에서 같이 놀자!\n{link}",
+        "🎮 Заходи играть со мной в Wixy!\n{link}", "🎮 Viens jouer avec moi sur Wixy !\n{link}", "🎮 ¡Ven a jugar conmigo en Wixy!\n{link}", "🎮 Komm und spiel mit mir auf Wixy!\n{link}", "🎮 Vào chơi với mình trên Wixy nhé!\n{link}",
+        "🎮 Ayo main bareng aku di Wixy!\n{link}", "🎮 Halika't maglaro tayo sa Wixy!\n{link}", "🎮 มาเล่นกับฉันบน Wixy สิ!\n{link}", "🎮 Kom met me spelen op Wixy!\n{link}", "🎮 Gel Wixy'da birlikte oynayalım!\n{link}",
+        "🎮 Venha jogar comigo no Wixy!\n{link}", "🎮 Wixy पर मेरे साथ खेलने आओ!\n{link}", "🎮 تعال نلعب معًا على Wixy!\n{link}")
     .replace("{link}", link)
 }
 
