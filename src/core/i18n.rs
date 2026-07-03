@@ -1256,7 +1256,7 @@ pub fn btn_balance(l: Lang) -> &'static str {
 
 pub fn btn_history(l: Lang) -> &'static str {
     tr!(l;
-        "🧾 History", "🧾 紀錄", "🧾 记录", "🧾 履歴", "🧾 기록",
+        "🧾 History", "🧾 歷史紀錄", "🧾 历史记录", "🧾 履歴", "🧾 기록",
         "🧾 История", "🧾 Historique", "🧾 Historial", "🧾 Verlauf", "🧾 Lịch sử",
         "🧾 Riwayat", "🧾 Kasaysayan", "🧾 ประวัติ", "🧾 Geschiedenis", "🧾 Geçmiş",
         "🧾 Histórico", "🧾 इतिहास", "🧾 السجل")
