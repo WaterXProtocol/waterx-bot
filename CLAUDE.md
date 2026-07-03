@@ -134,7 +134,7 @@ applied uniformly to both leagues — team vs team, kickoff time, and per-outcom
 `sport` matches (CS2/VALORANT/DOTA2),
 `sport-award`, and crypto up/down pools are all filtered out. (An esports match
 has no draw side, so it collapses to a 2-outcome `[teamA, teamB]` event vs the
-World Cup's 1X2.) The brief shows **`PAGE_SIZE` = 8 matches
+World Cup's 1X2.) The brief shows **`PAGE_SIZE` = 4 matches
 per page** with a `[◂ Prev]`/`[Next ▸]` navigation row + a `📄 Page x/y`
 indicator (callback `evpage:<m|s>:<page>` → `callbacks::handle_events_page`,
 edit-in-place; the `m`/`s` flag = embedded-in-`/start`-menu vs standalone, so the

@@ -24,7 +24,7 @@ const GAMMA_EVENT_URL: &str = "https://gamma-api.polymarket.com/events/slug/";
 const FEED_CACHE_TTL: i64 = 30;
 /// Matches shown per page (keeps each brief well under Telegram's 4096-char
 /// message limit); the rest are reachable via the `[next page]` button.
-const PAGE_SIZE: usize = 8;
+const PAGE_SIZE: usize = 4;
 /// Curated `(league, required tournament marker)` allowlist for `kind == "sport"`
 /// matches. `None` = keep the whole league (the World Cup). The waterx feed's
 /// `sport` bucket also carries esports (LOL/CS2/VALORANT/DOTA2); within `LOL` it
