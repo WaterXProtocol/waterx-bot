@@ -17,6 +17,11 @@ const POLL_RETRY_BACKOFF: Duration = Duration::from_secs(5);
 /// so a boot-time network blip doesn't crash-loop the process.
 const STARTUP_BACKOFF_START: Duration = Duration::from_secs(1);
 const STARTUP_BACKOFF_MAX: Duration = Duration::from_secs(30);
+/// How often the background task snapshots the whole SQLite DB to a single
+/// rolling `<db>.bak` file (overwritten, no timestamp). The first snapshot is
+/// one interval *after* boot, so a crash-looping deploy — which never stays up
+/// this long — can't clobber the last good backup with a fresh-but-bad copy.
+const BACKUP_INTERVAL: Duration = Duration::from_secs(3600);
 
 pub struct DbKey;
 impl TypeMapKey for DbKey {
@@ -74,6 +79,26 @@ pub async fn run() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("malformed bot token (expected `<id>:<secret>`)"))?;
     let db = Arc::new(Database::new(&db_path(cfg.dev), bot_id)?);
     let cfg_arc = Arc::new(cfg.clone());
+
+    // Rolling full-DB backup: every BACKUP_INTERVAL, snapshot the entire SQLite
+    // file to a single fixed `<db>.bak` on the volume (overwritten each time — no
+    // timestamp, so it never grows). Captures every table, not just balances, so
+    // a lost/corrupted DB is restored by copying the `.bak` back over the live
+    // file. Best-effort: failures are logged, never fatal. The first tick fires
+    // immediately and is consumed, so the first real snapshot is one interval in.
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(BACKUP_INTERVAL);
+            tick.tick().await; // consume the immediate first tick
+            loop {
+                tick.tick().await;
+                if let Err(e) = db.snapshot() {
+                    eprintln!("[backup] full-DB snapshot failed: {e}");
+                }
+            }
+        });
+    }
 
     // Resolve the bot's real @username via getMe BEFORE building the framework
     // — telexide's command router compares group-chat command suffixes against
@@ -146,7 +171,6 @@ pub async fn run() -> anyhow::Result<()> {
             settle,
             redeploy,
             dashboard,
-            load,
             backup,
             profile,
             delete

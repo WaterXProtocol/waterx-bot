@@ -50,9 +50,9 @@ waterx.db-shm
 *.db-journal
 *.db-wal
 *.db-shm
+# Rolling full-DB snapshots from the periodic auto-backup (+ its temp file).
+*.db.bak
+*.db.bak.tmp
 
 # /redeploy marker (runtime, holds the chat id to notify on next startup)
 redeploy.notify
-
-# Balance snapshots written by an [Everything] /reset (restored via /load).
-balances-*.json
