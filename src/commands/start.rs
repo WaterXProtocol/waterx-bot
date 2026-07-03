@@ -39,8 +39,7 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
 
     match lang {
         Some(lang) => {
-            let available =
-                is_group_chat(chat_id) || database.checkin_available(uid).unwrap_or(true);
+            let available = is_group_chat(chat_id) || database.checkin_available(uid).unwrap_or(true);
             tg::send_with_buttons(
                 &ctx,
                 chat_id,
@@ -50,8 +49,13 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
             .await?;
         }
         None => {
-            tg::send_with_buttons(&ctx, chat_id, i18n::CHOOSE_LANGUAGE, &menu::lang_picker_rows(saved, false))
-                .await?;
+            tg::send_with_buttons(
+                &ctx,
+                chat_id,
+                i18n::CHOOSE_LANGUAGE,
+                &menu::lang_picker_rows(saved, false),
+            )
+            .await?;
         }
     }
     Ok(())

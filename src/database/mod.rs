@@ -12,15 +12,15 @@ mod wager;
 pub use buffer::OfferOutcome;
 pub use dashboard::Dashboard;
 pub use event::{
-    basis_for_sold, AmmBoard, ClaimKind, FundOutcome, LiquidityView, Payout, PositionView,
-    SellContext, TradeOutcome, B_MEDIUM, FEE_BPS_DEFAULT, FEE_BPS_MAX, MIN_SEED,
+    basis_for_sold, AmmBoard, ClaimKind, FundOutcome, LiquidityView, Payout, PositionView, SellContext,
+    TradeOutcome, B_MEDIUM, FEE_BPS_DEFAULT, FEE_BPS_MAX, MIN_SEED,
 };
 pub use history::HistoryRow;
 // Action tags for `/history` — re-exported so the command's label mapping shares
 // the exact literals the record sites write (no drift).
 pub(crate) use history::{
-    HK_BUY, HK_CHECKIN, HK_CLAIM, HK_LP_FUND, HK_LP_RETURN, HK_MINT, HK_REFERRAL, HK_REFUND,
-    HK_SELL, HK_SEND_IN, HK_SEND_OUT,
+    HK_BUY, HK_CHECKIN, HK_CLAIM, HK_LP_FUND, HK_LP_RETURN, HK_MINT, HK_REFERRAL, HK_REFUND, HK_SELL,
+    HK_SEND_IN, HK_SEND_OUT,
 };
 pub use user::UserRow;
 pub use wager::decimal_payout;
@@ -89,7 +89,10 @@ pub(super) fn credit(tx: &Transaction, user: i64, amount: i64) -> SqlResult<()> 
         "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
         params![user],
     )?;
-    tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, user])?;
+    tx.execute(
+        "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+        params![amount, user],
+    )?;
     Ok(())
 }
 
@@ -159,13 +162,25 @@ impl Database {
             let _ = conn.execute(&format!("DROP TABLE IF EXISTS {t}"), []);
         }
         // AMM `/predict` board location columns, for older event tables.
-        let _ = conn.execute("ALTER TABLE events ADD COLUMN card_chat INTEGER NOT NULL DEFAULT 0", []);
-        let _ = conn.execute("ALTER TABLE events ADD COLUMN card_msg INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute(
+            "ALTER TABLE events ADD COLUMN card_chat INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE events ADD COLUMN card_msg INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // Funding-stage columns (LP price-discovery), for older event tables:
         // `events.open_at` = when funding closes → trading opens; `markets.funded` =
         // per-outcome LP allocation that sets the opening price.
-        let _ = conn.execute("ALTER TABLE events ADD COLUMN open_at INTEGER NOT NULL DEFAULT 0", []);
-        let _ = conn.execute("ALTER TABLE markets ADD COLUMN funded INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute(
+            "ALTER TABLE events ADD COLUMN open_at INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE markets ADD COLUMN funded INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // Small key/value table for bot-wide flags (currently just the admin
         // `paused` kill-switch). Persisted so a pause survives restarts.
         conn.execute(
@@ -213,11 +228,17 @@ impl Database {
         // Best-effort migrations for older buffer tables (predate escrow / TTL).
         // Each statement errors with "duplicate column name" if the column
         // already exists; we swallow those errors.
-        let _ = conn.execute("ALTER TABLE buffer ADD COLUMN kind TEXT NOT NULL DEFAULT 'envelope'", []);
+        let _ = conn.execute(
+            "ALTER TABLE buffer ADD COLUMN kind TEXT NOT NULL DEFAULT 'envelope'",
+            [],
+        );
         let _ = conn.execute("ALTER TABLE buffer ADD COLUMN owner INTEGER", []);
         let _ = conn.execute("ALTER TABLE buffer ADD COLUMN fruits TEXT", []);
         let _ = conn.execute("ALTER TABLE buffer ADD COLUMN price INTEGER", []);
-        let _ = conn.execute("ALTER TABLE buffer ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute(
+            "ALTER TABLE buffer ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // Drop the vestigial `cloth` column from older `balance` tables. Errors
         // (column absent on fresh DBs, or SQLite < 3.35 without DROP COLUMN) are
         // harmless and swallowed — the column simply stays unused if it can't go.
@@ -230,10 +251,7 @@ impl Database {
             [],
         );
         // Add the persisted UI locale (empty = not yet chosen via /start).
-        let _ = conn.execute(
-            "ALTER TABLE balance ADD COLUMN lang TEXT NOT NULL DEFAULT ''",
-            [],
-        );
+        let _ = conn.execute("ALTER TABLE balance ADD COLUMN lang TEXT NOT NULL DEFAULT ''", []);
         // Add the referrer link (0 = joined without a referral).
         let _ = conn.execute(
             "ALTER TABLE balance ADD COLUMN referrer INTEGER NOT NULL DEFAULT 0",
@@ -274,9 +292,8 @@ impl Database {
     fn refund_and_prune_old_buffer(conn: &Connection, cutoff: i64) -> SqlResult<()> {
         // (chat, msg, kind, owner, fruits, price)
         type BufferRefundRow = (i64, i64, String, Option<i64>, Option<String>, Option<i64>);
-        let mut stmt = conn.prepare(
-            "SELECT chat, msg, kind, owner, fruits, price FROM buffer WHERE created_at < ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT chat, msg, kind, owner, fruits, price FROM buffer WHERE created_at < ?1")?;
         let rows: Vec<BufferRefundRow> = stmt
             .query_map(params![cutoff], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
@@ -475,7 +492,10 @@ mod reset_tests {
         db.force_change(10, 50 * COIN).unwrap();
         db.force_change(20, 7 * COIN).unwrap();
         db.force_change(30, 0).unwrap(); // zero coins…
-        db.conn.lock().execute("UPDATE balance SET fruit = '🍎🍌' WHERE user = 30", []).unwrap(); // …but holds fruit
+        db.conn
+            .lock()
+            .execute("UPDATE balance SET fruit = '🍎🍌' WHERE user = 30", [])
+            .unwrap(); // …but holds fruit
         db.force_change(40, 0).unwrap(); // zero coins + no fruit → not exported
 
         let snapshot = db.export_accounts().unwrap();

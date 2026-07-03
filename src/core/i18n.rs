@@ -961,7 +961,6 @@ pub fn home_btn(l: Lang) -> String {
     format!("🏠 {}", menu_start(l))
 }
 
-
 fn menu_balance(l: Lang) -> &'static str {
     tr!(l;
         "Check balance", "查看餘額", "查看余额", "残高を確認", "잔액 확인",
@@ -1205,8 +1204,7 @@ pub fn btn_no_deadline(l: Lang) -> &'static str {
 // ----------------------------------------------------------------------------
 
 /// Neutral, language-agnostic prompt shown before the user has picked a locale.
-pub const CHOOSE_LANGUAGE: &str =
-    "🌐 Please choose your language\n请选择语言 · 言語を選択 · 언어 선택";
+pub const CHOOSE_LANGUAGE: &str = "🌐 Please choose your language\n请选择语言 · 言語を選択 · 언어 선택";
 
 /// Timezone-picker prompt (shown after the language is chosen, so it's localized).
 pub fn choose_timezone(l: Lang) -> &'static str {

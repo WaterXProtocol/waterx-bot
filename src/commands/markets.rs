@@ -97,10 +97,15 @@ fn group_events(items: &[Item], lang: Lang) -> Vec<SourcedEvent> {
                 continue;
             }
         }
-        let (Some(a), Some(b)) = (d.team_a.as_ref(), d.team_b.as_ref()) else { continue };
+        let (Some(a), Some(b)) = (d.team_a.as_ref(), d.team_b.as_ref()) else {
+            continue;
+        };
         let side = |key: &str, name: String| -> Option<SourcedOutcome> {
             let s = r.sides.iter().find(|s| s.key == key)?;
-            Some(SourcedOutcome { name, yes_cents: s.odds_cents })
+            Some(SourcedOutcome {
+                name,
+                yes_cents: s.odds_cents,
+            })
         };
         let outcomes: Vec<SourcedOutcome> = [
             side("teamA", a.name.clone()),
@@ -273,10 +278,7 @@ fn with_back(mut rows: Vec<Row>, lang: Lang, menu_mode: bool) -> Vec<Row> {
 /// and by the sell flow to re-price a held position (a sourced event stores its
 /// `key` as `source_ref`). `Err` = feed fetch/parse failure (worth alerting on);
 /// `Ok(None)` = fetched fine but the event is no longer listed (stale button).
-pub(crate) async fn fetch_one(
-    lang: Lang,
-    key: &str,
-) -> Result<Option<SourcedEvent>, reqwest::Error> {
+pub(crate) async fn fetch_one(lang: Lang, key: &str) -> Result<Option<SourcedEvent>, reqwest::Error> {
     Ok(fetch_markets(lang).await?.into_iter().find(|m| m.key == key))
 }
 
@@ -339,10 +341,7 @@ async fn fetch_markets(lang: Lang) -> Result<Vec<SourcedEvent>, reqwest::Error> 
 /// match). `Ok(None)` when not yet resolved, the slug is empty, or there's no
 /// clear winner (e.g. a void); `Err` on a feed/parse failure. The pure mapping
 /// lives in [`GammaEvent::winning_idx`] (unit-tested for both Gamma shapes).
-pub(crate) async fn gamma_resolution(
-    slug: &str,
-    n_outcomes: usize,
-) -> Result<Option<i64>, reqwest::Error> {
+pub(crate) async fn gamma_resolution(slug: &str, n_outcomes: usize) -> Result<Option<i64>, reqwest::Error> {
     let ticker = slug.strip_prefix("sport-").unwrap_or(slug);
     if ticker.is_empty() || n_outcomes == 0 {
         return Ok(None);
@@ -582,7 +581,11 @@ impl GammaEvent {
             .map(|m| m.group_item_title.trim().to_string())
             .find(|g| is_draw(g) || title.contains(g.as_str()));
         if let Some(g) = yesno {
-            return Some(if is_draw(&g) { WinSide::Draw } else { WinSide::Team(g) });
+            return Some(if is_draw(&g) {
+                WinSide::Draw
+            } else {
+                WinSide::Team(g)
+            });
         }
         self.match_winner_market()
             .and_then(|m| m.winning_outcome(99.0))
@@ -680,7 +683,11 @@ mod tests {
         // regional LoL match, CS2, and the other kinds are all dropped.
         let evs = grouped();
         let keys: Vec<&str> = evs.iter().map(|e| e.key.as_str()).collect();
-        assert_eq!(evs.len(), 2, "World Cup + MSI LoL kept; regional LoL/CS2/awards/crypto dropped");
+        assert_eq!(
+            evs.len(),
+            2,
+            "World Cup + MSI LoL kept; regional LoL/CS2/awards/crypto dropped"
+        );
         assert!(keys.contains(&"sport-fifwc-fra-swe"));
         assert!(keys.contains(&"sport-lol-t1-geng")); // MSI
         assert!(!keys.contains(&"sport-lol-vfb-tog")); // Prime League — dropped

@@ -22,7 +22,10 @@ pub(crate) async fn pay_referral(ctx: &Context, referrer: i64, referee: &User) {
     // silently swallowing it — the binding is already committed, so a lost
     // payout must at least leave a trace.
     if let Err(e) = database.reward_referral(referrer, referee.id, REFERRAL_REWARD) {
-        eprintln!("pay_referral credit failed (referrer {referrer}, referee {}): {e}", referee.id);
+        eprintln!(
+            "pay_referral credit failed (referrer {referrer}, referee {}): {e}",
+            referee.id
+        );
         return;
     }
     let rlang = database.get_lang(referrer).ok().flatten().unwrap_or(Lang::En);
@@ -58,12 +61,15 @@ pub(crate) async fn maybe_bind_group(ctx: &Context, chat_id: i64, user: &User) {
     }
     if let Ok(Some(adder)) = database.group_adder(chat_id) {
         database.force_change(adder, 0).ok(); // ensure the adder has a row to refer from
-        // The group owner co-refers when distinct from the adder.
+                                              // The group owner co-refers when distinct from the adder.
         let owner = resolve_group_owner(ctx, chat_id).await.filter(|o| *o != adder);
         if let Some(o) = owner {
             database.force_change(o, 0).ok();
         }
-        if database.bind_group_referral(user.id, adder, owner.unwrap_or(0)).unwrap_or(false) {
+        if database
+            .bind_group_referral(user.id, adder, owner.unwrap_or(0))
+            .unwrap_or(false)
+        {
             pay_group_referral(ctx, adder, owner, user).await;
         }
     }
@@ -90,16 +96,29 @@ async fn pay_group_referral(ctx: &Context, adder: i64, owner: Option<i64>, refer
     let database = db(ctx);
     let co = owner.unwrap_or(0);
     if let Err(e) = database.reward_group_signup(adder, co, referee.id, REFERRAL_REWARD) {
-        eprintln!("pay_group_referral credit failed (adder {adder}, owner {co}, referee {}): {e}", referee.id);
+        eprintln!(
+            "pay_group_referral credit failed (adder {adder}, owner {co}, referee {}): {e}",
+            referee.id
+        );
         return;
     }
     let split = co > 0 && co != adder;
     let half = REFERRAL_REWARD / 2;
     let adder_amt = if split { half } else { REFERRAL_REWARD };
     let alang = database.get_lang(adder).ok().flatten().unwrap_or(Lang::En);
-    let _ = send_text(ctx, adder, i18n::referral_bonus(alang, &full_name(referee), &fmt_coins(adder_amt))).await;
+    let _ = send_text(
+        ctx,
+        adder,
+        i18n::referral_bonus(alang, &full_name(referee), &fmt_coins(adder_amt)),
+    )
+    .await;
     if split {
         let olang = database.get_lang(co).ok().flatten().unwrap_or(Lang::En);
-        let _ = send_text(ctx, co, i18n::referral_bonus(olang, &full_name(referee), &fmt_coins(REFERRAL_REWARD - half))).await;
+        let _ = send_text(
+            ctx,
+            co,
+            i18n::referral_bonus(olang, &full_name(referee), &fmt_coins(REFERRAL_REWARD - half)),
+        )
+        .await;
     }
 }

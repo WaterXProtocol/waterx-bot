@@ -15,9 +15,9 @@ use crate::commands::menu;
 use crate::commands::tg;
 use crate::commands::tg::{answer, CbMessage};
 use crate::commands::util::*;
-use crate::database::{decimal_payout, TradeOutcome, COIN};
 use crate::core::i18n::{self, Lang};
 use crate::core::types::OddsFormat;
+use crate::database::{decimal_payout, TradeOutcome, COIN};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -61,7 +61,10 @@ pub struct Quote {
 impl Quote {
     /// YES odds (cents) for outcome `idx`, if priced (> 0).
     fn yes(&self, idx: usize) -> Option<f64> {
-        self.outcomes.get(idx).and_then(|o| o.yes_cents).filter(|c| *c > 0.0)
+        self.outcomes
+            .get(idx)
+            .and_then(|o| o.yes_cents)
+            .filter(|c| *c > 0.0)
     }
 
     /// Display name of outcome `idx` (already localized by the feed).
@@ -182,7 +185,10 @@ fn option_rows(q: &Quote, lang: Lang, fmt: OddsFormat, is_group: bool) -> Vec<tg
     // it (today's matches). In a **group** the card is a shared surface — a back
     // tap would yank everyone out of it — so it carries no back row.
     if !is_group {
-        rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_MARKETS.to_string())]);
+        rows.push(vec![(
+            i18n::bet_btn_back(lang).to_string(),
+            menu::MENU_MARKETS.to_string(),
+        )]);
     }
     rows
 }
@@ -203,11 +209,7 @@ fn quote_text(q: &Quote, lang: Lang, fmt: OddsFormat) -> String {
 /// brief is replaced in place with the card, so the chat converges on one focal
 /// message. The card is **stateless** — its outcome buttons carry the event key, so
 /// a tap re-prices on demand (`handle_opt`); nothing is stored in `QuoteStore` here.
-pub async fn handle_bet(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    key: &str,
-) -> Result<(), telexide::Error> {
+pub async fn handle_bet(ctx: &Context, cb: &CallbackQuery, key: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let m = match markets::fetch_one(lang, key).await {
         Ok(Some(m)) => m,
@@ -341,7 +343,10 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         match tg::send_with_buttons_reply(ctx, cb.message_chat(), cb.message_id(), &btext, &brows).await {
             Ok(_) => answer(ctx, cb, "", false).await,
             Err(e) => {
-                eprintln!("[opt] stake board post failed (chat {}): {e:?}", cb.message_chat());
+                eprintln!(
+                    "[opt] stake board post failed (chat {}): {e:?}",
+                    cb.message_chat()
+                );
                 answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await
             }
         }
@@ -373,11 +378,7 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
 /// share settles to 1 coin, the "potential payout" shown is the share count — the
 /// same number the old fixed-odds flow displayed — but the position can now also
 /// be sold back before settlement.
-pub async fn handle_size_place(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
+pub async fn handle_size_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some([qid, idx, total]) = parse_ints::<3>(rest) else {
         return answer(ctx, cb, "", false).await;
@@ -422,17 +423,9 @@ pub async fn handle_size_place(
         }
     };
     // Atomic debit + share credit in one transaction (house-banked).
-    let shares = match database.sourced_buy(
-        event_id,
-        idx as i64,
-        cb.from.id,
-        spend_units,
-        price_cents,
-    ) {
+    let shares = match database.sourced_buy(event_id, idx as i64, cb.from.id, spend_units, price_cents) {
         Ok(TradeOutcome::Filled { shares, .. }) => shares,
-        Ok(TradeOutcome::Rejected) => {
-            return answer(ctx, cb, i18n::not_enough_money(lang), true).await
-        }
+        Ok(TradeOutcome::Rejected) => return answer(ctx, cb, i18n::not_enough_money(lang), true).await,
         Ok(TradeOutcome::Unavailable) => return expire(ctx, cb, lang).await,
         Err(err) => {
             eprintln!("sourced_buy error: {err}");
@@ -444,14 +437,25 @@ pub async fn handle_size_place(
     // 1 share settles to 1 coin, so the share count *is* the potential payout.
     let side = q.name(idx);
     let odds_str = format_odds(price_cents, database.get_odds_fmt(cb.from.id).unwrap_or_default());
-    let placed = i18n::bet_placed(lang, &fmt_coins(spend_units), &side, &odds_str, &fmt_coins(shares));
+    let placed = i18n::bet_placed(
+        lang,
+        &fmt_coins(spend_units),
+        &side,
+        &odds_str,
+        &fmt_coins(shares),
+    );
     if is_group_chat(q.origin_chat) {
         // Group: the stake board is its own message — delete it and post the
         // result as a reply to the event card it was bet on (falling back to a
         // loose message if that card is gone).
         let _ = tg::delete_message(ctx, cb.message_chat(), cb.message_id()).await;
-        let announce =
-            i18n::bet_announce(lang, &full_name(&cb.from), &fmt_coins(spend_units), &side, &odds_str);
+        let announce = i18n::bet_announce(
+            lang,
+            &full_name(&cb.from),
+            &fmt_coins(spend_units),
+            &side,
+            &odds_str,
+        );
         if q.origin_msg != 0 {
             let _ = tg::send_text_reply(ctx, q.origin_chat, q.origin_msg, &announce).await;
         } else {
@@ -495,18 +499,35 @@ fn builder_text_rows(
     let text = board_header(
         q.origin_chat,
         owner_name,
-        &i18n::bet_build(lang, &side, &format_odds(odds, fmt), &fmt_coins(stake_units), &win),
+        &i18n::bet_build(
+            lang,
+            &side,
+            &format_odds(odds, fmt),
+            &fmt_coins(stake_units),
+            &win,
+        ),
     );
     let add_row: tg::Row = WHOLE_COIN_PRESETS
         .iter()
-        .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{idx}:{}", total.saturating_add(*p))))
+        .map(|p| {
+            (
+                format!("+{p}"),
+                format!("{SIZE}{qid}:{idx}:{}", total.saturating_add(*p)),
+            )
+        })
         .collect();
     // Confirm places the bet straight away (re-pricing at place time) — no
     // separate confirmation screen. In a group the board is its own message, so
     // the owner's Dismiss rides on the same action row.
     let mut action_row = vec![
-        (i18n::bet_btn_confirm(lang).to_string(), format!("{SIZE_PLACE}{qid}:{idx}:{total}")),
-        (i18n::bet_btn_clear(lang).to_string(), format!("{SIZE}{qid}:{idx}:0")),
+        (
+            i18n::bet_btn_confirm(lang).to_string(),
+            format!("{SIZE_PLACE}{qid}:{idx}:{total}"),
+        ),
+        (
+            i18n::bet_btn_clear(lang).to_string(),
+            format!("{SIZE}{qid}:{idx}:0"),
+        ),
     ];
     if is_group_chat(q.origin_chat) {
         action_row.push((i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{}", q.owner)));
@@ -538,9 +559,7 @@ async fn render_builder(
     };
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     // Owner-locked, so the presser is the owner — head the board with their name.
-    let Some((text, rows)) =
-        builder_text_rows(lang, &q, qid, idx, total, fmt, &full_name(&cb.from))
-    else {
+    let Some((text, rows)) = builder_text_rows(lang, &q, qid, idx, total, fmt, &full_name(&cb.from)) else {
         return answer(ctx, cb, "", false).await;
     };
     tg::edit_cb(ctx, cb, &text, &rows).await;
@@ -599,8 +618,14 @@ mod tests {
             key: "sport-x".into(),
             title: "A vs B".into(),
             outcomes: vec![
-                markets::SourcedOutcome { name: "A".into(), yes_cents: Some(60.0) },
-                markets::SourcedOutcome { name: "B".into(), yes_cents: Some(40.0) },
+                markets::SourcedOutcome {
+                    name: "A".into(),
+                    yes_cents: Some(60.0),
+                },
+                markets::SourcedOutcome {
+                    name: "B".into(),
+                    yes_cents: Some(40.0),
+                },
             ],
             ends_at: 0,
             quoted_at: 0,

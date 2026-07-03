@@ -41,7 +41,10 @@ pub fn opening_prices(funded: &[i64]) -> Vec<f64> {
     } else {
         funded.iter().map(|&f| f.max(0) as f64 / total as f64).collect()
     };
-    let clamped: Vec<f64> = raw.iter().map(|&p| p.clamp(PRICE_FLOOR, 1.0 - PRICE_FLOOR)).collect();
+    let clamped: Vec<f64> = raw
+        .iter()
+        .map(|&p| p.clamp(PRICE_FLOOR, 1.0 - PRICE_FLOOR))
+        .collect();
     let s: f64 = clamped.iter().sum();
     clamped.iter().map(|&p| p / s).collect()
 }
@@ -51,7 +54,11 @@ pub fn opening_prices(funded: &[i64]) -> Vec<f64> {
 /// finite and positive; for a uniform open this is `seed / ln k`, matching
 /// [`lmsr::seed_escrow`].
 pub fn seed_to_b(seed: f64, prices: &[f64]) -> f64 {
-    let p_min = prices.iter().copied().fold(f64::INFINITY, f64::min).max(PRICE_FLOOR);
+    let p_min = prices
+        .iter()
+        .copied()
+        .fold(f64::INFINITY, f64::min)
+        .max(PRICE_FLOOR);
     let denom = (1.0 / p_min).ln();
     if denom <= 0.0 {
         return seed; // degenerate (k < 2 / p_min == 1) — never happens for k ≥ 2

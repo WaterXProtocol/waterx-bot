@@ -46,14 +46,7 @@ pub(super) fn record(
     tx.execute(
         "INSERT INTO history (user, at, kind, delta, event_id, counter)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            user,
-            super::current_unix_time(),
-            kind,
-            delta,
-            event_id,
-            counter
-        ],
+        params![user, super::current_unix_time(), kind, delta, event_id, counter],
     )?;
     Ok(())
 }

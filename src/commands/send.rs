@@ -27,10 +27,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
 
     let database = db(&ctx);
     let bot_id: i64 = *ctx.data.read().get::<BotIdKey>().expect("BotIdKey missing");
-    let reply_target = message
-        .reply_to_message
-        .as_ref()
-        .and_then(|r| r.from.clone());
+    let reply_target = message.reply_to_message.as_ref().and_then(|r| r.from.clone());
 
     // === coin path ===
     if let Ok(amount) = parts[0].parse::<i64>() {
@@ -39,10 +36,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
             return Ok(());
         };
 
-        let direct_target = reply_target
-            .as_ref()
-            .filter(|u| u.id != bot_id)
-            .cloned();
+        let direct_target = reply_target.as_ref().filter(|u| u.id != bot_id).cloned();
         if let Some(receiver) = direct_target {
             // Reply target is a real user → **atomic** direct transfer: debit and
             // credit happen in one DB transaction, so coins can never be taken
@@ -96,7 +90,10 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         if let Err(e) = database.insert_buffer(sent.chat.get_id(), sent.message_id, sender.id, units) {
             // Button is live but the claim checks for this buffer row, so the
             // coins would be stuck — refund the sender.
-            eprintln!("envelope insert_buffer failed, refunding sender {}: {e}", sender.id);
+            eprintln!(
+                "envelope insert_buffer failed, refunding sender {}: {e}",
+                sender.id
+            );
             refund_or_log(&database, sender.id, units);
             return Ok(());
         }

@@ -26,7 +26,7 @@ pub const PM_RESOLVE: &str = "pm:resolve:"; // pm:resolve:<event>
 pub const PM_WIN: &str = "pm:win:"; // pm:win:<event>:<idx>
 pub const PM_VOID: &str = "pm:void:"; // pm:void:<event>
 pub const PM_BACK: &str = "pm:back:"; // pm:back:<event>
-// Funding stage (LP price discovery): pick an outcome → amount builder → add.
+                                      // Funding stage (LP price discovery): pick an outcome → amount builder → add.
 pub const PM_FUND: &str = "pm:fund:"; // pm:fund:<event>:<idx>
 pub const PM_FSIZE: &str = "pm:fsz:"; // pm:fsz:<event>:<idx>:<owner>:<amount>
 pub const PM_FPLACE: &str = "pm:fgo:"; // pm:fgo:<event>:<idx>:<owner>:<amount>
@@ -39,12 +39,17 @@ fn circled(n: usize) -> String {
 /// Each outcome's YES price in cents from the LMSR curve (`SHARE == COIN`).
 fn prices_cents(b: &AmmBoard) -> Vec<f64> {
     let q: Vec<f64> = b.options.iter().map(|(_, q)| *q as f64 / COIN as f64).collect();
-    (0..b.options.len()).map(|i| lmsr::price(&q, b.b_param as f64, i) * 100.0).collect()
+    (0..b.options.len())
+        .map(|i| lmsr::price(&q, b.b_param as f64, i) * 100.0)
+        .collect()
 }
 
 /// Implied opening prices (cents) from the funding tally `pₖ = fundedₖ / Σ`.
 fn funding_cents(b: &AmmBoard) -> Vec<f64> {
-    crate::core::lmsr_fund::opening_prices(&b.funded).iter().map(|p| p * 100.0).collect()
+    crate::core::lmsr_fund::opening_prices(&b.funded)
+        .iter()
+        .map(|p| p * 100.0)
+        .collect()
 }
 
 /// The funding-stage board: question + opening tally (each outcome's implied price
@@ -73,7 +78,10 @@ fn funding_text(b: &AmmBoard) -> String {
     if b.pool >= MIN_SEED.saturating_mul(COIN) {
         s.push_str(&format!("  ·  {}", i18n::funding_ready(lang)));
     } else {
-        s.push_str(&format!("  ·  {}", i18n::funding_need(lang, &MIN_SEED.to_string())));
+        s.push_str(&format!(
+            "  ·  {}",
+            i18n::funding_need(lang, &MIN_SEED.to_string())
+        ));
     }
     s
 }
@@ -91,7 +99,10 @@ fn funding_board_rows(b: &AmmBoard) -> Vec<tg::Row> {
         .chunks(3)
         .map(<[_]>::to_vec)
         .collect();
-    rows.push(vec![(i18n::void_label(lang).to_string(), format!("{PM_VOID}{}", b.event_id))]);
+    rows.push(vec![(
+        i18n::void_label(lang).to_string(),
+        format!("{PM_VOID}{}", b.event_id),
+    )]);
     rows
 }
 
@@ -116,9 +127,16 @@ fn board_text(b: &AmmBoard) -> String {
     }
     let cents = prices_cents(b);
     for (i, (name, _)) in b.options.iter().enumerate() {
-        s.push_str(&format!("\n{} {name}   {}", circled(i + 1), format_odds(cents[i], fmt)));
+        s.push_str(&format!(
+            "\n{} {name}   {}",
+            circled(i + 1),
+            format_odds(cents[i], fmt)
+        ));
     }
-    s.push_str(&format!("\n\n{}", i18n::board_footer_open(lang, &fmt_coins(b.pool))));
+    s.push_str(&format!(
+        "\n\n{}",
+        i18n::board_footer_open(lang, &fmt_coins(b.pool))
+    ));
     // Terminal states append the result line below the board.
     match b.state.as_str() {
         "resolved" => {
@@ -154,7 +172,10 @@ fn board_rows(b: &AmmBoard) -> Vec<tg::Row> {
         .chunks(3)
         .map(<[_]>::to_vec)
         .collect();
-    rows.push(vec![(i18n::close_button(lang).to_string(), format!("{PM_RESOLVE}{}", b.event_id))]);
+    rows.push(vec![(
+        i18n::close_button(lang).to_string(),
+        format!("{PM_RESOLVE}{}", b.event_id),
+    )]);
     rows
 }
 
@@ -171,8 +192,14 @@ fn resolve_rows(b: &AmmBoard) -> Vec<tg::Row> {
         .map(<[_]>::to_vec)
         .collect();
     rows.push(vec![
-        (i18n::void_label(lang).to_string(), format!("{PM_VOID}{}", b.event_id)),
-        (i18n::bet_btn_back(lang).to_string(), format!("{PM_BACK}{}", b.event_id)),
+        (
+            i18n::void_label(lang).to_string(),
+            format!("{PM_VOID}{}", b.event_id),
+        ),
+        (
+            i18n::bet_btn_back(lang).to_string(),
+            format!("{PM_BACK}{}", b.event_id),
+        ),
     ]);
     rows
 }
@@ -207,22 +234,48 @@ fn builder(
     let name = b.options.get(idx as usize).map(|(n, _)| n.as_str()).unwrap_or("");
     let price = prices_cents(b).get(idx as usize).copied().unwrap_or(0.0);
     let spend_micro = spend_whole.max(0).saturating_mul(COIN);
-    let shares = db(ctx).amm_buy_quote(b.event_id, idx, spend_micro).ok().flatten().unwrap_or(0);
-    let body = i18n::bet_build(lang, name, &format_odds(price, fmt), &fmt_coins(spend_micro), &fmt_coins(shares));
+    let shares = db(ctx)
+        .amm_buy_quote(b.event_id, idx, spend_micro)
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+    let body = i18n::bet_build(
+        lang,
+        name,
+        &format_odds(price, fmt),
+        &fmt_coins(spend_micro),
+        &fmt_coins(shares),
+    );
     let text = board_header(chat, owner_name, &body);
     let preset_row: tg::Row = WHOLE_COIN_PRESETS
         .iter()
         .map(|p| {
-            (format!("+{p}"), format!("{PM_SIZE}{}:{idx}:{owner}:{}", b.event_id, spend_whole.saturating_add(*p)))
+            (
+                format!("+{p}"),
+                format!(
+                    "{PM_SIZE}{}:{idx}:{owner}:{}",
+                    b.event_id,
+                    spend_whole.saturating_add(*p)
+                ),
+            )
         })
         .collect();
     let action_row = vec![
-        (i18n::bet_btn_confirm(lang).to_string(), format!("{PM_PLACE}{}:{idx}:{owner}:{spend_whole}", b.event_id)),
-        (i18n::bet_btn_clear(lang).to_string(), format!("{PM_SIZE}{}:{idx}:{owner}:0", b.event_id)),
+        (
+            i18n::bet_btn_confirm(lang).to_string(),
+            format!("{PM_PLACE}{}:{idx}:{owner}:{spend_whole}", b.event_id),
+        ),
+        (
+            i18n::bet_btn_clear(lang).to_string(),
+            format!("{PM_SIZE}{}:{idx}:{owner}:0", b.event_id),
+        ),
     ];
     let mut rows = vec![preset_row, action_row];
     if is_group_chat(chat) {
-        rows.push(vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}"))]);
+        rows.push(vec![(
+            i18n::bet_btn_dismiss(lang).to_string(),
+            format!("bx:{owner}"),
+        )]);
     }
     (text, rows)
 }
@@ -245,7 +298,17 @@ pub async fn handle_buy(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     }
     let (chat, msg) = tg::cb_coords(cb);
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let (text, rows) = builder(ctx, lang, fmt, &board, idx, cb.from.id, 0, chat, &full_name(&cb.from));
+    let (text, rows) = builder(
+        ctx,
+        lang,
+        fmt,
+        &board,
+        idx,
+        cb.from.id,
+        0,
+        chat,
+        &full_name(&cb.from),
+    );
     answer(ctx, cb, "", false).await?;
     if is_group_chat(chat) {
         let _ = tg::send_with_buttons_reply(ctx, chat, msg, &text, &rows).await;
@@ -269,7 +332,17 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     };
     let (chat, msg) = tg::cb_coords(cb);
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let (text, rows) = builder(ctx, lang, fmt, &board, idx, owner, spend, chat, &full_name(&cb.from));
+    let (text, rows) = builder(
+        ctx,
+        lang,
+        fmt,
+        &board,
+        idx,
+        owner,
+        spend,
+        chat,
+        &full_name(&cb.from),
+    );
     let _ = tg::edit_with_buttons(ctx, chat, msg, &text, &rows).await;
     answer(ctx, cb, "", false).await
 }
@@ -346,23 +419,42 @@ fn fund_builder(
     if let Some(f) = funded.get_mut(idx as usize) {
         *f = f.saturating_add(amount_micro);
     }
-    let cents =
-        crate::core::lmsr_fund::opening_prices(&funded).get(idx as usize).copied().unwrap_or(0.0) * 100.0;
+    let cents = crate::core::lmsr_fund::opening_prices(&funded)
+        .get(idx as usize)
+        .copied()
+        .unwrap_or(0.0)
+        * 100.0;
     let body = i18n::fund_build(lang, name, &fmt_coins(amount_micro), &format_odds(cents, fmt));
     let text = board_header(chat, owner_name, &body);
     let preset_row: tg::Row = WHOLE_COIN_PRESETS
         .iter()
         .map(|p| {
-            (format!("+{p}"), format!("{PM_FSIZE}{}:{idx}:{owner}:{}", b.event_id, amount_whole.saturating_add(*p)))
+            (
+                format!("+{p}"),
+                format!(
+                    "{PM_FSIZE}{}:{idx}:{owner}:{}",
+                    b.event_id,
+                    amount_whole.saturating_add(*p)
+                ),
+            )
         })
         .collect();
     let action_row = vec![
-        (i18n::bet_btn_confirm(lang).to_string(), format!("{PM_FPLACE}{}:{idx}:{owner}:{amount_whole}", b.event_id)),
-        (i18n::bet_btn_clear(lang).to_string(), format!("{PM_FSIZE}{}:{idx}:{owner}:0", b.event_id)),
+        (
+            i18n::bet_btn_confirm(lang).to_string(),
+            format!("{PM_FPLACE}{}:{idx}:{owner}:{amount_whole}", b.event_id),
+        ),
+        (
+            i18n::bet_btn_clear(lang).to_string(),
+            format!("{PM_FSIZE}{}:{idx}:{owner}:0", b.event_id),
+        ),
     ];
     let mut rows = vec![preset_row, action_row];
     if is_group_chat(chat) {
-        rows.push(vec![(i18n::bet_btn_dismiss(lang).to_string(), format!("bx:{owner}"))]);
+        rows.push(vec![(
+            i18n::bet_btn_dismiss(lang).to_string(),
+            format!("bx:{owner}"),
+        )]);
     }
     (text, rows)
 }
@@ -435,7 +527,11 @@ pub async fn handle_fund_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
     if idx < 0 || idx as usize >= board.options.len() {
         return answer(ctx, cb, "", false).await;
     }
-    let name = board.options.get(idx as usize).map(|(n, _)| n.clone()).unwrap_or_default();
+    let name = board
+        .options
+        .get(idx as usize)
+        .map(|(n, _)| n.clone())
+        .unwrap_or_default();
     let mut alloc = vec![0i64; board.options.len()];
     alloc[idx as usize] = amount;
     match db(ctx).add_liquidity(event_id, cb.from.id, &alloc, now()) {
@@ -503,7 +599,11 @@ pub async fn handle_win(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     if cb.from.id != board.host {
         return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
     }
-    let winner = board.options.get(idx as usize).map(|(n, _)| n.clone()).unwrap_or_default();
+    let winner = board
+        .options
+        .get(idx as usize)
+        .map(|(n, _)| n.clone())
+        .unwrap_or_default();
     match db(ctx).resolve_event(event_id, idx, now()) {
         Ok(true) => {
             refresh_card(ctx, event_id).await;

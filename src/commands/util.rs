@@ -49,11 +49,7 @@ pub fn http_client() -> &'static reqwest::Client {
     })
 }
 
-pub async fn reply(
-    ctx: &Context,
-    msg: &Message,
-    text: impl Into<String>,
-) -> Result<(), CommandError> {
+pub async fn reply(ctx: &Context, msg: &Message, text: impl Into<String>) -> Result<(), CommandError> {
     let text = text.into();
     let mut sm = SendMessage::new(msg.chat.get_id().into(), text);
     sm.reply_to_message_id = Some(msg.message_id);
@@ -335,7 +331,12 @@ pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandE
         true
     });
     if paused {
-        reply(ctx, msg, crate::core::i18n::service_paused(lang_for_msg(ctx, msg))).await?;
+        reply(
+            ctx,
+            msg,
+            crate::core::i18n::service_paused(lang_for_msg(ctx, msg)),
+        )
+        .await?;
         return Ok(true);
     }
     // Group referral: a brand-new member's first interaction binds them to the
@@ -539,7 +540,7 @@ mod tests {
         assert_eq!(fmt_coins(7_692_308), "7.69");
         // Half-up rounding at the 3rd decimal.
         assert_eq!(fmt_coins(1_005_000), "1.01"); // 1.005 → 1.01
-        // Sub-cent amounts round to 0 (no "-0").
+                                                  // Sub-cent amounts round to 0 (no "-0").
         assert_eq!(fmt_coins(COIN / 1000), "0"); // 0.001 → 0
         assert_eq!(fmt_coins(-(COIN / 1000)), "0");
     }

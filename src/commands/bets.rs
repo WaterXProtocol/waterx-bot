@@ -19,7 +19,10 @@ pub async fn bets(ctx: Context, message: Message) -> CommandResult {
     // chat (the picker edits the message into the tapper's holdings; in a shared
     // group message that would mix users), matching the `/assets` view.
     if holds && !is_group_chat(chat) {
-        let rows = vec![vec![(i18n::btn_sell(lang).to_string(), selling::SELL_PICK.to_string())]];
+        let rows = vec![vec![(
+            i18n::btn_sell(lang).to_string(),
+            selling::SELL_PICK.to_string(),
+        )]];
         tg::send_with_buttons(&ctx, chat, &body, &rows).await?;
     } else {
         reply(&ctx, &message, body).await?;

@@ -8,23 +8,23 @@ pub mod balance;
 pub mod bets;
 pub mod betting;
 pub mod buy;
+pub mod callbacks;
 pub mod checkin;
 pub mod claim;
-pub mod callbacks;
 pub mod feedback;
 pub mod history;
+pub mod markets;
+pub mod onlyreplyhere;
 pub mod predict;
 pub mod predmarket;
-pub mod settings;
-pub mod markets;
 pub mod referral;
+pub mod replyanywhere;
 pub mod rule;
 pub mod sell;
 pub mod selling;
 pub mod send;
+pub mod settings;
 pub mod settle;
-pub mod onlyreplyhere;
-pub mod replyanywhere;
 pub mod start;
 pub mod timezone;
 
@@ -43,15 +43,15 @@ pub use history::*;
 // surface the `_COMMAND` statics for `create_framework!`.
 #[allow(ambiguous_glob_reexports)]
 pub use feedback::*;
+pub use markets::*;
+pub use onlyreplyhere::*;
 #[allow(ambiguous_glob_reexports)]
 pub use predict::*;
-pub use settings::*;
+pub use replyanywhere::*;
 pub use rule::*;
-pub use markets::*;
 pub use sell::*;
 pub use send::*;
+pub use settings::*;
 pub use settle::*;
-pub use onlyreplyhere::*;
-pub use replyanywhere::*;
 pub use start::*;
 pub use timezone::*;

@@ -79,7 +79,10 @@ async fn locked_thread(ctx: &Context, chat_id: i64) -> Option<i64> {
     if chat_id >= 0 {
         return None; // private chats have no topics
     }
-    crate::commands::util::db(ctx).reply_thread(chat_id).ok().flatten()
+    crate::commands::util::db(ctx)
+        .reply_thread(chat_id)
+        .ok()
+        .flatten()
 }
 
 /// Attach `message_thread_id` to a **non-reply** `sendMessage` payload when
@@ -103,11 +106,7 @@ async fn with_thread(ctx: &Context, chat_id: i64, mut payload: Value) -> Value {
 /// `false` on any API error or for a non-admin status.
 pub async fn is_chat_admin(ctx: &Context, chat_id: i64, user_id: i64) -> bool {
     let payload = json!({ "chat_id": chat_id, "user_id": user_id });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::GetChatMember, Some(payload))
-        .await
-        .ok();
+    let resp = ctx.api.post(APIEndpoint::GetChatMember, Some(payload)).await.ok();
     let Some(resp) = resp else { return false };
     let Ok(v) = Into::<telexide::Result<Value>>::into(resp) else {
         return false;
@@ -181,11 +180,16 @@ pub async fn send_with_buttons(
     text: &str,
     rows: &[Row],
 ) -> Result<Message, CommandError> {
-    let payload = with_thread(ctx, chat_id, json!({
-        "chat_id": chat_id,
-        "text": text,
-        "reply_markup": build_keyboard(rows),
-    })).await;
+    let payload = with_thread(
+        ctx,
+        chat_id,
+        json!({
+            "chat_id": chat_id,
+            "text": text,
+            "reply_markup": build_keyboard(rows),
+        }),
+    )
+    .await;
     post_send(ctx, payload).await
 }
 
@@ -216,11 +220,7 @@ pub async fn send_with_buttons_reply(
 /// Delete a message (best-effort). Used to remove a per-user stake board once the
 /// bet is placed or dismissed. A logical failure (already gone) converts to an
 /// `Err` the caller can ignore.
-pub async fn delete_message(
-    ctx: &Context,
-    chat_id: i64,
-    message_id: i64,
-) -> Result<(), CommandError> {
+pub async fn delete_message(ctx: &Context, chat_id: i64, message_id: i64) -> Result<(), CommandError> {
     ctx.api
         .delete_message(DeleteMessage::new(chat_id.into(), message_id))
         .await?;
@@ -278,11 +278,16 @@ pub fn escape(s: &str) -> String {
 /// Send a plain message with `parse_mode: HTML` (used for the tap-to-copy
 /// `<code>` invite link). No inline keyboard.
 pub async fn send_html(ctx: &Context, chat_id: i64, text: &str) -> Result<(), CommandError> {
-    let payload = with_thread(ctx, chat_id, json!({
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-    })).await;
+    let payload = with_thread(
+        ctx,
+        chat_id,
+        json!({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+        }),
+    )
+    .await;
     post_send(ctx, payload).await?;
     Ok(())
 }
@@ -357,10 +362,7 @@ pub async fn pin_message(ctx: &Context, chat_id: i64, message_id: i64) -> Result
         "message_id": message_id,
         "disable_notification": true,
     });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::PinChatMessage, Some(payload))
-        .await?;
+    let resp = ctx.api.post(APIEndpoint::PinChatMessage, Some(payload)).await?;
     let v: telexide::Result<serde_json::Value> = resp.into();
     v?;
     Ok(())
@@ -374,10 +376,7 @@ pub async fn unpin_message(ctx: &Context, chat_id: i64, message_id: i64) -> Resu
         "chat_id": chat_id,
         "message_id": message_id,
     });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::UnpinChatMessage, Some(payload))
-        .await?;
+    let resp = ctx.api.post(APIEndpoint::UnpinChatMessage, Some(payload)).await?;
     let v: telexide::Result<serde_json::Value> = resp.into();
     v?;
     Ok(())
@@ -476,17 +475,15 @@ async fn send_photo_form(
     }
     // result.photo is an array of sizes; the last is the largest. Any parse miss
     // just means "no cached id" — harmless, we'll re-upload next time.
-    let file_id = serde_json::from_str::<Value>(&body)
-        .ok()
-        .and_then(|v| {
-            v.get("result")?
-                .get("photo")?
-                .as_array()?
-                .last()?
-                .get("file_id")?
-                .as_str()
-                .map(str::to_string)
-        });
+    let file_id = serde_json::from_str::<Value>(&body).ok().and_then(|v| {
+        v.get("result")?
+            .get("photo")?
+            .as_array()?
+            .last()?
+            .get("file_id")?
+            .as_str()
+            .map(str::to_string)
+    });
     Ok(file_id)
 }
 

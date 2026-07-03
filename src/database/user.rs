@@ -207,11 +207,9 @@ impl Database {
                     super::credit_and_log(tx, up, bonus, super::HK_REFERRAL, None, Some(user_id))?;
                 }
                 up = tx
-                    .query_row(
-                        "SELECT referrer FROM balance WHERE user = ?1",
-                        params![up],
-                        |r| r.get(0),
-                    )
+                    .query_row("SELECT referrer FROM balance WHERE user = ?1", params![up], |r| {
+                        r.get(0)
+                    })
                     .optional()?
                     .unwrap_or(0);
             }

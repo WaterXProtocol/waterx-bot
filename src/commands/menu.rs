@@ -64,9 +64,8 @@ pub fn odds_picker_rows(lang: Lang, current: OddsFormat) -> Vec<Row> {
 /// Every real-world UTC offset (minutes east of UTC), -12:00 … +14:00, including
 /// the :30/:45 ones — so the picker lists all timezones.
 const TZ_OFFSETS: &[i64] = &[
-    -720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180, -120, -60, 0, 60, 120,
-    180, 210, 240, 270, 300, 330, 345, 360, 390, 420, 480, 525, 540, 570, 600, 630, 660, 720, 765,
-    780, 840,
+    -720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180, -120, -60, 0, 60, 120, 180, 210,
+    240, 270, 300, 330, 345, 360, 390, 420, 480, 525, 540, 570, 600, 630, 660, 720, 765, 780, 840,
 ];
 
 /// Timezone picker: one button per curated offset, four per row, labelled

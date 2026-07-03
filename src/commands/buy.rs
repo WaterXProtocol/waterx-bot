@@ -15,10 +15,7 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
     }
     // Restrict /buy to the canonical fruit set — matches the original Python
     // (`if fruit in self.sorry_reply`). Garbage characters are silently dropped.
-    let fruits: String = parts[0]
-        .chars()
-        .filter(|c| SORRY_FRUITS.contains(c))
-        .collect();
+    let fruits: String = parts[0].chars().filter(|c| SORRY_FRUITS.contains(c)).collect();
     if fruits.is_empty() {
         reply(&ctx, &message, i18n::messing_around(lang)).await?;
         return Ok(());
@@ -37,8 +34,7 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
         i18n::buy_button(lang, &format_number(price)),
         format!("buy:{}:{fruits}:{price}", buyer.id),
     )]];
-    let sent =
-        tg::send_with_buttons(&ctx, message.chat.get_id(), i18n::loading(lang), &rows).await?;
+    let sent = tg::send_with_buttons(&ctx, message.chat.get_id(), i18n::loading(lang), &rows).await?;
 
     let database = db(&ctx);
     if !database.open_buy_offer(

@@ -14,10 +14,8 @@ impl BotConfig {
     /// Required: `BOT_TOKEN`, `BOT_OWNER`.
     /// Optional: `BOT_DEV` (default `true`; falsy values: `false`, `0`).
     pub fn from_env() -> anyhow::Result<Self> {
-        let token = env::var("BOT_TOKEN")
-            .map_err(|_| anyhow::anyhow!("BOT_TOKEN not set"))?;
-        let owner_raw = env::var("BOT_OWNER")
-            .map_err(|_| anyhow::anyhow!("BOT_OWNER not set"))?;
+        let token = env::var("BOT_TOKEN").map_err(|_| anyhow::anyhow!("BOT_TOKEN not set"))?;
+        let owner_raw = env::var("BOT_OWNER").map_err(|_| anyhow::anyhow!("BOT_OWNER not set"))?;
         let owner: i64 = owner_raw
             .parse()
             .map_err(|e| anyhow::anyhow!("BOT_OWNER must be an integer: {e}"))?;

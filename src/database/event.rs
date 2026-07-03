@@ -41,7 +41,12 @@ pub enum TradeOutcome {
     /// micro-coins retained in the pool for the host; `basis` = the cost basis
     /// **removed** by the trade (0 for a buy; the pro-rata cost of the sold shares
     /// for a sell), so realized P&L on a sell is `coins − basis`.
-    Filled { shares: i64, coins: i64, fee: i64, basis: i64 },
+    Filled {
+        shares: i64,
+        coins: i64,
+        fee: i64,
+        basis: i64,
+    },
     /// Not enough balance (buy) or not enough shares held (sell), or the spend is
     /// too small to mint a whole micro-share. Nothing written.
     Rejected,
@@ -293,7 +298,9 @@ fn load_lps(tx: &Transaction, event_id: i64) -> SqlResult<Vec<(i64, i64)>> {
 /// The event's per-outcome funding-stage allocation (micro-coins), ordered by `idx`.
 fn load_funded(tx: &Transaction, event_id: i64) -> SqlResult<Vec<i64>> {
     let mut stmt = tx.prepare("SELECT funded FROM markets WHERE event_id = ?1 ORDER BY idx")?;
-    let v = stmt.query_map(params![event_id], |r| r.get(0))?.collect::<SqlResult<Vec<i64>>>()?;
+    let v = stmt
+        .query_map(params![event_id], |r| r.get(0))?
+        .collect::<SqlResult<Vec<i64>>>()?;
     Ok(v)
 }
 
@@ -316,12 +323,7 @@ fn refund_liquidity(tx: &Transaction, event_id: i64) -> SqlResult<i64> {
 /// (largest-remainder, exact) and delete the `liquidity` rows. Falls back to the
 /// `creator` when there are no LP rows (defensive — every real AMM event seeds at
 /// least the host's row).
-fn distribute_residual(
-    tx: &Transaction,
-    event_id: i64,
-    creator: i64,
-    residual: i64,
-) -> SqlResult<()> {
+fn distribute_residual(tx: &Transaction, event_id: i64, creator: i64, residual: i64) -> SqlResult<()> {
     let lps = load_lps(tx, event_id)?;
     if residual > 0 {
         if lps.is_empty() {
@@ -595,7 +597,10 @@ impl Database {
                  ON CONFLICT(event_id, user) DO UPDATE SET contributed = contributed + excluded.contributed",
                 params![event_id, user, total],
             )?;
-            tx.execute("UPDATE events SET pool = pool + ?1 WHERE id = ?2", params![total, event_id])?;
+            tx.execute(
+                "UPDATE events SET pool = pool + ?1 WHERE id = ?2",
+                params![total, event_id],
+            )?;
             super::history::record(tx, user, super::HK_LP_FUND, -total, Some(event_id), None)?;
             Ok(FundOutcome::Funded { total })
         })
@@ -648,9 +653,17 @@ impl Database {
                 "UPDATE markets SET q_shares = q_shares + ?1 WHERE event_id = ?2 AND idx = ?3",
                 params![shares, event_id, idx],
             )?;
-            tx.execute("UPDATE events SET pool = pool + ?1 WHERE id = ?2", params![spend, event_id])?;
+            tx.execute(
+                "UPDATE events SET pool = pool + ?1 WHERE id = ?2",
+                params![spend, event_id],
+            )?;
             super::history::record(tx, user, super::HK_BUY, -spend, Some(event_id), None)?;
-            Ok(TradeOutcome::Filled { shares, coins: -spend, fee, basis: 0 })
+            Ok(TradeOutcome::Filled {
+                shares,
+                coins: -spend,
+                fee,
+                basis: 0,
+            })
         })
     }
 
@@ -692,10 +705,18 @@ impl Database {
                 "UPDATE markets SET q_shares = q_shares - ?1 WHERE event_id = ?2 AND idx = ?3",
                 params![shares, event_id, idx],
             )?;
-            tx.execute("UPDATE events SET pool = pool - ?1 WHERE id = ?2", params![proceeds, event_id])?;
+            tx.execute(
+                "UPDATE events SET pool = pool - ?1 WHERE id = ?2",
+                params![proceeds, event_id],
+            )?;
             let basis_removed = reduce_position(tx, event_id, idx, user, shares, held, basis)?;
             super::history::record(tx, user, super::HK_SELL, proceeds, Some(event_id), None)?;
-            Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee, basis: basis_removed })
+            Ok(TradeOutcome::Filled {
+                shares: -shares,
+                coins: proceeds,
+                fee,
+                basis: basis_removed,
+            })
         })
     }
 
@@ -786,7 +807,12 @@ impl Database {
                 params![shares, event_id, idx],
             )?;
             super::history::record(tx, user, super::HK_BUY, -spend, Some(event_id), None)?;
-            Ok(TradeOutcome::Filled { shares, coins: -spend, fee: 0, basis: 0 })
+            Ok(TradeOutcome::Filled {
+                shares,
+                coins: -spend,
+                fee: 0,
+                basis: 0,
+            })
         })
     }
 
@@ -828,7 +854,12 @@ impl Database {
             )?;
             let basis_removed = reduce_position(tx, event_id, idx, user, shares, held, basis)?;
             super::history::record(tx, user, super::HK_SELL, proceeds, Some(event_id), None)?;
-            Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee: 0, basis: basis_removed })
+            Ok(TradeOutcome::Filled {
+                shares: -shares,
+                coins: proceeds,
+                fee: 0,
+                basis: basis_removed,
+            })
         })
     }
 
@@ -842,12 +873,7 @@ impl Database {
     /// `UPDATE events SET … WHERE id = ? AND state …`), then — if a row actually
     /// changed — settle immediately when no positions remain. Returns whether the
     /// flip took. The shared spine of [`Database::resolve_event`] / [`Database::void_event`].
-    fn flip_state(
-        &self,
-        event_id: i64,
-        set_sql: &str,
-        sql_params: impl rusqlite::Params,
-    ) -> SqlResult<bool> {
+    fn flip_state(&self, event_id: i64, set_sql: &str, sql_params: impl rusqlite::Params) -> SqlResult<bool> {
         let flipped = {
             let conn = self.conn.lock();
             conn.execute(set_sql, sql_params)? == 1
@@ -938,14 +964,18 @@ impl Database {
                     "SELECT user, market_idx, shares, cost FROM positions WHERE event_id = ?1 AND user = ?2",
                 )?;
                 let v = stmt
-                    .query_map(params![event_id, u], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                    .query_map(params![event_id, u], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                    })?
                     .collect::<SqlResult<Vec<_>>>()?;
                 v
             } else {
                 let mut stmt =
                     tx.prepare("SELECT user, market_idx, shares, cost FROM positions WHERE event_id = ?1")?;
                 let v = stmt
-                    .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                    .query_map(params![event_id], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                    })?
                     .collect::<SqlResult<Vec<_>>>()?;
                 v
             };
@@ -975,7 +1005,10 @@ impl Database {
             }
 
             if amm {
-                tx.execute("UPDATE events SET pool = ?1 WHERE id = ?2", params![pool, event_id])?;
+                tx.execute(
+                    "UPDATE events SET pool = ?1 WHERE id = ?2",
+                    params![pool, event_id],
+                )?;
             }
             // When the last position is gone, finalise: the AMM residual (seed + fees −
             // payouts) returns to the LPs pro-rata by contribution, and the event closes.
@@ -989,20 +1022,33 @@ impl Database {
                     distribute_residual(tx, event_id, creator, pool)?;
                     tx.execute("UPDATE events SET pool = 0 WHERE id = ?1", params![event_id])?;
                 }
-                tx.execute("UPDATE events SET state = 'closed' WHERE id = ?1", params![event_id])?;
+                tx.execute(
+                    "UPDATE events SET state = 'closed' WHERE id = ?1",
+                    params![event_id],
+                )?;
             }
             // Log each settled user's credit for their /history: a win pays `claim`, a
             // void refund pays `refund`; a pure loss (coins == 0) has no money move to log.
             for (u, (coins, kind)) in &per_user {
                 if *coins > 0 {
-                    let tag = if *kind == ClaimKind::Refunded { super::HK_REFUND } else { super::HK_CLAIM };
+                    let tag = if *kind == ClaimKind::Refunded {
+                        super::HK_REFUND
+                    } else {
+                        super::HK_CLAIM
+                    };
                     super::history::record(tx, *u, tag, *coins, Some(event_id), None)?;
                 }
             }
 
             Ok(per_user
                 .into_iter()
-                .map(|(user, (coins, kind))| Payout { event_id, title: title.clone(), user, coins, kind })
+                .map(|(user, (coins, kind))| Payout {
+                    event_id,
+                    title: title.clone(),
+                    user,
+                    coins,
+                    kind,
+                })
                 .collect())
         })
     }
@@ -1017,7 +1063,9 @@ impl Database {
                 "SELECT DISTINCT p.event_id FROM positions p JOIN events e ON e.id = p.event_id
                  WHERE p.user = ?1 AND e.state IN ('resolved', 'void')",
             )?;
-            let v = stmt.query_map(params![user], |r| r.get(0))?.collect::<SqlResult<Vec<_>>>()?;
+            let v = stmt
+                .query_map(params![user], |r| r.get(0))?
+                .collect::<SqlResult<Vec<_>>>()?;
             v
         };
         let mut out = Vec::new();
@@ -1070,8 +1118,8 @@ impl Database {
             };
             // (2) Every LP's pooled contribution back to their balance.
             let lps: Vec<(i64, i64)> = {
-                let mut stmt = tx
-                    .prepare("SELECT user, COALESCE(SUM(contributed), 0) FROM liquidity GROUP BY user")?;
+                let mut stmt =
+                    tx.prepare("SELECT user, COALESCE(SUM(contributed), 0) FROM liquidity GROUP BY user")?;
                 let v = stmt
                     .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
                     .collect::<SqlResult<Vec<_>>>()?;
@@ -1327,8 +1375,8 @@ impl Database {
             return Ok(None);
         };
         let rows = {
-            let mut stmt = conn
-                .prepare("SELECT name, q_shares, funded FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+            let mut stmt =
+                conn.prepare("SELECT name, q_shares, funded FROM markets WHERE event_id = ?1 ORDER BY idx")?;
             let v = stmt
                 .query_map(params![event_id], |r| {
                     Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
@@ -1410,11 +1458,9 @@ mod tests {
 
         // Column defaults applied.
         let (state, fee_bps, pool): (String, i64, i64) = conn
-            .query_row(
-                "SELECT state, fee_bps, pool FROM events WHERE id = 1",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
+            .query_row("SELECT state, fee_bps, pool FROM events WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
             .unwrap();
         assert_eq!(state, "open");
         assert_eq!(fee_bps, 200);
@@ -1466,7 +1512,9 @@ mod tests {
         let conn = db.conn.lock();
         let q = load_q(&conn, event_id).unwrap();
         let b: i64 = conn
-            .query_row("SELECT b_param FROM events WHERE id = ?1", [event_id], |r| r.get(0))
+            .query_row("SELECT b_param FROM events WHERE id = ?1", [event_id], |r| {
+                r.get(0)
+            })
             .unwrap();
         let qf = whole_shares(&q);
         crate::core::lmsr::price(&qf, b as f64, idx)
@@ -1512,7 +1560,10 @@ mod tests {
         let p0 = price_of(&db, ev, 0);
 
         let out = db.amm_buy(ev, 0, 2, 100 * COIN).unwrap();
-        let TradeOutcome::Filled { shares, coins, fee, .. } = out else {
+        let TradeOutcome::Filled {
+            shares, coins, fee, ..
+        } = out
+        else {
             panic!("{out:?}")
         };
         assert!(shares > 0);
@@ -1578,7 +1629,11 @@ mod tests {
             .query_row("SELECT pool FROM events WHERE id = ?1", [ev], |r| r.get(0))
             .unwrap();
         let max_q: i64 = conn
-            .query_row("SELECT MAX(q_shares) FROM markets WHERE event_id = ?1", [ev], |r| r.get(0))
+            .query_row(
+                "SELECT MAX(q_shares) FROM markets WHERE event_id = ?1",
+                [ev],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!(pool >= max_q, "pool {pool} must cover max winner payout {max_q}");
     }
@@ -1617,7 +1672,10 @@ mod tests {
         let ev = sourced(&db);
         // Buy 10 coins of A at 50¢ → 20 shares; spend leaves circulation (no pool).
         let out = db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap();
-        let TradeOutcome::Filled { shares, coins, fee, .. } = out else {
+        let TradeOutcome::Filled {
+            shares, coins, fee, ..
+        } = out
+        else {
             panic!("{out:?}")
         };
         assert_eq!(shares, 20 * SHARE);
@@ -1719,7 +1777,9 @@ mod tests {
         let n: i64 = db
             .conn
             .lock()
-            .query_row("SELECT COUNT(*) FROM positions WHERE event_id = ?1", [ev], |r| r.get(0))
+            .query_row("SELECT COUNT(*) FROM positions WHERE event_id = ?1", [ev], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(n, 0);
     }
@@ -1738,8 +1798,16 @@ mod tests {
         db.void_event(ev, 200).unwrap();
         let payouts = db.claim(2).unwrap();
         assert_eq!(payouts[0].kind, ClaimKind::Refunded);
-        assert_eq!(db.get_user_info(2).unwrap().balance, 1000 * COIN, "trader refunded cost basis");
-        assert_eq!(db.get_user_info(1).unwrap().balance, 1000 * COIN, "host got the escrow back");
+        assert_eq!(
+            db.get_user_info(2).unwrap().balance,
+            1000 * COIN,
+            "trader refunded cost basis"
+        );
+        assert_eq!(
+            db.get_user_info(1).unwrap().balance,
+            1000 * COIN,
+            "host got the escrow back"
+        );
         assert_eq!(coin_total(&db), before);
         assert_eq!(pool_of(&db, ev), 0);
     }
@@ -1760,7 +1828,10 @@ mod tests {
         db.resolve_event(amm, 0, 200).unwrap();
 
         let payouts = db.settle_all_sourced().unwrap();
-        assert!(payouts.iter().all(|p| p.event_id == src), "only the sourced event settled");
+        assert!(
+            payouts.iter().all(|p| p.event_id == src),
+            "only the sourced event settled"
+        );
         assert_eq!(state_of(&db, src), "closed");
         assert_eq!(state_of(&db, amm), "resolved", "amm untouched by /settle");
     }
@@ -1796,7 +1867,10 @@ mod tests {
         assert_eq!(c.kind, "sourced");
         assert_eq!(c.held, 20 * SHARE);
         assert_eq!(c.outcome, "A");
-        assert!(db.sell_context(src, 1, 2).unwrap().is_none(), "nothing held on idx 1");
+        assert!(
+            db.sell_context(src, 1, 2).unwrap().is_none(),
+            "nothing held on idx 1"
+        );
         // AMM read-only sell quote can't exceed the spend (no rounding profit).
         let amm = db
             .create_amm_event(1, "Q", "", "", None, 0, &opts(&["A", "B"]), 50, 200, 100)
@@ -1814,7 +1888,18 @@ mod tests {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(1, 1000 * COIN).unwrap();
         let ev = db
-            .create_amm_event(1, "Q", "", "", None, 0, &opts(&["A", "B"]), B_MEDIUM, FEE_BPS_DEFAULT, 100)
+            .create_amm_event(
+                1,
+                "Q",
+                "",
+                "",
+                None,
+                0,
+                &opts(&["A", "B"]),
+                B_MEDIUM,
+                FEE_BPS_DEFAULT,
+                100,
+            )
             .unwrap()
             .unwrap();
         assert!(db.event_card(ev).unwrap().is_none(), "no card until posted");
@@ -1900,11 +1985,17 @@ mod tests {
         assert_eq!(db.get_user_info(99).unwrap().balance, 70 * COIN);
         assert_eq!(db.get_user_info(11).unwrap().balance, 20 * COIN);
         // Engine fully wiped.
-        let n: i64 =
-            db.conn.lock().query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
+        let n: i64 = db
+            .conn
+            .lock()
+            .query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 0);
-        let p: i64 =
-            db.conn.lock().query_row("SELECT COUNT(*) FROM positions", [], |r| r.get(0)).unwrap();
+        let p: i64 = db
+            .conn
+            .lock()
+            .query_row("SELECT COUNT(*) FROM positions", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(p, 0);
     }
 
@@ -1915,7 +2006,10 @@ mod tests {
             .unwrap()
     }
     fn pool_sum(db: &Database) -> i64 {
-        db.conn.lock().query_row("SELECT COALESCE(SUM(pool), 0) FROM events", [], |r| r.get(0)).unwrap()
+        db.conn
+            .lock()
+            .query_row("SELECT COALESCE(SUM(pool), 0) FROM events", [], |r| r.get(0))
+            .unwrap()
     }
 
     // `open_at = 1000` is far below the real wall clock, so the first trade's
@@ -1945,15 +2039,25 @@ mod tests {
             FundOutcome::Funded { total: 50 * COIN }
         );
         // Past the window → further funding rejected.
-        assert_eq!(db.add_liquidity(ev, 2, &[5 * COIN, 0], 2000).unwrap(), FundOutcome::Unavailable);
+        assert_eq!(
+            db.add_liquidity(ev, 2, &[5 * COIN, 0], 2000).unwrap(),
+            FundOutcome::Unavailable
+        );
         // Coins moved into the pool; balance + pool is conserved.
         assert_eq!(pool_sum(&db), 150 * COIN);
         assert_eq!(bal_sum(&db) + pool_sum(&db), supply);
 
         // First trade lazily finalizes the funding stage into trading.
-        assert!(matches!(db.amm_buy(ev, 0, 3, 10 * COIN).unwrap(), TradeOutcome::Filled { .. }));
+        assert!(matches!(
+            db.amm_buy(ev, 0, 3, 10 * COIN).unwrap(),
+            TradeOutcome::Filled { .. }
+        ));
         assert_eq!(state_of(&db, ev), "open", "funding finalized into trading");
-        assert_eq!(bal_sum(&db) + pool_sum(&db), supply, "the trade conserves balance + pool");
+        assert_eq!(
+            bal_sum(&db) + pool_sum(&db),
+            supply,
+            "the trade conserves balance + pool"
+        );
 
         // Host resolves A; trader claims → pool fully distributed, supply restored.
         assert!(db.resolve_event(ev, 0, 2_000_000_000).unwrap());
@@ -1974,10 +2078,21 @@ mod tests {
             .unwrap();
         // Only 4 coins funded (< MIN_SEED = 10) → must void + refund on finalize.
         db.add_liquidity(ev, 1, &[3 * COIN, COIN], 0).unwrap();
-        assert_eq!(db.amm_buy(ev, 0, 3, 10 * COIN).unwrap(), TradeOutcome::Unavailable);
+        assert_eq!(
+            db.amm_buy(ev, 0, 3, 10 * COIN).unwrap(),
+            TradeOutcome::Unavailable
+        );
         assert_eq!(state_of(&db, ev), "void");
-        assert_eq!(db.get_user_info(1).unwrap().balance, 100 * COIN, "LP fully refunded");
-        assert_eq!(db.get_user_info(3).unwrap().balance, 100 * COIN, "trader untouched");
+        assert_eq!(
+            db.get_user_info(1).unwrap().balance,
+            100 * COIN,
+            "LP fully refunded"
+        );
+        assert_eq!(
+            db.get_user_info(3).unwrap().balance,
+            100 * COIN,
+            "trader untouched"
+        );
         assert_eq!(bal_sum(&db), supply, "no coins lost");
     }
 

@@ -96,7 +96,14 @@ impl Database {
             if split {
                 let half = amount / 2;
                 super::credit_and_log(tx, referrer, half, super::HK_REFERRAL, None, Some(referee))?;
-                super::credit_and_log(tx, co_referrer, amount - half, super::HK_REFERRAL, None, Some(referee))?;
+                super::credit_and_log(
+                    tx,
+                    co_referrer,
+                    amount - half,
+                    super::HK_REFERRAL,
+                    None,
+                    Some(referee),
+                )?;
             } else {
                 super::credit_and_log(tx, referrer, amount, super::HK_REFERRAL, None, Some(referee))?;
             }
@@ -175,12 +182,16 @@ mod tests {
         assert_eq!(r, 10);
         assert_eq!(c, 20);
         assert!(!db.bind_group_referral(30, 10, 20).unwrap()); // existing → no re-bind
-        // owner == adder → no co-referrer stored.
+                                                               // owner == adder → no co-referrer stored.
         assert!(db.bind_group_referral(40, 10, 10).unwrap());
         let c2: i64 = db
             .conn
             .lock()
-            .query_row("SELECT co_referrer FROM balance WHERE user = ?1", rusqlite::params![40], |row| row.get(0))
+            .query_row(
+                "SELECT co_referrer FROM balance WHERE user = ?1",
+                rusqlite::params![40],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(c2, 0);
     }
@@ -192,7 +203,7 @@ mod tests {
         assert_eq!(db.get_user_info(10).unwrap().balance, 5 * COIN); // adder half
         assert_eq!(db.get_user_info(20).unwrap().balance, 5 * COIN); // owner half
         assert_eq!(db.get_user_info(30).unwrap().balance, 10 * COIN); // referee full
-        // No owner → adder gets the whole referrer share.
+                                                                      // No owner → adder gets the whole referrer share.
         db.reward_group_signup(11, 0, 31, 10 * COIN).unwrap();
         assert_eq!(db.get_user_info(11).unwrap().balance, 10 * COIN);
         assert_eq!(db.get_user_info(31).unwrap().balance, 10 * COIN);

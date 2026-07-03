@@ -50,18 +50,17 @@ pub async fn handle_sell_pick(ctx: &Context, cb: &CallbackQuery) -> Result<(), t
             )]
         })
         .collect();
-    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_BETS.to_string())]);
+    rows.push(vec![(
+        i18n::bet_btn_back(lang).to_string(),
+        menu::MENU_BETS.to_string(),
+    )]);
     tg::edit_cb(ctx, cb, i18n::positions_title(lang), &rows).await;
     Ok(())
 }
 
 /// `slb:<event>:<idx>:<micro>` — render the amount builder with a live proceeds
 /// preview (the amount is clamped to the held shares).
-pub async fn handle_sell_build(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
+pub async fn handle_sell_build(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some([eid, idx, micro]) = parse_ints::<3>(rest) else {
         return answer(ctx, cb, "", false).await;
@@ -77,11 +76,7 @@ pub async fn handle_sell_build(
 }
 
 /// `slgo:<event>:<idx>:<micro>` — re-price and sell the shares via the engine.
-pub async fn handle_sell_place(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
+pub async fn handle_sell_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some([eid, idx, micro]) = parse_ints::<3>(rest) else {
         return answer(ctx, cb, "", false).await;
@@ -107,7 +102,9 @@ pub async fn handle_sell_place(
         db(ctx).sourced_sell(eid, idx, cb.from.id, sell, price)
     };
     match result {
-        Ok(TradeOutcome::Filled { shares, coins, basis, .. }) => {
+        Ok(TradeOutcome::Filled {
+            shares, coins, basis, ..
+        }) => {
             let sold = i18n::sold(lang, &fmt_coins(-shares), &outcome, &fmt_coins(coins));
             // Realized P&L on the sold shares = proceeds − their cost basis.
             let body = format!("{sold}\n{}", pnl_line(lang, coins - basis));
@@ -170,8 +167,13 @@ fn build_screen(
     proceeds: Option<i64>,
 ) -> (String, Vec<tg::Row>) {
     let proceeds_str = proceeds.map(fmt_coins).unwrap_or_else(|| "—".to_string());
-    let base =
-        i18n::sell_build(lang, &c.outcome, &fmt_coins(c.held), &fmt_coins(micro), &proceeds_str);
+    let base = i18n::sell_build(
+        lang,
+        &c.outcome,
+        &fmt_coins(c.held),
+        &fmt_coins(micro),
+        &proceeds_str,
+    );
     // Estimated P&L for the selected amount at the current price = proceeds minus
     // the pro-rata cost basis of those shares (same `basis_for_sold` the sell
     // executes with, so the estimate matches the result). Slot it right under the
@@ -194,11 +196,20 @@ fn build_screen(
             let target = (c.held as i128 * *pct as i128 / 100) as i64;
             (format!("{pct}%"), format!("{SELL_BUILD}{eid}:{idx}:{target}"))
         })
-        .chain(std::iter::once(("Max".to_string(), format!("{SELL_BUILD}{eid}:{idx}:{}", c.held))))
+        .chain(std::iter::once((
+            "Max".to_string(),
+            format!("{SELL_BUILD}{eid}:{idx}:{}", c.held),
+        )))
         .collect();
     let action_row = vec![
-        (i18n::bet_btn_confirm(lang).to_string(), format!("{SELL_PLACE}{eid}:{idx}:{micro}")),
-        (i18n::bet_btn_clear(lang).to_string(), format!("{SELL_BUILD}{eid}:{idx}:0")),
+        (
+            i18n::bet_btn_confirm(lang).to_string(),
+            format!("{SELL_PLACE}{eid}:{idx}:{micro}"),
+        ),
+        (
+            i18n::bet_btn_clear(lang).to_string(),
+            format!("{SELL_BUILD}{eid}:{idx}:0"),
+        ),
     ];
     let back_row = vec![(i18n::bet_btn_back(lang).to_string(), SELL_PICK.to_string())];
     (text, vec![preset_row, action_row, back_row])

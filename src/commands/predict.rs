@@ -99,7 +99,14 @@ pub async fn predict(ctx: Context, message: Message) -> CommandResult {
     // In a group the prompt went to the host's DM — point them there; a bounced DM
     // means they never started the bot.
     let landed = open_draft(&ctx, host, origin_chat).await;
-    dm_pointer(&ctx, &message, landed, i18n::predict_check_dm(lang), i18n::bet_dm_first(lang)).await
+    dm_pointer(
+        &ctx,
+        &message,
+        landed,
+        i18n::predict_check_dm(lang),
+        i18n::bet_dm_first(lang),
+    )
+    .await
 }
 
 /// DM message listener: routes a host's plain-text reply into their in-flight
@@ -212,7 +219,11 @@ fn end_time_rows(lang: Lang) -> Vec<tg::Row> {
 /// `1d12h`), whitespace-insensitive and case-insensitive. `None` on garbage or a
 /// non-positive total; capped at `MAX_PREDICT_MINUTES`.
 fn parse_duration(text: &str) -> Option<i64> {
-    let t: String = text.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase();
+    let t: String = text
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_lowercase();
     if t.is_empty() {
         return None;
     }
@@ -276,14 +287,17 @@ async fn finalize_funding(
 
     // Placeholder first, so a card slot exists before the event references it.
     let no_rows: Vec<tg::Row> = Vec::new();
-    let sent = match tg::send_with_buttons(ctx, draft.origin_chat, &format!("🎲 {description}"), &no_rows).await
-    {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("predict placeholder post failed (chat {}): {e:?}", draft.origin_chat);
-            return Finalized::Failed;
-        }
-    };
+    let sent =
+        match tg::send_with_buttons(ctx, draft.origin_chat, &format!("🎲 {description}"), &no_rows).await {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!(
+                    "predict placeholder post failed (chat {}): {e:?}",
+                    draft.origin_chat
+                );
+                return Finalized::Failed;
+            }
+        };
     let (chat, msg) = (sent.chat.get_id(), sent.message_id);
 
     let event_id = match db(ctx).create_funding_event(
@@ -336,7 +350,8 @@ pub async fn handle_predict_endtime(
             draft.lang
         };
         if let Some(m) = &cb.message {
-            let _ = tg::edit_text_only(ctx, m.chat.get_id(), m.message_id, i18n::predict_ask_custom(lang)).await;
+            let _ =
+                tg::edit_text_only(ctx, m.chat.get_id(), m.message_id, i18n::predict_ask_custom(lang)).await;
         }
         return answer(ctx, cb, "", false).await;
     }
@@ -354,8 +369,11 @@ pub async fn handle_predict_endtime(
         let Some(Convo::Predict(draft)) = g.get_mut(&cb.from.id) else {
             return answer(ctx, cb, "", false).await;
         };
-        draft.ends_at =
-            Some(if minutes <= 0 { 0 } else { now().saturating_add(minutes.saturating_mul(60)) });
+        draft.ends_at = Some(if minutes <= 0 {
+            0
+        } else {
+            now().saturating_add(minutes.saturating_mul(60))
+        });
         draft.lang
     };
     if let Some(m) = &cb.message {
@@ -425,9 +443,7 @@ pub async fn handle_predict_funding(
         Finalized::Failed => i18n::predict_post_failed(lang).to_string(),
     };
     if let Some(m) = &cb.message {
-        let _ =
-            tg::edit_with_buttons(ctx, m.chat.get_id(), m.message_id, &msg, &menu::home_row(lang))
-                .await;
+        let _ = tg::edit_with_buttons(ctx, m.chat.get_id(), m.message_id, &msg, &menu::home_row(lang)).await;
     }
     answer(ctx, cb, "", false).await
 }
@@ -473,7 +489,7 @@ mod tests {
         assert_eq!(parse_duration("soon"), None);
         assert_eq!(parse_duration("2w"), None); // unknown unit
         assert_eq!(parse_duration("1d12"), None); // trailing unit-less number
-        // Capped at 30 days.
+                                                  // Capped at 30 days.
         assert_eq!(parse_duration("999d"), Some(MAX_PREDICT_MINUTES));
         assert_eq!(parse_duration("100000"), Some(MAX_PREDICT_MINUTES));
     }

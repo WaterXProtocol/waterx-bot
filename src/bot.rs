@@ -1,6 +1,6 @@
 use crate::commands::{callbacks, *};
-use crate::database::{db_filename, Database};
 use crate::core::types::BotConfig;
+use crate::database::{db_filename, Database};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use telexide::{
     api::{types::GetUpdates, APIEndpoint, API},
@@ -120,9 +120,36 @@ pub async fn run() -> anyhow::Result<()> {
         .set_token(&cfg.token)
         .set_framework(create_framework!(
             bot_username.as_str(),
-            start, assets, balance, bets, history, send, predict, rule, feedback, sell, buy, events,
-            claim, checkin, settings, timezone, onlyreplyhere, replyanywhere, mint, pause, unpause,
-            broadcast, reset, settle, redeploy, dashboard, load, backup, profile, delete
+            start,
+            assets,
+            balance,
+            bets,
+            history,
+            send,
+            predict,
+            rule,
+            feedback,
+            sell,
+            buy,
+            events,
+            claim,
+            checkin,
+            settings,
+            timezone,
+            onlyreplyhere,
+            replyanywhere,
+            mint,
+            pause,
+            unpause,
+            broadcast,
+            reset,
+            settle,
+            redeploy,
+            dashboard,
+            load,
+            backup,
+            profile,
+            delete
         ))
         .add_handler_func(callbacks::on_callback)
         .add_handler_func(callbacks::on_my_chat_member)
@@ -160,11 +187,7 @@ pub async fn run() -> anyhow::Result<()> {
         };
 
         // Default menu (no language_code) — English.
-        if let Err(err) = client
-            .api_client
-            .set_my_commands(menu_for(Lang::En).into())
-            .await
-        {
+        if let Err(err) = client.api_client.set_my_commands(menu_for(Lang::En).into()).await {
             eprintln!("setMyCommands (default) error (continuing): {err}");
         }
 
@@ -195,7 +218,10 @@ pub async fn run() -> anyhow::Result<()> {
             if let Ok(chat) = contents.trim().parse::<i64>() {
                 if let Err(err) = client
                     .api_client
-                    .send_message(SendMessage::new(chat.into(), "✅ Redeploy complete — back online.".to_string()))
+                    .send_message(SendMessage::new(
+                        chat.into(),
+                        "✅ Redeploy complete — back online.".to_string(),
+                    ))
                     .await
                 {
                     eprintln!("redeploy notify error: {err}");

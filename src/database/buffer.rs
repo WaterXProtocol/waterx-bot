@@ -334,11 +334,10 @@ impl Database {
 
             // Validate taker (seller) side
             ensure_row_locked(tx, taker)?;
-            let sf: String = tx.query_row(
-                "SELECT fruit FROM balance WHERE user = ?1",
-                params![taker],
-                |r| r.get(0),
-            )?;
+            let sf: String =
+                tx.query_row("SELECT fruit FROM balance WHERE user = ?1", params![taker], |r| {
+                    r.get(0)
+                })?;
             let mut sf_check = sf.clone();
             for f in fruits.chars() {
                 let s = f.to_string();
@@ -352,11 +351,10 @@ impl Database {
             // Validate buyer fruit space (escrowed at post time but buyer's
             // inventory may have grown since)
             ensure_row_locked(tx, buyer)?;
-            let bf: String = tx.query_row(
-                "SELECT fruit FROM balance WHERE user = ?1",
-                params![buyer],
-                |r| r.get(0),
-            )?;
+            let bf: String =
+                tx.query_row("SELECT fruit FROM balance WHERE user = ?1", params![buyer], |r| {
+                    r.get(0)
+                })?;
             if bf.chars().count() + fruits.chars().count() > 5 {
                 return Ok(OfferOutcome::TakerFruitFull); // empty commit (== rollback)
             }
@@ -567,4 +565,3 @@ mod tests {
         assert!(matches!(outcome, OfferOutcome::TakerMissingFruit('🍑')));
     }
 }
-

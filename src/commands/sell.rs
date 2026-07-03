@@ -29,8 +29,7 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
         i18n::sell_button(lang, &format_number(price)),
         format!("sell:{}:{fruits}:{price}", seller.id),
     )]];
-    let sent =
-        tg::send_with_buttons(&ctx, message.chat.get_id(), i18n::loading(lang), &rows).await?;
+    let sent = tg::send_with_buttons(&ctx, message.chat.get_id(), i18n::loading(lang), &rows).await?;
 
     let database = db(&ctx);
     let escrowed = database.open_sell_offer(
@@ -57,13 +56,6 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
     // Best-effort: the escrow + offer row are already committed and the
     // placeholder already carries a working (DB-backed) button, so a failed
     // cosmetic refresh must not report the whole `/sell` as failed.
-    let _ = tg::edit_with_buttons(
-        &ctx,
-        sent.chat.get_id(),
-        sent.message_id,
-        &listing,
-        &final_rows,
-    )
-    .await;
+    let _ = tg::edit_with_buttons(&ctx, sent.chat.get_id(), sent.message_id, &listing, &final_rows).await;
     Ok(())
 }

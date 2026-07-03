@@ -1,8 +1,8 @@
 use crate::commands::util::*;
 use crate::core::i18n::{self, Lang};
 use crate::database::{
-    HK_BUY, HK_CHECKIN, HK_CLAIM, HK_LP_FUND, HK_LP_RETURN, HK_MINT, HK_REFERRAL, HK_REFUND,
-    HK_SELL, HK_SEND_IN, HK_SEND_OUT,
+    HK_BUY, HK_CHECKIN, HK_CLAIM, HK_LP_FUND, HK_LP_RETURN, HK_MINT, HK_REFERRAL, HK_REFUND, HK_SELL,
+    HK_SEND_IN, HK_SEND_OUT,
 };
 use telexide::model::User;
 use telexide::prelude::*;
@@ -49,7 +49,10 @@ pub async fn history_text(ctx: &Context, lang: Lang, user: &User) -> String {
                 Some(t) if !t.is_empty() => format!(" · {t}"),
                 _ => String::new(),
             };
-            format!("{when} — {emoji} {label}{ctx_str}  {}🪙", fmt_signed_coins(h.delta))
+            format!(
+                "{when} — {emoji} {label}{ctx_str}  {}🪙",
+                fmt_signed_coins(h.delta)
+            )
         })
         .collect();
     format!(

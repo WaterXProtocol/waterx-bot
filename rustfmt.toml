@@ -1,0 +1,9 @@
+# Formatting config for `cargo fmt` (enforced via `cargo fmt --check` in CI).
+#
+# max_width is set to 110 (not the default 100) to match how this codebase was
+# hand-written: the trade engine and handlers favour compact single-line
+# statements (e.g. `tx.execute("…", params![…])?;`). Measured against the tree,
+# 110 reformats the fewest lines while staying a conventional, CI-friendly width.
+# Everything else stays at rustfmt defaults (incl. import reordering).
+edition = "2021"
+max_width = 110

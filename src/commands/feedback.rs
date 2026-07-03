@@ -59,9 +59,19 @@ pub async fn feedback(ctx: Context, message: Message) -> CommandResult {
     // use the flow). Inserting overwrites any in-flight `/predict` draft.
     let landed = send_text(&ctx, user.id, i18n::feedback_ask(lang)).await.is_ok();
     if landed {
-        convos(&ctx).lock().await.insert(user.id, Convo::Feedback { lang });
+        convos(&ctx)
+            .lock()
+            .await
+            .insert(user.id, Convo::Feedback { lang });
     }
-    dm_pointer(&ctx, &message, landed, i18n::feedback_check_dm(lang), i18n::feedback_dm_first(lang)).await
+    dm_pointer(
+        &ctx,
+        &message,
+        landed,
+        i18n::feedback_check_dm(lang),
+        i18n::feedback_dm_first(lang),
+    )
+    .await
 }
 
 /// DM message listener: forwards a user's plain-text reply to the owner when they

@@ -222,7 +222,10 @@ async fn profile_text(ctx: &Context, id: i64, user: Option<&User>) -> String {
     }
     // Check-in availability (read-only).
     if let Ok(avail) = database.checkin_available(id) {
-        s.push_str(&format!("\n✅ Check-in: {}", if avail { "available" } else { "claimed today" }));
+        s.push_str(&format!(
+            "\n✅ Check-in: {}",
+            if avail { "available" } else { "claimed today" }
+        ));
     }
 
     // Referrals.
@@ -230,7 +233,9 @@ async fn profile_text(ctx: &Context, id: i64, user: Option<&User>) -> String {
     let invited = database.count_referrals(id).unwrap_or(0);
     s.push_str("\n\n🤝 Referrals");
     match (referrer > 0, co > 0) {
-        (true, true) => s.push_str(&format!("\n· referred by <code>{referrer}</code> (co <code>{co}</code>)")),
+        (true, true) => s.push_str(&format!(
+            "\n· referred by <code>{referrer}</code> (co <code>{co}</code>)"
+        )),
         (true, false) => s.push_str(&format!("\n· referred by <code>{referrer}</code>")),
         _ => s.push_str("\n· referred by —"),
     }
@@ -266,7 +271,11 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
 
     let parts = args(&message);
     let usage = "/mint <amount> — reply to someone, or omit the reply to mint to yourself 🪄";
-    let Some(amount) = parts.first().and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) else {
+    let Some(amount) = parts
+        .first()
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|n| *n > 0)
+    else {
         reply(&ctx, &message, usage).await?;
         return Ok(());
     };
@@ -374,11 +383,7 @@ fn reset_picker_rows(flags: u8) -> Vec<tg::Row> {
 /// the picked parts. **Everything** returns all open bets, snapshots balances to a
 /// backup file (`/load`), then wipes every table — aborting the wipe if the
 /// backup can't be written, so balances are never lost.
-pub async fn handle_reset_cb(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
+pub async fn handle_reset_cb(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     // Destructive + dev-only — silently ack anyone who isn't the owner on a dev bot.
     if !is_owner(ctx, cb.from.id) || !is_dev(ctx) {
         return answer(ctx, cb, "", false).await;
@@ -392,7 +397,9 @@ pub async fn handle_reset_cb(
     match action {
         "t" => {
             let flags: u8 = arg.parse().unwrap_or(0);
-            tg::edit_with_buttons(ctx, chat, mid, RESET_PROMPT, &reset_picker_rows(flags)).await.ok();
+            tg::edit_with_buttons(ctx, chat, mid, RESET_PROMPT, &reset_picker_rows(flags))
+                .await
+                .ok();
         }
         "go" => {
             let flags: u8 = arg.parse().unwrap_or(0);
@@ -405,7 +412,10 @@ pub async fn handle_reset_cb(
                 // (1) Return every committed coin (position cost bases + AMM escrow)
                 // so the snapshot captures those coins back in the balances…
                 match database.reset_events() {
-                    Ok((n, refunded)) => lines.push(format!("📈 Returned {} from {n} open market(s)", fmt_coins(refunded))),
+                    Ok((n, refunded)) => lines.push(format!(
+                        "📈 Returned {} from {n} open market(s)",
+                        fmt_coins(refunded)
+                    )),
                     Err(e) => {
                         eprintln!("reset_events (everything) error: {e}");
                         lines.push("📈 Market refunds — ⚠️ error".to_string());
@@ -435,9 +445,10 @@ pub async fn handle_reset_cb(
                 }
             } else if flags & RESET_MARKETS != 0 {
                 match database.reset_events() {
-                    Ok((n, refunded)) => {
-                        lines.push(format!("📈 Markets cleared — {n} event(s), refunded {}", fmt_coins(refunded)))
-                    }
+                    Ok((n, refunded)) => lines.push(format!(
+                        "📈 Markets cleared — {n} event(s), refunded {}",
+                        fmt_coins(refunded)
+                    )),
                     Err(e) => {
                         eprintln!("reset_events error: {e}");
                         lines.push("📈 Markets — ⚠️ error".to_string());
@@ -516,7 +527,12 @@ pub async fn load(ctx: Context, message: Message) -> CommandResult {
     };
     // With an arg → restore that backup.
     if !valid_backup_name(name) {
-        reply(&ctx, &message, "⚠️ Invalid backup name — run /load to list valid files.").await?;
+        reply(
+            &ctx,
+            &message,
+            "⚠️ Invalid backup name — run /load to list valid files.",
+        )
+        .await?;
         return Ok(());
     }
     let content = match std::fs::read_to_string(name) {
@@ -529,21 +545,24 @@ pub async fn load(ctx: Context, message: Message) -> CommandResult {
     // New snapshots are `[user, micro_coins, fruit]`; fall back to the old
     // balance-only `[user, micro_coins]` shape so pre-fruit backups still restore
     // (their fruit defaults to empty).
-    let rows: Vec<(i64, i64, String)> =
-        match serde_json::from_str::<Vec<(i64, i64, String)>>(&content) {
-            Ok(r) => r,
-            Err(_) => match serde_json::from_str::<Vec<(i64, i64)>>(&content) {
-                Ok(old) => old.into_iter().map(|(u, b)| (u, b, String::new())).collect(),
-                Err(e) => {
-                    reply(&ctx, &message, format!("⚠️ Bad backup file ({name}): {e}")).await?;
-                    return Ok(());
-                }
-            },
-        };
+    let rows: Vec<(i64, i64, String)> = match serde_json::from_str::<Vec<(i64, i64, String)>>(&content) {
+        Ok(r) => r,
+        Err(_) => match serde_json::from_str::<Vec<(i64, i64)>>(&content) {
+            Ok(old) => old.into_iter().map(|(u, b)| (u, b, String::new())).collect(),
+            Err(e) => {
+                reply(&ctx, &message, format!("⚠️ Bad backup file ({name}): {e}")).await?;
+                return Ok(());
+            }
+        },
+    };
     match db(&ctx).import_accounts(&rows) {
         Ok(n) => {
-            reply(&ctx, &message, format!("✅ Restored {n} account(s) (balances + fruit) from {name}"))
-                .await?
+            reply(
+                &ctx,
+                &message,
+                format!("✅ Restored {n} account(s) (balances + fruit) from {name}"),
+            )
+            .await?
         }
         Err(e) => reply(&ctx, &message, format!("⚠️ Restore failed: {e}")).await?,
     }
@@ -564,7 +583,9 @@ pub async fn backup(ctx: Context, message: Message) -> CommandResult {
             reply(
                 &ctx,
                 &message,
-                format!("💾 Backed up {n} account(s) (balances + fruit) → {file}\nRestore with: /load {file}"),
+                format!(
+                    "💾 Backed up {n} account(s) (balances + fruit) → {file}\nRestore with: /load {file}"
+                ),
             )
             .await?;
         }
@@ -624,7 +645,12 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
         Ok(ids) => ids,
         Err(e) => {
             eprintln!("broadcast all_chat_ids error: {e}");
-            reply(&ctx, &message, "⚠️ DB error — couldn't load chat list; nothing sent.").await?;
+            reply(
+                &ctx,
+                &message,
+                "⚠️ DB error — couldn't load chat list; nothing sent.",
+            )
+            .await?;
             return Ok(());
         }
     };

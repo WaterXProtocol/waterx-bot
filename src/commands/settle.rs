@@ -44,7 +44,11 @@ pub async fn settle(ctx: Context, message: Message) -> CommandResult {
     }
     let events: HashSet<i64> = payouts.iter().map(|p| p.event_id).collect();
     let paid: i64 = payouts.iter().map(|p| p.coins).sum();
-    reply(&ctx, &message, i18n::settle_done(lang, &events.len().to_string(), &fmt_coins(paid)))
-        .await?;
+    reply(
+        &ctx,
+        &message,
+        i18n::settle_done(lang, &events.len().to_string(), &fmt_coins(paid)),
+    )
+    .await?;
     Ok(())
 }

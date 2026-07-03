@@ -58,11 +58,9 @@ impl Database {
     pub fn group_owner(&self, chat_id: i64) -> SqlResult<Option<i64>> {
         let conn = self.conn.lock();
         let v: Option<i64> = conn
-            .query_row(
-                "SELECT owner FROM chats WHERE chat = ?1",
-                params![chat_id],
-                |r| r.get(0),
-            )
+            .query_row("SELECT owner FROM chats WHERE chat = ?1", params![chat_id], |r| {
+                r.get(0)
+            })
             .optional()?;
         Ok(v.filter(|id| *id > 0))
     }

@@ -56,7 +56,10 @@ pub(crate) async fn balance_block(ctx: &Context, lang: Lang, user: &User) -> Str
 pub(crate) async fn bets_body(ctx: &Context, lang: Lang, user: &User) -> (String, bool) {
     let pos = positions_block(ctx, lang, user).await;
     if pos.is_empty() {
-        (format!("{}\n{}", full_name(user), i18n::no_open_bets(lang)), false)
+        (
+            format!("{}\n{}", full_name(user), i18n::no_open_bets(lang)),
+            false,
+        )
     } else {
         (format!("{}{pos}", full_name(user)), true)
     }
@@ -107,7 +110,11 @@ pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> S
                 "open" => " 🟢",
                 _ => "",
             };
-            body.push_str(&format!("\n• {}\n  🪙{}{tag}", lp.event_title, fmt_coins(lp.contributed)));
+            body.push_str(&format!(
+                "\n• {}\n  🪙{}{tag}",
+                lp.event_title,
+                fmt_coins(lp.contributed)
+            ));
         }
     }
 

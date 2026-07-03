@@ -1,13 +1,10 @@
-use crate::commands::util::{
-    bot_token, cb_lang, db, fmt_coins, full_name, is_group_chat,
-    SORRY_FRUITS,
-};
+use crate::commands::tg::answer;
+use crate::commands::util::{bot_token, cb_lang, db, fmt_coins, full_name, is_group_chat, SORRY_FRUITS};
 use crate::commands::{
     admin, assets, betting, history, markets, menu, predict, predmarket, referral, selling, tg,
 };
-use crate::commands::tg::answer;
-use crate::database::OfferOutcome;
 use crate::core::i18n::{self, Lang};
+use crate::database::OfferOutcome;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use telexide::model::{CallbackQuery, ChatMember, UpdateContent};
@@ -28,10 +25,7 @@ pub async fn on_my_chat_member(ctx: Context, update: Update) {
         upd.new_chat_member,
         ChatMember::Member(_) | ChatMember::Administrator(_) | ChatMember::Creator(_)
     );
-    let was_out = matches!(
-        upd.old_chat_member,
-        ChatMember::Left(_) | ChatMember::Kicked(_)
-    );
+    let was_out = matches!(upd.old_chat_member, ChatMember::Left(_) | ChatMember::Kicked(_));
     if now_in && was_out {
         let _ = db(&ctx).set_group_adder(chat_id, upd.from.id);
     }
@@ -182,11 +176,7 @@ pub async fn on_callback(ctx: Context, update: Update) {
     }
 }
 
-async fn handle_envelope(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
+async fn handle_envelope(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let Some(message) = cb.message.clone() else {
         return Ok(());
     };
@@ -250,7 +240,6 @@ async fn handle_envelope(
     answer(ctx, cb, i18n::grabbed_it(lang), false).await
 }
 
-
 /// `bx:<owner>` — dismiss an in-group personal stake board by deleting it.
 /// Owner-locked: only the user the board was opened for can delete it (anyone
 /// else sees a toast). Shared by match-bet and self-host `/predict` boards.
@@ -270,11 +259,7 @@ async fn handle_board_dismiss(ctx: &Context, cb: &CallbackQuery, rest: &str) -> 
 
 /// `setlang:<store_code>` — persist the chosen locale and swap the picker for
 /// the Xaliah main menu in place.
-async fn handle_set_lang(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
+async fn handle_set_lang(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let Some(lang) = Lang::from_store_code(rest) else {
         return answer(ctx, cb, "", false).await;
     };
@@ -341,11 +326,7 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
 /// Re-render the `/settings` hub in place on the callback's message, then ack.
 /// The shared tail of every settings-pick handler (`setfmt:`/`cfg:home`/`slang:`/
 /// `stz:`), rendered in `lang` (the *new* locale for a language pick).
-async fn rerender_settings_hub(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    lang: Lang,
-) -> Result<(), telexide::Error> {
+async fn rerender_settings_hub(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<(), telexide::Error> {
     tg::edit_cb(ctx, cb, i18n::settings_title(lang), &menu::settings_rows(lang)).await;
     answer(ctx, cb, "", false).await
 }
@@ -372,7 +353,13 @@ async fn handle_cfg_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
 /// current locale. The picker's `slang:` buttons persist + return to the hub.
 async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    tg::edit_cb(ctx, cb, i18n::CHOOSE_LANGUAGE, &menu::lang_picker_rows(Some(lang), true)).await;
+    tg::edit_cb(
+        ctx,
+        cb,
+        i18n::CHOOSE_LANGUAGE,
+        &menu::lang_picker_rows(Some(lang), true),
+    )
+    .await;
     answer(ctx, cb, "", false).await
 }
 
@@ -381,7 +368,13 @@ async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
 async fn handle_cfg_tz(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let current = db(ctx).get_tz(cb.from.id).ok().flatten();
-    tg::edit_cb(ctx, cb, i18n::choose_timezone(lang), &menu::tz_picker_rows(current, true)).await;
+    tg::edit_cb(
+        ctx,
+        cb,
+        i18n::choose_timezone(lang),
+        &menu::tz_picker_rows(current, true),
+    )
+    .await;
     answer(ctx, cb, "", false).await
 }
 
@@ -485,8 +478,14 @@ async fn handle_menu_invite(ctx: &Context, cb: &CallbackQuery) -> Result<(), tel
         i18n::invite_how(lang)
     );
     let rows = vec![
-        vec![(i18n::btn_invite_link(lang).to_string(), menu::INVITE_LINK.to_string())],
-        vec![(i18n::btn_invite_fwd(lang).to_string(), menu::INVITE_FWD.to_string())],
+        vec![(
+            i18n::btn_invite_link(lang).to_string(),
+            menu::INVITE_LINK.to_string(),
+        )],
+        vec![(
+            i18n::btn_invite_fwd(lang).to_string(),
+            menu::INVITE_FWD.to_string(),
+        )],
         vec![(i18n::btn_invite_qr(lang).to_string(), menu::INVITE_QR.to_string())],
         vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())],
     ];
@@ -554,7 +553,13 @@ async fn handle_invite_fwd(ctx: &Context, cb: &CallbackQuery) -> Result<(), tele
     answer(ctx, cb, "", false).await?;
     let link = referral_link_of(ctx, cb.from.id);
     let rows = vec![vec![(i18n::btn_join(lang).to_string(), link.clone())]];
-    let _ = tg::send_with_buttons(ctx, message.chat.get_id(), &i18n::invite_forward(lang, &link), &rows).await;
+    let _ = tg::send_with_buttons(
+        ctx,
+        message.chat.get_id(),
+        &i18n::invite_forward(lang, &link),
+        &rows,
+    )
+    .await;
     Ok(())
 }
 
@@ -577,7 +582,9 @@ async fn handle_invite_qr(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let token = bot_token(ctx);
     let cached = qr_cache().lock().get(&cb.from.id).cloned();
     let sent = if let Some(file_id) = cached {
-        tg::send_photo_id(&token, chat_id, &file_id, &text, rows).await.is_ok()
+        tg::send_photo_id(&token, chat_id, &file_id, &text, rows)
+            .await
+            .is_ok()
     } else {
         false
     };
@@ -604,8 +611,7 @@ async fn handle_invite_qr(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
 /// of the user's (immutable) referral link, so the id stays valid indefinitely;
 /// a process restart just costs one re-upload per user. In-memory on purpose.
 fn qr_cache() -> &'static parking_lot::Mutex<HashMap<i64, String>> {
-    static CACHE: std::sync::OnceLock<parking_lot::Mutex<HashMap<i64, String>>> =
-        std::sync::OnceLock::new();
+    static CACHE: std::sync::OnceLock<parking_lot::Mutex<HashMap<i64, String>>> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
@@ -622,10 +628,20 @@ async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     let text = assets::assets_text(ctx, lang, &cb.from, show_balance).await;
     let mut rows = Vec::new();
     // Offer [💸 Sell] when the caller holds open positions (this view is private).
-    if db(ctx).user_positions(cb.from.id).map(|v| !v.is_empty()).unwrap_or(false) {
-        rows.push(vec![(i18n::btn_sell(lang).to_string(), selling::SELL_PICK.to_string())]);
+    if db(ctx)
+        .user_positions(cb.from.id)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
+        rows.push(vec![(
+            i18n::btn_sell(lang).to_string(),
+            selling::SELL_PICK.to_string(),
+        )]);
     }
-    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
+    rows.push(vec![(
+        i18n::bet_btn_back(lang).to_string(),
+        menu::MENU_HOME.to_string(),
+    )]);
     let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
     Ok(())
 }
@@ -639,9 +655,15 @@ async fn handle_menu_bets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let (body, holds) = assets::bets_body(ctx, lang, &cb.from).await;
     let mut rows = Vec::new();
     if holds {
-        rows.push(vec![(i18n::btn_sell(lang).to_string(), selling::SELL_PICK.to_string())]);
+        rows.push(vec![(
+            i18n::btn_sell(lang).to_string(),
+            selling::SELL_PICK.to_string(),
+        )]);
     }
-    rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
+    rows.push(vec![(
+        i18n::bet_btn_back(lang).to_string(),
+        menu::MENU_HOME.to_string(),
+    )]);
     tg::edit_cb(ctx, cb, &body, &rows).await;
     Ok(())
 }
@@ -652,7 +674,10 @@ async fn handle_menu_history(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     let lang = cb_lang(ctx, cb);
     answer(ctx, cb, "", false).await?;
     let text = history::history_text(ctx, lang, &cb.from).await;
-    let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
+    let rows = vec![vec![(
+        i18n::bet_btn_back(lang).to_string(),
+        menu::MENU_HOME.to_string(),
+    )]];
     tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
 }
@@ -677,11 +702,7 @@ async fn handle_menu_markets(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
 /// `evpage:<m|s>:<page>` — re-render the market brief at the requested page in
 /// place (edits the current message). The `m`/`s` flag (menu vs standalone) and
 /// the page number ride in the callback, so no server-side state is kept.
-async fn handle_events_page(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    rest: &str,
-) -> Result<(), telexide::Error> {
+async fn handle_events_page(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     answer(ctx, cb, "", false).await?;
     let (flag, page_str) = rest.split_once(':').unwrap_or(("s", rest));
@@ -705,7 +726,10 @@ async fn handle_menu_rule(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let lang = cb_lang(ctx, cb);
     answer(ctx, cb, "", false).await?;
     let text = i18n::rules_text(lang, &fmt_coins(CHECKIN_REWARD), &fmt_coins(REFERRAL_REWARD));
-    let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
+    let rows = vec![vec![(
+        i18n::bet_btn_back(lang).to_string(),
+        menu::MENU_HOME.to_string(),
+    )]];
     tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
 }
@@ -724,7 +748,6 @@ async fn handle_menu_predict(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         answer(ctx, cb, i18n::bet_dm_first(lang), true).await
     }
 }
-
 
 async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let Some(message) = cb.message.clone() else {
@@ -754,9 +777,7 @@ async fn handle_sell(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::
             .await;
             answer(ctx, cb, &i18n::bought_toast(lang, &fruits), true).await
         }
-        OfferOutcome::TakerNotEnoughBalance => {
-            answer(ctx, cb, i18n::not_enough_money(lang), true).await
-        }
+        OfferOutcome::TakerNotEnoughBalance => answer(ctx, cb, i18n::not_enough_money(lang), true).await,
         OfferOutcome::TakerFruitFull => answer(ctx, cb, i18n::too_many_fruits(lang), true).await,
         OfferOutcome::TakerMissingFruit(_) => answer(ctx, cb, i18n::system_error(lang), true).await,
     }
@@ -794,8 +815,6 @@ async fn handle_buy(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::E
             answer(ctx, cb, &i18n::you_dont_have(lang, &ch.to_string()), true).await
         }
         OfferOutcome::TakerFruitFull => answer(ctx, cb, i18n::buyer_fruit_full(lang), true).await,
-        OfferOutcome::TakerNotEnoughBalance => {
-            answer(ctx, cb, i18n::system_error(lang), true).await
-        }
+        OfferOutcome::TakerNotEnoughBalance => answer(ctx, cb, i18n::system_error(lang), true).await,
     }
 }
