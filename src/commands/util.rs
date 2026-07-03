@@ -205,6 +205,25 @@ pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
+/// The user's time-of-day bucket for the home-menu greeting, from their saved UTC
+/// offset (minutes east; `None` = not picked → UTC). Bands: 05:00–11:59 morning,
+/// 12:00–17:59 afternoon, else evening/night. Pure over `now()` + the offset.
+pub fn day_part(tz_offset: Option<i64>) -> crate::core::i18n::DayPart {
+    day_part_at(now(), tz_offset)
+}
+
+/// [`day_part`] at an explicit unix time (for tests).
+fn day_part_at(now_unix: i64, tz_offset: Option<i64>) -> crate::core::i18n::DayPart {
+    use crate::core::i18n::DayPart;
+    let local = now_unix + tz_offset.unwrap_or(0) * 60;
+    let hour = local.rem_euclid(86_400) / 3_600; // 0..=23, safe for negative offsets
+    match hour {
+        5..=11 => DayPart::Morning,
+        12..=17 => DayPart::Afternoon,
+        _ => DayPart::Evening,
+    }
+}
+
 /// Parse a colon-separated run of `N` integers out of callback data (e.g.
 /// `"12:3:0"` → `[12, 3, 0]`). Returns `None` if any of the first `N` fields is
 /// missing or non-numeric; trailing fields are ignored. Every field parses as
@@ -509,7 +528,27 @@ pub fn format_odds(odds_cents: f64, fmt: crate::core::types::OddsFormat) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::i18n::DayPart;
     use crate::database::COIN;
+
+    #[test]
+    fn day_part_bands_by_local_hour() {
+        // Anchor at a known UTC midnight; add hours to probe each band. tz = None → UTC.
+        let midnight = 1_704_067_200; // 2024-01-01 00:00:00 UTC
+        let at = |h: i64| midnight + h * 3600;
+        assert_eq!(day_part_at(at(0), None), DayPart::Evening); // 00:00 → night
+        assert_eq!(day_part_at(at(4), None), DayPart::Evening);
+        assert_eq!(day_part_at(at(5), None), DayPart::Morning); // band starts
+        assert_eq!(day_part_at(at(11), None), DayPart::Morning);
+        assert_eq!(day_part_at(at(12), None), DayPart::Afternoon);
+        assert_eq!(day_part_at(at(17), None), DayPart::Afternoon);
+        assert_eq!(day_part_at(at(18), None), DayPart::Evening);
+        assert_eq!(day_part_at(at(23), None), DayPart::Evening);
+        // Timezone offset shifts the local hour: 00:00 UTC + 9h (JST) = 09:00 → morning.
+        assert_eq!(day_part_at(at(0), Some(9 * 60)), DayPart::Morning);
+        // Negative offset wraps correctly: 00:00 UTC − 5h = 19:00 prev day → evening.
+        assert_eq!(day_part_at(at(0), Some(-5 * 60)), DayPart::Evening);
+    }
 
     #[test]
     fn topic_blocked_truth_table() {

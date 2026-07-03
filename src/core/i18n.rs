@@ -914,7 +914,7 @@ pub fn feedback_sent(l: Lang) -> &'static str {
 
 fn menu_rule(l: Lang) -> &'static str {
     tr!(l;
-        "How to earn coins", "如何賺幣", "如何赚金币", "コインの稼ぎ方", "코인 버는 법",
+        "How to earn coins", "如何賺幣", "如何赚币", "コインの稼ぎ方", "코인 버는 법",
         "Как заработать монеты", "Comment gagner des pièces", "Cómo ganar monedas", "Münzen verdienen", "Cách kiếm xu",
         "Cara mendapat koin", "Paano kumita ng coins", "วิธีหาเหรียญ", "Munten verdienen", "Para nasıl kazanılır",
         "Como ganhar moedas", "कॉइन कैसे कमाएँ", "كيفية كسب العملات")
@@ -1215,26 +1215,60 @@ pub fn choose_timezone(l: Lang) -> &'static str {
         "🕒 Escolha seu fuso horário:", "🕒 अपना टाइमज़ोन चुनें:", "🕒 اختر منطقتك الزمنية:")
 }
 
+/// Time-of-day bucket for the greeting, from the user's local clock
+/// (`util::day_part`). Morning 05:00–11:59, afternoon 12:00–17:59, else evening.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DayPart {
+    Morning,
+    Afternoon,
+    Evening,
+}
+
+/// Time-aware salutation for the home menu — prepended to [`intro`], picked from
+/// the user's local time (`DayPart`). Region-appropriate per locale (e.g. Taiwan
+/// 早安/午安/晚安 vs Mainland 早上好/下午好/晚上好; JA おはようございます/こんにちは/こんばんは).
+pub fn greeting(l: Lang, part: DayPart) -> &'static str {
+    match part {
+        DayPart::Morning => tr!(l;
+            "Good morning", "早安", "早上好", "おはようございます", "좋은 아침",
+            "Доброе утро", "Bonjour", "Buenos días", "Guten Morgen", "Chào buổi sáng",
+            "Selamat pagi", "Magandang umaga", "อรุณสวัสดิ์", "Goedemorgen", "Günaydın",
+            "Bom dia", "सुप्रभात", "صباح الخير"),
+        DayPart::Afternoon => tr!(l;
+            "Good afternoon", "午安", "下午好", "こんにちは", "좋은 오후",
+            "Добрый день", "Bonjour", "Buenas tardes", "Guten Tag", "Chào buổi chiều",
+            "Selamat siang", "Magandang hapon", "สวัสดีตอนบ่าย", "Goedemiddag", "İyi günler",
+            "Boa tarde", "नमस्ते", "مساء الخير"),
+        DayPart::Evening => tr!(l;
+            "Good evening", "晚安", "晚上好", "こんばんは", "좋은 저녁",
+            "Добрый вечер", "Bonsoir", "Buenas noches", "Guten Abend", "Chào buổi tối",
+            "Selamat malam", "Magandang gabi", "สวัสดีตอนเย็น", "Goedenavond", "İyi akşamlar",
+            "Boa noite", "शुभ संध्या", "مساء الخير"),
+    }
+}
+
+/// The home-menu **body** — everything after the time-aware [`greeting`], starting
+/// at the 👋. `menu::menu_text` composes `greeting + " " + intro`.
 pub fn intro(l: Lang) -> &'static str {
     tr!(l;
-        "Hey 👋 I'm Wixy.\nThe World Cup is live. Make your call and prove you know ball ⚽\nCheck in, Predict. Earn coins 👇",
-        "嗨 👋 我是 Wixy。\n世界盃正熱烈開打！下好離手，證明你最懂球 ⚽\n簽到、預測，賺取金幣 👇",
-        "嗨 👋 我是 Wixy。\n世界杯正火热开打！下好离手，证明你最懂球 ⚽\n签到、预测，赚取金币 👇",
-        "やあ 👋 わたしは Wixy。\nワールドカップ開催中！予想を立てて、サッカー通なところを見せて ⚽\nチェックイン、予測してコインを稼ごう 👇",
-        "안녕 👋 나는 Wixy야.\n월드컵이 한창이야. 예측을 걸고 축구 실력을 증명해 봐 ⚽\n출석하고 예측해서 코인을 벌자 👇",
-        "Привет 👋 Я Wixy.\nЧемпионат мира в разгаре. Сделай прогноз и докажи, что разбираешься в футболе ⚽\nОтмечайся, предсказывай, зарабатывай монеты 👇",
-        "Salut 👋 Je suis Wixy.\nLa Coupe du monde est lancée. Fais ton pronostic et prouve que tu t'y connais en foot ⚽\nPointe-toi, prédis, gagne des pièces 👇",
-        "¡Hola 👋 Soy Wixy!\nEl Mundial está en marcha. Haz tu pronóstico y demuestra que sabes de fútbol ⚽\nRegístrate, predice y gana monedas 👇",
-        "Hey 👋 Ich bin Wixy.\nDie WM läuft. Tipp ab und beweise, dass du was von Fußball verstehst ⚽\nEinchecken, tippen, Coins verdienen 👇",
-        "Chào 👋 Mình là Wixy.\nWorld Cup đang diễn ra. Đặt kèo và chứng minh bạn rành bóng đá ⚽\nĐiểm danh, dự đoán, kiếm xu 👇",
-        "Hai 👋 Aku Wixy.\nPiala Dunia sedang berlangsung. Buat tebakanmu dan buktikan kamu paham bola ⚽\nCheck-in, prediksi, kumpulkan koin 👇",
-        "Uy 👋 Ako si Wixy.\nBuhay ang World Cup. Itaya ang hula mo at patunayang marunong ka sa bola ⚽\nMag-check-in, mag-predict, kumita ng coins 👇",
-        "สวัสดี 👋 ฉันชื่อ Wixy\nฟุตบอลโลกกำลังแข่งอยู่ ทายผลแล้วพิสูจน์ว่าคุณรู้จริงเรื่องบอล ⚽\nเช็คอิน ทายผล รับเหรียญ 👇",
-        "Hoi 👋 Ik ben Wixy.\nHet WK is bezig. Doe je voorspelling en bewijs dat je verstand van voetbal hebt ⚽\nCheck in, voorspel, verdien munten 👇",
-        "Selam 👋 Ben Wixy.\nDünya Kupası başladı. Tahminini yap ve topdan anladığını kanıtla ⚽\nGiriş yap, tahmin et, coin kazan 👇",
-        "Oi 👋 Eu sou a Wixy.\nA Copa do Mundo está rolando. Faça seu palpite e prove que manja de futebol ⚽\nFaça check-in, preveja e ganhe moedas 👇",
-        "नमस्ते 👋 मैं Wixy हूँ।\nवर्ल्ड कप जारी है। अपनी भविष्यवाणी करो और साबित करो कि तुम फ़ुटबॉल के उस्ताद हो ⚽\nचेक-इन करो, भविष्यवाणी करो, सिक्के कमाओ 👇",
-        "مرحبًا 👋 أنا Wixy.\nكأس العالم مستمرة. توقّع النتيجة وأثبت أنك تفهم في كرة القدم ⚽\nسجّل حضورك وتوقّع واكسب العملات 👇")
+        "👋 I'm Wixy.\nThe World Cup is live. Make your call and prove you know ball ⚽\nCheck in, Predict. Earn coins 👇",
+        "👋 我是 Wixy。\n世界盃正熱烈開打！下好離手，證明你最懂球 ⚽\n簽到、預測，賺取金幣 👇",
+        "👋 我是 Wixy。\n世界杯正火热开打！下好离手，证明你最懂球 ⚽\n签到、预测，赚取金币 👇",
+        "👋 わたしは Wixy。\nワールドカップ開催中！予想を立てて、サッカー通なところを見せて ⚽\nチェックイン、予測してコインを稼ごう 👇",
+        "👋 나는 Wixy야.\n월드컵이 한창이야. 예측을 걸고 축구 실력을 증명해 봐 ⚽\n출석하고 예측해서 코인을 벌자 👇",
+        "👋 Я Wixy.\nЧемпионат мира в разгаре. Сделай прогноз и докажи, что разбираешься в футболе ⚽\nОтмечайся, предсказывай, зарабатывай монеты 👇",
+        "👋 Je suis Wixy.\nLa Coupe du monde est lancée. Fais ton pronostic et prouve que tu t'y connais en foot ⚽\nPointe-toi, prédis, gagne des pièces 👇",
+        "👋 Soy Wixy.\nEl Mundial está en marcha. Haz tu pronóstico y demuestra que sabes de fútbol ⚽\nRegístrate, predice y gana monedas 👇",
+        "👋 Ich bin Wixy.\nDie WM läuft. Tipp ab und beweise, dass du was von Fußball verstehst ⚽\nEinchecken, tippen, Coins verdienen 👇",
+        "👋 Mình là Wixy.\nWorld Cup đang diễn ra. Đặt kèo và chứng minh bạn rành bóng đá ⚽\nĐiểm danh, dự đoán, kiếm xu 👇",
+        "👋 Aku Wixy.\nPiala Dunia sedang berlangsung. Buat tebakanmu dan buktikan kamu paham bola ⚽\nCheck-in, prediksi, kumpulkan koin 👇",
+        "👋 Ako si Wixy.\nBuhay ang World Cup. Itaya ang hula mo at patunayang marunong ka sa bola ⚽\nMag-check-in, mag-predict, kumita ng coins 👇",
+        "👋 ฉันชื่อ Wixy\nฟุตบอลโลกกำลังแข่งอยู่ ทายผลแล้วพิสูจน์ว่าคุณรู้จริงเรื่องบอล ⚽\nเช็คอิน ทายผล รับเหรียญ 👇",
+        "👋 Ik ben Wixy.\nHet WK is bezig. Doe je voorspelling en bewijs dat je verstand van voetbal hebt ⚽\nCheck in, voorspel, verdien munten 👇",
+        "👋 Ben Wixy.\nDünya Kupası başladı. Tahminini yap ve topdan anladığını kanıtla ⚽\nGiriş yap, tahmin et, coin kazan 👇",
+        "👋 Eu sou a Wixy.\nA Copa do Mundo está rolando. Faça seu palpite e prove que manja de futebol ⚽\nFaça check-in, preveja e ganhe moedas 👇",
+        "👋 मैं Wixy हूँ।\nवर्ल्ड कप जारी है। अपनी भविष्यवाणी करो और साबित करो कि तुम फ़ुटबॉल के उस्ताद हो ⚽\nचेक-इन करो, भविष्यवाणी करो, सिक्के कमाओ 👇",
+        "👋 أنا Wixy.\nكأس العالم مستمرة. توقّع النتيجة وأثبت أنك تفهم في كرة القدم ⚽\nسجّل حضورك وتوقّع واكسب العملات 👇")
 }
 
 /// Closing prompt shown as the last line of the menu, after the status block.
@@ -1956,19 +1990,19 @@ pub fn fund_closed(l: Lang) -> &'static str {
 
 pub fn pm_resolved(l: Lang, winner: &str) -> String {
     tr!(l;
-        "✅ Resolved: {winner}\nClaim your winnings with /claim", "✅ 已結算：{winner}\n用 /claim 領取獎金", "✅ 已结算：{winner}\n用 /claim 领取奖金", "✅ 確定：{winner}\n/claim で獲得分を受け取り", "✅ 확정: {winner}\n/claim 으로 수령하세요",
-        "✅ Итог: {winner}\nЗаберите выигрыш через /claim", "✅ Résolu : {winner}\nRécupérez vos gains avec /claim", "✅ Resuelto: {winner}\nReclama tus ganancias con /claim", "✅ Aufgelöst: {winner}\nGewinne mit /claim abholen", "✅ Đã chốt: {winner}\nNhận tiền thắng bằng /claim",
-        "✅ Selesai: {winner}\nKlaim kemenangan dengan /claim", "✅ Nalutas: {winner}\nKunin ang panalo gamit ang /claim", "✅ ตัดสินแล้ว: {winner}\nรับเงินรางวัลด้วย /claim", "✅ Beslist: {winner}\nClaim je winst met /claim", "✅ Sonuçlandı: {winner}\nKazancını /claim ile al",
-        "✅ Resolvido: {winner}\nResgate seus ganhos com /claim", "✅ परिणाम: {winner}\n/claim से जीत लें", "✅ تم الحسم: {winner}\nاحصل على أرباحك عبر /claim")
+        "✅ Resolved: {winner}\nWinnings paid out 🪙", "✅ 已結算：{winner}\n獎金已自動派發 🪙", "✅ 已结算：{winner}\n奖金已自动派发 🪙", "✅ 確定：{winner}\n配当を自動で支払ったよ 🪙", "✅ 확정: {winner}\n상금이 자동 지급됐어 🪙",
+        "✅ Итог: {winner}\nВыигрыш выплачен 🪙", "✅ Résolu : {winner}\nGains versés automatiquement 🪙", "✅ Resuelto: {winner}\nGanancias pagadas 🪙", "✅ Aufgelöst: {winner}\nGewinne ausgezahlt 🪙", "✅ Đã chốt: {winner}\nĐã trả tiền thắng 🪙",
+        "✅ Selesai: {winner}\nKemenangan dibayarkan 🪙", "✅ Nalutas: {winner}\nBinayad na ang panalo 🪙", "✅ ตัดสินแล้ว: {winner}\nจ่ายเงินรางวัลแล้ว 🪙", "✅ Beslist: {winner}\nWinst uitbetaald 🪙", "✅ Sonuçlandı: {winner}\nKazançlar ödendi 🪙",
+        "✅ Resolvido: {winner}\nGanhos pagos 🪙", "✅ परिणाम: {winner}\nजीत का भुगतान हो गया 🪙", "✅ تم الحسم: {winner}\nتم دفع الأرباح 🪙")
     .replace("{winner}", winner)
 }
 
 pub fn pm_voided(l: Lang) -> &'static str {
     tr!(l;
-        "↩️ Voided — claim your refund with /claim", "↩️ 已作廢 — 用 /claim 領回退款", "↩️ 已作废 — 用 /claim 领回退款", "↩️ 無効 — /claim で返金を受け取り", "↩️ 무효 — /claim 으로 환불 받기",
-        "↩️ Отменено — заберите возврат через /claim", "↩️ Annulé — récupérez votre remboursement avec /claim", "↩️ Anulado — reclama tu reembolso con /claim", "↩️ Annulliert — Rückerstattung mit /claim abholen", "↩️ Đã hủy — nhận hoàn tiền bằng /claim",
-        "↩️ Dibatalkan — klaim pengembalian dengan /claim", "↩️ Pinawalang-bisa — kunin ang refund gamit ang /claim", "↩️ ยกเลิก — รับเงินคืนด้วย /claim", "↩️ Geannuleerd — claim je terugbetaling met /claim", "↩️ İptal — iadeni /claim ile al",
-        "↩️ Anulado — resgate seu reembolso com /claim", "↩️ रद्द — /claim से रिफंड लें", "↩️ أُلغيت — استرجع أموالك عبر /claim")
+        "↩️ Voided — everyone refunded 🪙", "↩️ 已作廢 — 全額退回 🪙", "↩️ 已作废 — 全额退回 🪙", "↩️ 無効 — 全額返金したよ 🪙", "↩️ 무효 — 전액 환불했어 🪙",
+        "↩️ Отменено — всем возвращено 🪙", "↩️ Annulé — tout le monde remboursé 🪙", "↩️ Anulado — todos reembolsados 🪙", "↩️ Annulliert — alle erstattet 🪙", "↩️ Đã hủy — đã hoàn tiền cho mọi người 🪙",
+        "↩️ Dibatalkan — semua dikembalikan 🪙", "↩️ Pinawalang-bisa — lahat na-refund 🪙", "↩️ ยกเลิก — คืนเงินทุกคนแล้ว 🪙", "↩️ Geannuleerd — iedereen terugbetaald 🪙", "↩️ İptal — herkese iade edildi 🪙",
+        "↩️ Anulado — todos reembolsados 🪙", "↩️ रद्द — सभी को रिफंड 🪙", "↩️ أُلغيت — تم رد المبالغ للجميع 🪙")
 }
 
 pub fn predict_need_coins(l: Lang, coins: &str) -> String {
@@ -1988,34 +2022,6 @@ fn menu_claim(l: Lang) -> &'static str {
         "Resgatar ganhos", "जीत प्राप्त करें", "اطلب أرباحك")
 }
 
-pub fn claim_nothing(l: Lang) -> &'static str {
-    tr!(l;
-        "Nothing to claim yet.", "目前沒有可領取的獎勵。", "目前没有可领取的奖励。", "受け取れるものはまだありません。", "아직 받을 것이 없습니다.",
-        "Пока нечего забирать.", "Rien à récupérer pour l'instant.", "Nada que reclamar todavía.", "Noch nichts abzuholen.", "Chưa có gì để nhận.",
-        "Belum ada yang bisa diklaim.", "Wala pang maa-claim.", "ยังไม่มีอะไรให้รับ", "Nog niets te claimen.", "Henüz alınacak bir şey yok.",
-        "Nada para resgatar ainda.", "अभी कुछ प्राप्त करने को नहीं है।", "لا شيء للمطالبة به بعد.")
-}
-
-pub fn claim_won(l: Lang, title: &str, coins: &str) -> String {
-    tr!(l;
-        "🏆 {title}: +{coins} 🪙", "🏆 {title}：+{coins} 🪙", "🏆 {title}：+{coins} 🪙", "🏆 {title}：+{coins} 🪙", "🏆 {title}: +{coins} 🪙",
-        "🏆 {title}: +{coins} 🪙", "🏆 {title} : +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙",
-        "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙",
-        "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙", "🏆 {title}: +{coins} 🪙")
-    .replace("{title}", title)
-    .replace("{coins}", coins)
-}
-
-pub fn claim_refunded(l: Lang, title: &str, coins: &str) -> String {
-    tr!(l;
-        "↩️ {title}: refunded {coins} 🪙", "↩️ {title}：退回 {coins} 🪙", "↩️ {title}：退回 {coins} 🪙", "↩️ {title}：{coins} 🪙 返金", "↩️ {title}: {coins} 🪙 환불",
-        "↩️ {title}: возврат {coins} 🪙", "↩️ {title} : remboursé {coins} 🪙", "↩️ {title}: reembolso {coins} 🪙", "↩️ {title}: {coins} 🪙 erstattet", "↩️ {title}: hoàn {coins} 🪙",
-        "↩️ {title}: dikembalikan {coins} 🪙", "↩️ {title}: na-refund {coins} 🪙", "↩️ {title}: คืน {coins} 🪙", "↩️ {title}: {coins} 🪙 terugbetaald", "↩️ {title}: {coins} 🪙 iade",
-        "↩️ {title}: reembolsado {coins} 🪙", "↩️ {title}: {coins} 🪙 वापस", "↩️ {title}: استُرجع {coins} 🪙")
-    .replace("{title}", title)
-    .replace("{coins}", coins)
-}
-
 pub fn settle_nothing(l: Lang) -> &'static str {
     tr!(l;
         "Nothing to settle right now.", "目前沒有可結算的。", "目前没有可结算的。", "今は精算できるものがありません。", "지금 정산할 것이 없습니다.",
@@ -2026,21 +2032,12 @@ pub fn settle_nothing(l: Lang) -> &'static str {
 
 pub fn settle_done(l: Lang, events: &str, coins: &str) -> String {
     tr!(l;
-        "✅ Settled {events} event(s) — paid out {coins} 🪙. Use /claim for your share.", "✅ 已結算 {events} 場 — 派彩 {coins} 🪙。用 /claim 領你的份。", "✅ 已结算 {events} 场 — 派彩 {coins} 🪙。用 /claim 领你的份。", "✅ {events} 件を精算 — {coins} 🪙 を払い出し。/claim で受け取りを。", "✅ {events}건 정산 — {coins} 🪙 지급. /claim 으로 수령하세요.",
-        "✅ Рассчитано {events} событий — выплачено {coins} 🪙. Заберите своё через /claim.", "✅ {events} événement(s) réglé(s) — {coins} 🪙 versés. Récupérez via /claim.", "✅ {events} evento(s) liquidado(s) — {coins} 🪙 pagados. Usa /claim.", "✅ {events} Event(s) abgerechnet — {coins} 🪙 ausgezahlt. Hol dir deins mit /claim.", "✅ Đã quyết toán {events} sự kiện — trả {coins} 🪙. Dùng /claim để nhận.",
-        "✅ {events} event diselesaikan — dibayar {coins} 🪙. Pakai /claim.", "✅ Na-settle ang {events} event — {coins} 🪙 binayad. Gamitin ang /claim.", "✅ เคลียร์ {events} รายการ — จ่าย {coins} 🪙 ใช้ /claim เพื่อรับ", "✅ {events} event(s) afgerekend — {coins} 🪙 uitbetaald. Gebruik /claim.", "✅ {events} etkinlik çözüldü — {coins} 🪙 ödendi. /claim ile al.",
-        "✅ {events} evento(s) liquidado(s) — {coins} 🪙 pagos. Use /claim.", "✅ {events} इवेंट निपटाए — {coins} 🪙 दिए गए। /claim से लें।", "✅ تمت تسوية {events} حدثًا — دُفع {coins} 🪙. استخدم /claim.")
+        "✅ Settled {events} event(s) — paid out {coins} 🪙.", "✅ 已結算 {events} 場 — 派彩 {coins} 🪙。", "✅ 已结算 {events} 场 — 派彩 {coins} 🪙。", "✅ {events} 件を精算 — {coins} 🪙 を払い出し。", "✅ {events}건 정산 — {coins} 🪙 지급.",
+        "✅ Рассчитано {events} событий — выплачено {coins} 🪙.", "✅ {events} événement(s) réglé(s) — {coins} 🪙 versés.", "✅ {events} evento(s) liquidado(s) — {coins} 🪙 pagados.", "✅ {events} Event(s) abgerechnet — {coins} 🪙 ausgezahlt.", "✅ Đã quyết toán {events} sự kiện — trả {coins} 🪙.",
+        "✅ {events} event diselesaikan — dibayar {coins} 🪙.", "✅ Na-settle ang {events} event — {coins} 🪙 binayad.", "✅ เคลียร์ {events} รายการ — จ่าย {coins} 🪙", "✅ {events} event(s) afgerekend — {coins} 🪙 uitbetaald.", "✅ {events} etkinlik çözüldü — {coins} 🪙 ödendi.",
+        "✅ {events} evento(s) liquidado(s) — {coins} 🪙 pagos.", "✅ {events} इवेंट निपटाए — {coins} 🪙 दिए गए।", "✅ تمت تسوية {events} حدثًا — دُفع {coins} 🪙.")
     .replace("{events}", events)
     .replace("{coins}", coins)
-}
-
-pub fn claim_lost(l: Lang, title: &str) -> String {
-    tr!(l;
-        "✖ {title}: no win this time", "✖ {title}：這次沒中", "✖ {title}：这次没中", "✖ {title}：今回はハズレ", "✖ {title}: 이번엔 꽝",
-        "✖ {title}: в этот раз без выигрыша", "✖ {title} : pas de gain cette fois", "✖ {title}: sin premio esta vez", "✖ {title}: diesmal kein Gewinn", "✖ {title}: lần này không thắng",
-        "✖ {title}: belum menang kali ini", "✖ {title}: walang panalo ngayon", "✖ {title}: รอบนี้ไม่ถูก", "✖ {title}: deze keer geen winst", "✖ {title}: bu sefer kazanç yok",
-        "✖ {title}: sem prêmio desta vez", "✖ {title}: इस बार जीत नहीं", "✖ {title}: لا ربح هذه المرة")
-    .replace("{title}", title)
 }
 
 /// Self-host (`/predict`) DM stake builder — no odds (pari-mutuel).
@@ -2101,6 +2098,31 @@ pub fn history_empty(l: Lang) -> &'static str {
         "Пока нет активности 🫥", "Aucune activité pour l'instant 🫥", "Aún no hay actividad 🫥", "Noch keine Aktivität 🫥", "Chưa có hoạt động nào 🫥",
         "Belum ada aktivitas 🫥", "Wala pang aktibidad 🫥", "ยังไม่มีกิจกรรม 🫥", "Nog geen activiteit 🫥", "Henüz etkinlik yok 🫥",
         "Ainda sem atividade 🫥", "अभी कोई गतिविधि नहीं 🫥", "لا يوجد نشاط بعد 🫥")
+}
+
+/// `/history` filter-tab labels (button text + the active-tab header).
+pub fn hist_tab_mining(l: Lang) -> &'static str {
+    tr!(l;
+        "⛏ Mining", "⛏ 挖礦", "⛏ 挖矿", "⛏ マイニング", "⛏ 채굴",
+        "⛏ Майнинг", "⛏ Minage", "⛏ Minería", "⛏ Mining", "⛏ Đào coin",
+        "⛏ Menambang", "⛏ Mining", "⛏ ขุดเหรียญ", "⛏ Minen", "⛏ Madencilik",
+        "⛏ Mineração", "⛏ माइनिंग", "⛏ التعدين")
+}
+
+pub fn hist_tab_trading(l: Lang) -> &'static str {
+    tr!(l;
+        "📈 Trading", "📈 交易", "📈 交易", "📈 取引", "📈 거래",
+        "📈 Торговля", "📈 Trading", "📈 Trading", "📈 Trading", "📈 Giao dịch",
+        "📈 Trading", "📈 Trading", "📈 เทรด", "📈 Handel", "📈 İşlem",
+        "📈 Negociação", "📈 ट्रेडिंग", "📈 التداول")
+}
+
+pub fn hist_tab_transfer(l: Lang) -> &'static str {
+    tr!(l;
+        "↔️ Transfer", "↔️ 轉帳", "↔️ 转账", "↔️ 送金", "↔️ 송금",
+        "↔️ Перевод", "↔️ Transfert", "↔️ Transferencia", "↔️ Überweisung", "↔️ Chuyển coin",
+        "↔️ Transfer", "↔️ Transfer", "↔️ โอน", "↔️ Overboeking", "↔️ Transfer",
+        "↔️ Transferência", "↔️ ट्रांसफर", "↔️ تحويل")
 }
 
 pub fn hist_buy(l: Lang) -> &'static str {

@@ -41,10 +41,11 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
     match lang {
         Some(lang) => {
             let available = is_group_chat(chat_id) || database.checkin_available(uid).unwrap_or(true);
+            let tz = database.get_tz(uid).ok().flatten();
             tg::send_with_buttons(
                 &ctx,
                 chat_id,
-                &menu::menu_text(lang),
+                &menu::menu_text(lang, tz),
                 &menu::main_menu_rows(lang, available, is_group_chat(chat_id)),
             )
             .await?;

@@ -154,6 +154,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_bets(&ctx, &cb).await
     } else if data == menu::MENU_HISTORY {
         handle_menu_history(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(history::HIST_TAB) {
+        handle_history_tab(&ctx, &cb, rest).await
     } else if data == menu::MENU_MARKETS {
         handle_menu_markets(&ctx, &cb).await
     } else if data == menu::MENU_RULE {
@@ -210,6 +212,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         predmarket::handle_back(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(admin::RESET_CB) {
         admin::handle_reset_cb(&ctx, &cb, rest).await
+    } else if data == admin::DASH_REFRESH {
+        handle_dashboard_refresh(&ctx, &cb).await
     } else {
         Ok(())
     };
@@ -317,11 +321,12 @@ async fn handle_set_lang(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
         // Groups skip it (shared message) and go straight to the menu.
         if in_group {
             let available = true;
+            let tz = db.get_tz(cb.from.id).ok().flatten();
             let _ = tg::edit_with_buttons(
                 ctx,
                 chat,
                 message.message_id,
-                &menu::menu_text(lang),
+                &menu::menu_text(lang, tz),
                 &menu::main_menu_rows(lang, available, in_group),
             )
             .await;
@@ -353,11 +358,12 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
         let chat = message.chat.get_id();
         let in_group = is_group_chat(chat);
         let available = in_group || db.checkin_available(cb.from.id).unwrap_or(true);
+        // The user just picked this offset — greet in their new local time now.
         let _ = tg::edit_with_buttons(
             ctx,
             chat,
             message.message_id,
-            &menu::menu_text(lang),
+            &menu::menu_text(lang, Some(minutes)),
             &menu::main_menu_rows(lang, available, in_group),
         )
         .await;
@@ -480,11 +486,12 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
         Ok(true) => {
             if let Some(message) = cb.message.clone() {
                 if !is_group_chat(message.chat.get_id()) {
+                    let tz = db.get_tz(cb.from.id).ok().flatten();
                     let _ = tg::edit_with_buttons(
                         ctx,
                         message.chat.get_id(),
                         message.message_id,
-                        &menu::menu_text(lang),
+                        &menu::menu_text(lang, tz),
                         &menu::main_menu_rows(lang, false, false),
                     )
                     .await;
@@ -544,11 +551,12 @@ async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     let chat = message.chat.get_id();
     let in_group = is_group_chat(chat);
     let available = in_group || db(ctx).checkin_available(cb.from.id).unwrap_or(true);
+    let tz = db(ctx).get_tz(cb.from.id).ok().flatten();
     let _ = tg::edit_with_buttons(
         ctx,
         chat,
         message.message_id,
-        &menu::menu_text(lang),
+        &menu::menu_text(lang, tz),
         &menu::main_menu_rows(lang, available, in_group),
     )
     .await;
@@ -708,18 +716,40 @@ async fn handle_menu_bets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     Ok(())
 }
 
-/// `menu:history` — edit the message into the caller's activity statement (the
-/// `/history` surface) + back-to-home.
+/// `menu:history` — edit the message into the caller's history **category menu**
+/// (Mining/Trading/Transfer + back-to-home). Also the back target of a category
+/// page, so it's the one place that renders Screen 1.
 async fn handle_menu_history(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     answer(ctx, cb, "", false).await?;
-    let text = history::history_text(ctx, lang, &cb.from).await;
-    let rows = vec![vec![(
-        i18n::bet_btn_back(lang).to_string(),
-        menu::MENU_HOME.to_string(),
-    )]];
+    let (text, rows) = history::picker(lang);
     tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
+}
+
+/// `hist:<tab>:<page>` — open a category's paginated page, edit-in-place. Renders
+/// the *tapper's* own history (private-only surface; groups get the flat view).
+async fn handle_history_tab(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some((tab, page)) = history::parse_tab_page(rest) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    answer(ctx, cb, "", false).await?;
+    let (text, rows) = history::page_view(ctx, lang, &cb.from, tab, page).await;
+    tg::edit_cb(ctx, cb, &text, &rows).await;
+    Ok(())
+}
+
+/// `dash:refresh` — owner-only: rebuild the `/dashboard` snapshot and edit it in
+/// place. The button is only posted to the owner, but gate anyway (the snapshot
+/// exposes bot-wide totals). No i18n — the dashboard is a plain-English diagnostic.
+async fn handle_dashboard_refresh(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    if !crate::commands::util::is_owner(ctx, cb.from.id) {
+        return answer(ctx, cb, "", false).await;
+    }
+    let (text, rows) = admin::dashboard_view(ctx);
+    tg::edit_cb(ctx, cb, &text, &rows).await;
+    answer(ctx, cb, "Refreshed", false).await
 }
 
 /// `menu:markets` — post the market brief as a fresh message, leaving the menu

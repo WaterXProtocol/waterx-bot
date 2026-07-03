@@ -5,8 +5,10 @@
 //! builder** (owner-locked; presets accumulate in the callback data) which buys
 //! YES shares via `amm_buy`; the board re-renders in place after each trade. The
 //! host resolves by declaring the winning outcome (`resolve_event`) or voiding
-//! (`void_event`); payouts are collected later via `/claim`. All board state
-//! lives in the DB (no in-memory map) — callbacks use the `pm:` namespace.
+//! (`void_event`); resolving/voiding **settles all positions immediately**
+//! (`settle_event` — winners paid + LP residual returned), with the 5-min
+//! auto-settle sweep as the backstop. All board state lives in the DB (no
+//! in-memory map) — callbacks use the `pm:` namespace.
 
 use crate::commands::menu;
 use crate::commands::tg::{self, answer};
@@ -113,10 +115,15 @@ fn board_text(b: &AmmBoard) -> String {
     }
     let lang = Lang::from_store_code(&b.lang).unwrap_or(Lang::En);
     let fmt = OddsFormat::from_store_code(&b.odds_fmt);
+    // `resolved`/`void` become `closed` the instant auto-settle pays everyone out,
+    // so render `closed` by its outcome (winner set → ✅, else a void → ↩️) rather
+    // than a bare 🔴 — the card reads the same before and after settlement.
     let emoji = match b.state.as_str() {
         "open" => "🟢",
         "resolved" => "✅",
         "void" => "↩️",
+        "closed" if b.winning_market.is_some() => "✅",
+        "closed" => "↩️",
         _ => "🔴",
     };
     let mut s = format!("🎲 {}  ·  {emoji}\n", b.question);
@@ -137,17 +144,17 @@ fn board_text(b: &AmmBoard) -> String {
         "\n\n{}",
         i18n::board_footer_open(lang, &fmt_coins(b.pool))
     ));
-    // Terminal states append the result line below the board.
-    match b.state.as_str() {
-        "resolved" => {
-            let winner = b
-                .winning_market
-                .and_then(|i| b.options.get(i as usize))
-                .map(|(n, _)| n.clone())
-                .unwrap_or_default();
-            s.push_str(&format!("\n\n{}", i18n::pm_resolved(lang, &winner)));
-        }
-        "void" => s.push_str(&format!("\n\n{}", i18n::pm_voided(lang))),
+    // Terminal result line — shown for resolved/void **and** their settled
+    // `closed` form, so an auto-settled AMM card still shows who won / that it
+    // voided (a `closed` event with a `winning_market` is a settled win; without,
+    // a settled void).
+    let winner = b
+        .winning_market
+        .and_then(|i| b.options.get(i as usize))
+        .map(|(n, _)| n.clone());
+    match (b.state.as_str(), &winner) {
+        ("resolved" | "closed", Some(w)) => s.push_str(&format!("\n\n{}", i18n::pm_resolved(lang, w))),
+        ("void" | "closed", _) => s.push_str(&format!("\n\n{}", i18n::pm_voided(lang))),
         _ => {}
     }
     s
@@ -606,6 +613,11 @@ pub async fn handle_win(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         .unwrap_or_default();
     match db(ctx).resolve_event(event_id, idx, now()) {
         Ok(true) => {
+            // Pay all winners + return the LP residual immediately (no manual
+            // /claim). The 5-min auto-settle task is the backstop if this errors.
+            if let Err(e) = db(ctx).settle_event(event_id, None) {
+                eprintln!("[predict] settle on resolve failed (event {event_id}): {e}");
+            }
             refresh_card(ctx, event_id).await;
             answer(ctx, cb, &i18n::pm_resolved(lang, &winner), true).await
         }
@@ -613,7 +625,8 @@ pub async fn handle_win(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     }
 }
 
-/// `pm:void:<event>` — host only: void the event (refund cost basis on `/claim`).
+/// `pm:void:<event>` — host only: void the event (refunds every trader's cost
+/// basis + returns the seed to LPs immediately).
 pub async fn handle_void(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let Some(board) = host_board(ctx, cb, rest, lang).await? else {
@@ -621,6 +634,10 @@ pub async fn handle_void(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     };
     match db(ctx).void_event(board.event_id, now()) {
         Ok(true) => {
+            // Refund every trader's cost basis + return the seed to LPs immediately.
+            if let Err(e) = db(ctx).settle_event(board.event_id, None) {
+                eprintln!("[predict] settle on void failed (event {}): {e}", board.event_id);
+            }
             refresh_card(ctx, board.event_id).await;
             answer(ctx, cb, i18n::pm_voided(lang), true).await
         }

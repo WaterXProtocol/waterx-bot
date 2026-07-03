@@ -112,22 +112,39 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
+/// Callback data for the `/dashboard` refresh button.
+pub const DASH_REFRESH: &str = "dash:refresh";
+
 /// `/dashboard` — owner-only snapshot of bot-wide metrics: user/chat counts, the
 /// circulating coin supply, and live market-engine exposure (open events +
 /// positions + committed coins). Plain English (an operator diagnostic, not a
-/// user-facing surface).
+/// user-facing surface); carries a `[🔄 Refresh]` button (`dash:refresh`).
 #[command(description = "owner: bot-wide dashboard")]
 pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
     if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
-    let database = db(&ctx);
+    let (text, rows) = dashboard_view(&ctx);
+    tg::send_with_buttons(&ctx, message.chat.get_id(), &text, &rows).await?;
+    Ok(())
+}
+
+/// The dashboard snapshot text + its `[🔄 Refresh]` keyboard — the single source
+/// for the command and the `dash:refresh` callback (`callbacks::handle_dashboard_refresh`).
+pub(crate) fn dashboard_view(ctx: &Context) -> (String, Vec<tg::Row>) {
+    let rows = vec![vec![("🔄 Refresh".to_string(), DASH_REFRESH.to_string())]];
+    (dashboard_text(ctx), rows)
+}
+
+/// Build the dashboard text (plain English). Returns an error-notice string on a
+/// query failure rather than bailing, so the refresh button can render it in place.
+fn dashboard_text(ctx: &Context) -> String {
+    let database = db(ctx);
     let s = match database.dashboard() {
         Ok(s) => s,
         Err(e) => {
             eprintln!("/dashboard query error: {e}");
-            reply(&ctx, &message, format!("⚠️ Dashboard error: {e}")).await?;
-            return Ok(());
+            return format!("⚠️ Dashboard error: {e}");
         }
     };
     let status = if database.is_paused().unwrap_or(false) {
@@ -135,8 +152,7 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
     } else {
         "▶️ running"
     };
-
-    let text = format!(
+    format!(
         "📊 Bot stats\n\
          \n\
          👥 Users: {users} (referred: {referred})\n\
@@ -160,9 +176,7 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
         open_amm = format_number(s.open_amm),
         open_pos = format_number(s.open_positions),
         committed = fmt_coins(s.committed_coins),
-    );
-    reply(&ctx, &message, text).await?;
-    Ok(())
+    )
 }
 
 /// `/profile` — owner-only inspector for one user's state: balance, open match

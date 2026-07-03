@@ -15,7 +15,7 @@ pub use event::{
     basis_for_sold, AmmBoard, ClaimKind, FundOutcome, LiquidityView, Payout, PositionView, SellContext,
     TradeOutcome, B_MEDIUM, FEE_BPS_DEFAULT, FEE_BPS_MAX, MIN_SEED,
 };
-pub use history::HistoryRow;
+pub use history::{HistoryRow, HistoryTab};
 // Action tags for `/history` — re-exported so the command's label mapping shares
 // the exact literals the record sites write (no drift).
 pub(crate) use history::{
