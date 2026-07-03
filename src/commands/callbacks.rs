@@ -1,5 +1,5 @@
 use crate::commands::tg::answer;
-use crate::commands::util::{bot_token, cb_lang, db, fmt_coins, full_name, is_group_chat, SORRY_FRUITS};
+use crate::commands::util::{bot_token, cb_lang, db, fmt_coins, is_group_chat, SORRY_FRUITS};
 use crate::commands::{
     admin, assets, betting, history, markets, menu, predict, predmarket, referral, selling, tg,
 };
@@ -300,7 +300,7 @@ async fn handle_board_dismiss(ctx: &Context, cb: &CallbackQuery, rest: &str) -> 
 }
 
 /// `setlang:<store_code>` — persist the chosen locale and swap the picker for
-/// the Xaliah main menu in place.
+/// the Wixy main menu in place.
 async fn handle_set_lang(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let Some(lang) = Lang::from_store_code(rest) else {
         return answer(ctx, cb, "", false).await;
@@ -321,7 +321,7 @@ async fn handle_set_lang(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
                 ctx,
                 chat,
                 message.message_id,
-                &menu::menu_text(lang, &full_name(&cb.from)),
+                &menu::menu_text(lang),
                 &menu::main_menu_rows(lang, available, in_group),
             )
             .await;
@@ -357,7 +357,7 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
             ctx,
             chat,
             message.message_id,
-            &menu::menu_text(lang, &full_name(&cb.from)),
+            &menu::menu_text(lang),
             &menu::main_menu_rows(lang, available, in_group),
         )
         .await;
@@ -484,7 +484,7 @@ async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
                         ctx,
                         message.chat.get_id(),
                         message.message_id,
-                        &menu::menu_text(lang, &full_name(&cb.from)),
+                        &menu::menu_text(lang),
                         &menu::main_menu_rows(lang, false, false),
                     )
                     .await;
@@ -548,7 +548,7 @@ async fn handle_menu_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
         ctx,
         chat,
         message.message_id,
-        &menu::menu_text(lang, &full_name(&cb.from)),
+        &menu::menu_text(lang),
         &menu::main_menu_rows(lang, available, in_group),
     )
     .await;
