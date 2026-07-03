@@ -556,8 +556,8 @@ mod reset_tests {
     fn delete_user_makes_one_user_brand_new_for_re_refer() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(1, 0).unwrap(); // referrer exists
-        assert!(db.set_referrer_if_new(2, 1).unwrap()); // referee binds once
-        assert!(!db.set_referrer_if_new(2, 1).unwrap()); // existing row → no re-bind
+        assert!(db.set_referrer_if_unset(2, 1).unwrap()); // referee binds once
+        assert!(!db.set_referrer_if_unset(2, 1).unwrap()); // already referred → no re-bind
 
         // Delete only the referee — the referrer is untouched.
         assert!(db.delete_user(2).unwrap());
@@ -566,7 +566,7 @@ mod reset_tests {
         assert!(!db.delete_user(2).unwrap()); // already gone → false
 
         // Re-refer now works immediately (referrer still exists).
-        assert!(db.set_referrer_if_new(2, 1).unwrap());
+        assert!(db.set_referrer_if_unset(2, 1).unwrap());
     }
 
     #[test]
@@ -596,8 +596,8 @@ mod reset_tests {
     fn reset_all_makes_users_brand_new_for_re_refer() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(1, 0).unwrap(); // referrer exists
-        assert!(db.set_referrer_if_new(2, 1).unwrap()); // referee binds once
-        assert!(!db.set_referrer_if_new(2, 1).unwrap()); // existing row → no re-bind
+        assert!(db.set_referrer_if_unset(2, 1).unwrap()); // referee binds once
+        assert!(!db.set_referrer_if_unset(2, 1).unwrap()); // already referred → no re-bind
 
         db.reset_all().unwrap(); // [Everything]: wipes balance (+ chats etc.)
         assert!(!db.user_exists(2).unwrap()); // brand-new again
@@ -605,7 +605,7 @@ mod reset_tests {
         // Re-refer now works once the referrer is re-created (e.g. re-adding the
         // bot re-records the group adder; here we just recreate the row).
         db.force_change(1, 0).unwrap();
-        assert!(db.set_referrer_if_new(2, 1).unwrap());
+        assert!(db.set_referrer_if_unset(2, 1).unwrap());
     }
 
     #[test]

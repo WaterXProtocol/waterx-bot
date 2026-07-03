@@ -15,10 +15,11 @@ pub async fn start(ctx: Context, message: Message) -> CommandResult {
     let uid = user.id;
     let database = db(&ctx);
 
-    // Referral: a brand-new user opening `t.me/<bot>?start=<referrer_id>` sends
-    // `/start <referrer_id>`. Record it once and pay the referrer.
+    // Referral: a user opening `t.me/<bot>?start=<referrer_id>` sends
+    // `/start <referrer_id>`. Bind them once — brand-new, or an existing user who
+    // never had a referrer (friendly late-bind) — and pay both sides.
     if let Some(referrer) = args(&message).first().and_then(|p| p.parse::<i64>().ok()) {
-        if database.set_referrer_if_new(uid, referrer)? {
+        if database.set_referrer_if_unset(uid, referrer)? {
             referral::pay_referral(&ctx, referrer, &user).await;
         }
     }

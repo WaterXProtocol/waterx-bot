@@ -83,8 +83,8 @@ mod tests {
     fn counts_referred_users() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(1, 0).unwrap(); // top referrer, no referrer of their own
-        assert!(db.set_referrer_if_new(2, 1).unwrap());
-        assert!(db.set_referrer_if_new(3, 1).unwrap());
+        assert!(db.set_referrer_if_unset(2, 1).unwrap());
+        assert!(db.set_referrer_if_unset(3, 1).unwrap());
 
         let s = db.dashboard().unwrap();
         assert_eq!(s.users, 3);

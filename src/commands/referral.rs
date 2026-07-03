@@ -1,7 +1,8 @@
 //! Referral helpers shared by the two entry points: the `/start` deep link
-//! (`t.me/<bot>?start=<referrer_id>`) and the group bind (a brand-new user's
-//! first interaction — any command or button tap — in a group the referrer
-//! added the bot to).
+//! (`t.me/<bot>?start=<referrer_id>`) and the group bind (a referrer-less user's
+//! interaction — any command or button tap — in a group the referrer added the
+//! bot to). Both bind a user who has **no referrer yet**: a brand-new row, or an
+//! existing one whose `referrer` is still empty (the friendly late-bind).
 
 use crate::commands::tg;
 use crate::commands::util::*;
@@ -15,7 +16,7 @@ pub(crate) const REFERRAL_REWARD: i64 = 10 * crate::database::COIN;
 
 /// Credit both sides of a freshly-recorded referral and DM the referrer. The
 /// caller must have already confirmed the binding is new (e.g. via
-/// `Database::set_referrer_if_new` returning `true`) so this pays out once.
+/// `Database::set_referrer_if_unset` returning `true`) so this pays out once.
 pub(crate) async fn pay_referral(ctx: &Context, referrer: i64, referee: &User) {
     let database = db(ctx);
     // Pay both sides atomically (both or neither). Log a failure instead of
@@ -38,14 +39,14 @@ pub(crate) async fn pay_referral(ctx: &Context, referrer: i64, referee: &User) {
 }
 
 /// In a group, bind the acting `user` to an **adder** **and** the group **owner**
-/// (Telegram creator) as **co-referrers** — but only when `user` is **brand-new**
-/// (no `balance` row yet, so the `INSERT OR IGNORE` actually inserts). The adder is
-/// whoever actually added *this member* (`group_adds`, recorded from a "new member"
-/// service message) if known, else whoever added the **bot** (`chats.added_by`) as
-/// the fallback. Fires on **any** interaction the bot sees in a group: button taps
-/// (`callbacks::on_callback`) and text commands (`util::paused_block`). Both call
-/// sites run before the user's row is created, preserving the brand-new check.
-/// No-op in private chats, for existing users, or when no adder is known. When the
+/// (Telegram creator) as **co-referrers** — but only when `user` has **no referrer
+/// yet** (a brand-new row, or an existing one whose `referrer` is still empty: the
+/// friendly late-bind for members who were already around). The adder is whoever
+/// actually added *this member* (`group_adds`, recorded from a "new member" service
+/// message) if known, else whoever added the **bot** (`chats.added_by`) as the
+/// fallback. Fires on **any** interaction the bot sees in a group: button taps
+/// (`callbacks::on_callback`) and text commands (`util::paused_block`). No-op in
+/// private chats, for already-referred users, or when no adder is known. When the
 /// owner is distinct from the adder, the signup bonus is split 50/50 and the
 /// check-in level-1 reward will be too (see `Database::try_checkin`); otherwise the
 /// adder is the sole referrer.
@@ -54,11 +55,12 @@ pub(crate) async fn maybe_bind_group(ctx: &Context, chat_id: i64, user: &User) {
         return;
     }
     let database = db(ctx);
-    // Fast path: only brand-new users can bind, so skip all work (and the
-    // per-command write below) for anyone who already has a row — the common
-    // case now that this runs on every group interaction. On a read error,
-    // assume they exist (don't bind) — fail safe.
-    if database.user_exists(user.id).unwrap_or(true) {
+    // Fast path: only referrer-less users can bind, so skip all work (and the
+    // per-command write below) for anyone already referred — the common case now
+    // that this runs on every group interaction. On a read error, assume they're
+    // referred (don't bind) — fail safe. `bind_group_referral`'s atomic
+    // `0 → set` guard is the real once-only backstop; this just avoids the work.
+    if database.has_referrer(user.id).unwrap_or(true) {
         return;
     }
     // Prefer whoever actually added *this member* (a recorded "new member" service

@@ -465,13 +465,11 @@ async fn handle_cfg_odds(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
     answer(ctx, cb, "", false).await
 }
 
-/// Group-add referral bind: the first time a **brand-new** user taps *any* button
-/// inside a group, bind them to whoever added the bot there and pay both sides.
-/// No-op outside groups, when there's no recorded adder, or for existing users
-/// (`set_referrer_if_new` only inserts a fresh row — so no farming).
 /// `menu:checkin` — grant the daily reward; result shown as an alert. In a
 /// private chat the menu refreshes so the now-spent button drops off; in a group
-/// the menu is shared, so the button stays for everyone else to claim.
+/// the menu is shared, so the button stays for everyone else to claim. (Group-add
+/// referral binding happens up in `on_callback` before dispatch — see
+/// `referral::maybe_bind_group`.)
 async fn handle_menu_checkin(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let db = db(ctx);
