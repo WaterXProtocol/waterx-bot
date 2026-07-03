@@ -8,13 +8,15 @@ use crate::database::{
 use telexide::model::User;
 use telexide::prelude::*;
 
-/// How many recent actions each `/history` view shows (newest first).
+/// Rows per page in a category's paginated `/history` view.
+const HISTORY_PAGE: i64 = 10;
+/// Rows in the flat **group** `/history` view (no pagination there).
 const HISTORY_LIMIT: i64 = 20;
 
-/// Callback prefix for the filter tabs — `hist:<mining|trading|transfer>`.
+/// Callback prefix for a history category page — `hist:<tab>:<page>`.
 pub const HIST_TAB: &str = "hist:";
 
-/// The three filter tabs, in display order, with their callback suffix.
+/// The three categories, in display order, with their callback suffix.
 const TABS: [(HistoryTab, &str); 3] = [
     (HistoryTab::Mining, "mining"),
     (HistoryTab::Trading, "trading"),
@@ -22,10 +24,10 @@ const TABS: [(HistoryTab, &str); 3] = [
 ];
 
 /// `/history` — the caller's own recent money/position activity. In a **private**
-/// chat it's a tabbed statement (Mining / Trading / Transfer) that filters in
-/// place; in a **group** it's a static flat list (no tabs — a shared message must
-/// not swap to another member's view on a tap). Group-safe either way: no
-/// counterparty names are rendered.
+/// chat it opens a **category menu** (Mining / Trading / Transfer); picking one
+/// shows that category's **paginated** statement. In a **group** it's a static
+/// flat list (no menu — a shared message must not swap to another member's view on
+/// a tap). Group-safe either way: no counterparty names are rendered.
 #[command(description = "show your recent activity")]
 pub async fn history(ctx: Context, message: Message) -> CommandResult {
     let Some((user, lang)) = begin(&ctx, &message).await? else {
@@ -35,15 +37,42 @@ pub async fn history(ctx: Context, message: Message) -> CommandResult {
         let body = flat_history_text(&ctx, lang, user).await;
         reply(&ctx, &message, body).await?;
     } else {
-        let (text, rows) = tab_view(&ctx, lang, user, HistoryTab::Mining).await;
+        let (text, rows) = picker(lang);
         tg::send_with_buttons(&ctx, message.chat.get_id(), &text, &rows).await?;
     }
     Ok(())
 }
 
-/// Parse a `hist:` callback suffix into its tab (`None` for an unknown suffix).
-pub fn parse_tab(suffix: &str) -> Option<HistoryTab> {
-    TABS.iter().find(|(_, s)| *s == suffix).map(|(t, _)| *t)
+/// Screen 1 — the category menu: one button per category (each opens its page 0) +
+/// a back-to-home row. Shared by the `/history` command and the `menu:history`
+/// home button (which edits it in place).
+pub fn picker(lang: Lang) -> (String, Vec<tg::Row>) {
+    let mut rows: Vec<tg::Row> = TABS
+        .iter()
+        .map(|(tab, suffix)| vec![(tab_label(lang, *tab).to_string(), format!("{HIST_TAB}{suffix}:0"))])
+        .collect();
+    rows.push(vec![(
+        i18n::bet_btn_back(lang).to_string(),
+        menu::MENU_HOME.to_string(),
+    )]);
+    (i18n::history_title(lang).to_string(), rows)
+}
+
+/// Parse a `hist:` callback suffix `<tab>:<page>` into `(tab, page)`.
+pub fn parse_tab_page(suffix: &str) -> Option<(HistoryTab, i64)> {
+    let (tab_s, page_s) = suffix.split_once(':')?;
+    Some((parse_tab(tab_s)?, page_s.parse().ok()?))
+}
+
+fn parse_tab(s: &str) -> Option<HistoryTab> {
+    TABS.iter().find(|(_, suffix)| *suffix == s).map(|(t, _)| *t)
+}
+
+fn suffix_of(tab: HistoryTab) -> &'static str {
+    TABS.iter()
+        .find(|(t, _)| *t == tab)
+        .map(|(_, s)| *s)
+        .unwrap_or("mining")
 }
 
 fn tab_label(lang: Lang, tab: HistoryTab) -> &'static str {
@@ -54,36 +83,66 @@ fn tab_label(lang: Lang, tab: HistoryTab) -> &'static str {
     }
 }
 
-/// The filter-tab keyboard: one row of the three tabs + a back-to-home row.
-fn tab_rows(lang: Lang) -> Vec<tg::Row> {
-    let tabs: tg::Row = TABS
-        .iter()
-        .map(|(tab, suffix)| (tab_label(lang, *tab).to_string(), format!("{HIST_TAB}{suffix}")))
-        .collect();
-    vec![
-        tabs,
-        vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())],
-    ]
-}
-
-/// The tabbed view for `tab`: the filtered statement + the tab keyboard. Shared by
-/// the private `/history` command, the `menu:history` home button, and the `hist:`
-/// tab switches. Renders for the acting user in their saved timezone (0 = UTC).
-pub async fn tab_view(ctx: &Context, lang: Lang, user: &User, tab: HistoryTab) -> (String, Vec<tg::Row>) {
+/// Screen 2 — one category's paginated statement (`page` is 0-based, clamped into
+/// range so a stale button can't overshoot): the page's rows + a `[◂ Prev][Next ▸]`
+/// row (each side shown only when it exists) + a back-to-**menu** row. Renders for
+/// the acting user in their saved timezone (0 = UTC).
+pub async fn page_view(
+    ctx: &Context,
+    lang: Lang,
+    user: &User,
+    tab: HistoryTab,
+    page: i64,
+) -> (String, Vec<tg::Row>) {
     let database = db(ctx);
-    let header = format!("{} · {}", i18n::history_title(lang), tab_label(lang, tab));
-    let body = match database.user_history_by(user.id, tab, HISTORY_LIMIT) {
-        Ok(rows) if rows.is_empty() => format!("{header}\n\n{}", i18n::history_empty(lang)),
+    let total = database.user_history_count_by(user.id, tab).unwrap_or(0);
+    // usize::div_ceil is stable (i64's isn't); total is a non-negative COUNT.
+    let pages = (total.max(0) as usize).div_ceil(HISTORY_PAGE as usize).max(1) as i64;
+    let page = page.clamp(0, pages - 1);
+    let mut head = format!("{} · {}", i18n::history_title(lang), tab_label(lang, tab));
+    if pages > 1 {
+        head.push('\n');
+        head.push_str(&i18n::markets_page(
+            lang,
+            &(page + 1).to_string(),
+            &pages.to_string(),
+        ));
+    }
+    let body = match database.user_history_by(user.id, tab, HISTORY_PAGE, page * HISTORY_PAGE) {
+        Ok(rows) if rows.is_empty() => format!("{head}\n\n{}", i18n::history_empty(lang)),
         Ok(rows) => {
             let tz = database.get_tz(user.id).ok().flatten().unwrap_or(0);
-            format!("{header}\n\n{}", render_lines(lang, tz, &rows))
+            format!("{head}\n\n{}", render_lines(lang, tz, &rows))
         }
         Err(e) => {
             eprintln!("user_history_by error (user {}): {e}", user.id);
-            format!("{header}\n\n{}", i18n::db_error(lang))
+            format!("{head}\n\n{}", i18n::db_error(lang))
         }
     };
-    (body, tab_rows(lang))
+    let suffix = suffix_of(tab);
+    let mut nav: tg::Row = Vec::new();
+    if page > 0 {
+        nav.push((
+            i18n::markets_prev(lang).to_string(),
+            format!("{HIST_TAB}{suffix}:{}", page - 1),
+        ));
+    }
+    if page + 1 < pages {
+        nav.push((
+            i18n::markets_next(lang).to_string(),
+            format!("{HIST_TAB}{suffix}:{}", page + 1),
+        ));
+    }
+    let mut rows = Vec::new();
+    if !nav.is_empty() {
+        rows.push(nav);
+    }
+    // Back returns to the category menu (Screen 1), not straight home.
+    rows.push(vec![(
+        i18n::bet_btn_back(lang).to_string(),
+        menu::MENU_HISTORY.to_string(),
+    )]);
+    (body, rows)
 }
 
 /// The **group** `/history` view: a flat, all-categories statement (no tabs).

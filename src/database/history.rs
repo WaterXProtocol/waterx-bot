@@ -124,32 +124,27 @@ impl Database {
         Ok(v)
     }
 
-    /// Like [`Database::user_history`] but limited to one [`HistoryTab`]. The tab
+    /// One [`HistoryTab`]'s page: newest-first, `limit` rows from `offset`. The tab
     /// predicate is built from the `HK_*` tags (all trusted compile-time literals,
     /// so inlining them is injection-safe); the `refund` tag is bucketed by
-    /// `event_id` (market void → Trading, envelope → Transfer).
-    pub fn user_history_by(&self, user: i64, tab: HistoryTab, limit: i64) -> SqlResult<Vec<HistoryRow>> {
-        let pred = match tab {
-            HistoryTab::Mining => {
-                format!("h.kind IN ('{HK_CHECKIN}','{HK_REFERRAL}','{HK_MINT}')")
-            }
-            HistoryTab::Trading => format!(
-                "(h.kind IN ('{HK_BUY}','{HK_SELL}','{HK_CLAIM}','{HK_LP_FUND}','{HK_LP_RETURN}') \
-                 OR (h.kind = '{HK_REFUND}' AND h.event_id IS NOT NULL))"
-            ),
-            HistoryTab::Transfer => format!(
-                "(h.kind IN ('{HK_SEND_IN}','{HK_SEND_OUT}') \
-                 OR (h.kind = '{HK_REFUND}' AND h.event_id IS NULL))"
-            ),
-        };
+    /// `event_id` (market void → Trading, envelope → Transfer). Pair with
+    /// [`Database::user_history_count_by`] for the page count.
+    pub fn user_history_by(
+        &self,
+        user: i64,
+        tab: HistoryTab,
+        limit: i64,
+        offset: i64,
+    ) -> SqlResult<Vec<HistoryRow>> {
+        let pred = history_tab_predicate(tab);
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT h.at, h.kind, h.delta, e.title
              FROM history h LEFT JOIN events e ON e.id = h.event_id
-             WHERE h.user = ?1 AND {pred} ORDER BY h.id DESC LIMIT ?2"
+             WHERE h.user = ?1 AND {pred} ORDER BY h.id DESC LIMIT ?2 OFFSET ?3"
         ))?;
         let v = stmt
-            .query_map(params![user, limit], |r| {
+            .query_map(params![user, limit, offset], |r| {
                 Ok(HistoryRow {
                     at: r.get(0)?,
                     kind: r.get(1)?,
@@ -159,6 +154,35 @@ impl Database {
             })?
             .collect::<SqlResult<Vec<_>>>()?;
         Ok(v)
+    }
+
+    /// How many rows one [`HistoryTab`] holds for `user` — for the page count in
+    /// the paginated `/history` view. Same predicate as [`Database::user_history_by`].
+    pub fn user_history_count_by(&self, user: i64, tab: HistoryTab) -> SqlResult<i64> {
+        let pred = history_tab_predicate(tab);
+        let conn = self.conn.lock();
+        conn.query_row(
+            &format!("SELECT COUNT(*) FROM history h WHERE h.user = ?1 AND {pred}"),
+            params![user],
+            |r| r.get(0),
+        )
+    }
+}
+
+/// The SQL predicate selecting one [`HistoryTab`]'s rows, over a `history h` alias.
+/// Built from trusted `HK_*` compile-time literals (injection-safe); the overloaded
+/// `refund` tag is split by `event_id` (market void → Trading, envelope → Transfer).
+fn history_tab_predicate(tab: HistoryTab) -> String {
+    match tab {
+        HistoryTab::Mining => format!("h.kind IN ('{HK_CHECKIN}','{HK_REFERRAL}','{HK_MINT}')"),
+        HistoryTab::Trading => format!(
+            "(h.kind IN ('{HK_BUY}','{HK_SELL}','{HK_CLAIM}','{HK_LP_FUND}','{HK_LP_RETURN}') \
+             OR (h.kind = '{HK_REFUND}' AND h.event_id IS NOT NULL))"
+        ),
+        HistoryTab::Transfer => format!(
+            "(h.kind IN ('{HK_SEND_IN}','{HK_SEND_OUT}') \
+             OR (h.kind = '{HK_REFUND}' AND h.event_id IS NULL))"
+        ),
     }
 }
 
@@ -261,20 +285,26 @@ mod tests {
         db.record_action(u, HK_SEND_IN, COIN, None, None).unwrap();
         db.record_action(u, HK_REFUND, COIN, None, None).unwrap();
 
-        let mining = db.user_history_by(u, HistoryTab::Mining, 50).unwrap();
+        let mining = db.user_history_by(u, HistoryTab::Mining, 50, 0).unwrap();
         assert_eq!(mining.len(), 3);
+        assert_eq!(db.user_history_count_by(u, HistoryTab::Mining).unwrap(), 3);
         assert!(mining
             .iter()
             .all(|h| [HK_CHECKIN, HK_REFERRAL, HK_MINT].contains(&h.kind.as_str())));
 
         // buy, claim, lp_fund, and the refund whose event_id is set.
-        let trading = db.user_history_by(u, HistoryTab::Trading, 50).unwrap();
+        let trading = db.user_history_by(u, HistoryTab::Trading, 50, 0).unwrap();
         assert_eq!(trading.len(), 4);
+        assert_eq!(db.user_history_count_by(u, HistoryTab::Trading).unwrap(), 4);
         assert!(trading.iter().any(|h| h.kind == HK_REFUND));
 
         // send_out, send_in, and the refund with no event_id.
-        let transfer = db.user_history_by(u, HistoryTab::Transfer, 50).unwrap();
+        let transfer = db.user_history_by(u, HistoryTab::Transfer, 50, 0).unwrap();
         assert_eq!(transfer.len(), 3);
         assert!(transfer.iter().any(|h| h.kind == HK_REFUND));
+
+        // Paging: page 1 (offset) of a 4-row category, 2 per page → the 2 older rows.
+        let page2 = db.user_history_by(u, HistoryTab::Trading, 2, 2).unwrap();
+        assert_eq!(page2.len(), 2);
     }
 }

@@ -716,26 +716,26 @@ async fn handle_menu_bets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     Ok(())
 }
 
-/// `menu:history` — edit the message into the caller's tabbed activity statement
-/// (default the Mining tab) with the filter tabs + back-to-home.
+/// `menu:history` — edit the message into the caller's history **category menu**
+/// (Mining/Trading/Transfer + back-to-home). Also the back target of a category
+/// page, so it's the one place that renders Screen 1.
 async fn handle_menu_history(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     answer(ctx, cb, "", false).await?;
-    let (text, rows) = history::tab_view(ctx, lang, &cb.from, crate::database::HistoryTab::Mining).await;
+    let (text, rows) = history::picker(lang);
     tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
 }
 
-/// `hist:<tab>` — switch the caller's history filter tab (Mining/Trading/Transfer),
-/// edit-in-place. Renders the *tapper's* own history, so it's safe if a group's
-/// shared `/history` somehow carried tabs (it doesn't — groups get the flat view).
-async fn handle_history_tab(ctx: &Context, cb: &CallbackQuery, suffix: &str) -> Result<(), telexide::Error> {
+/// `hist:<tab>:<page>` — open a category's paginated page, edit-in-place. Renders
+/// the *tapper's* own history (private-only surface; groups get the flat view).
+async fn handle_history_tab(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some(tab) = history::parse_tab(suffix) else {
+    let Some((tab, page)) = history::parse_tab_page(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     answer(ctx, cb, "", false).await?;
-    let (text, rows) = history::tab_view(ctx, lang, &cb.from, tab).await;
+    let (text, rows) = history::page_view(ctx, lang, &cb.from, tab, page).await;
     tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
 }
