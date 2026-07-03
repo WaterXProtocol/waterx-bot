@@ -5,14 +5,9 @@ use telexide::prelude::*;
 
 #[command(description = "set your timezone")]
 pub async fn timezone(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(user) = message.from.as_ref() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((user, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, user);
     let current = db(&ctx).get_tz(user.id).ok().flatten();
     tg::send_with_buttons(
         &ctx,

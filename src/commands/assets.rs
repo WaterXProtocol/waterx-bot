@@ -6,14 +6,9 @@ use telexide::prelude::*;
 
 #[command(description = "show the caller's balance and open positions")]
 pub async fn assets(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(user) = message.from.as_ref() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((user, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, user);
     // The coin balance is private: don't expose it in a group (everyone would
     // see it) — show only the open positions there. In a private chat it's the
     // caller's own DM, so the balance is fine.
@@ -51,6 +46,19 @@ pub(crate) async fn balance_block(ctx: &Context, lang: Lang, user: &User) -> Str
             eprintln!("balance get_user_info error (user {}): {e}", user.id);
             format!("{}\n{}", full_name(user), i18n::db_error(lang))
         }
+    }
+}
+
+/// The `/bets` body — the caller's name plus their open positions (via
+/// [`positions_block`]), or a "no open bets" line when they hold nothing. Returns
+/// `(body, holds_positions)`; the flag drives whether a `[💸 Sell]` button is
+/// offered. Shared by the `/bets` command and the `menu:bets` home button.
+pub(crate) async fn bets_body(ctx: &Context, lang: Lang, user: &User) -> (String, bool) {
+    let pos = positions_block(ctx, lang, user).await;
+    if pos.is_empty() {
+        (format!("{}\n{}", full_name(user), i18n::no_open_bets(lang)), false)
+    } else {
+        (format!("{}{pos}", full_name(user)), true)
     }
 }
 

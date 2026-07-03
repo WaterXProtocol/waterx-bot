@@ -42,6 +42,35 @@ pub async fn answer(
     Ok(())
 }
 
+/// Read the `(chat_id, message_id)` of the message a callback fired on, concisely.
+/// The single home for what used to be a per-module `cb_coords`/`CbMessage`
+/// copy in every button-flow file (`(0, 0)` if the callback carries no message).
+pub trait CbMessage {
+    fn message_chat(&self) -> i64;
+    fn message_id(&self) -> i64;
+}
+impl CbMessage for CallbackQuery {
+    fn message_chat(&self) -> i64 {
+        self.message.as_ref().map(|m| m.chat.get_id()).unwrap_or(0)
+    }
+    fn message_id(&self) -> i64 {
+        self.message.as_ref().map(|m| m.message_id).unwrap_or(0)
+    }
+}
+
+/// `(chat_id, message_id)` of the message a callback fired on, as a tuple.
+pub fn cb_coords(cb: &CallbackQuery) -> (i64, i64) {
+    (cb.message_chat(), cb.message_id())
+}
+
+/// Edit the message a callback fired on, in place, to `text` + `rows`. Best-effort
+/// (a failed edit — e.g. "message not modified" — is swallowed, as every call site
+/// already did). Replaces the per-module `edit(ctx, cb, …)` wrappers.
+pub async fn edit_cb(ctx: &Context, cb: &CallbackQuery, text: &str, rows: &[Row]) {
+    let (chat, msg) = cb_coords(cb);
+    let _ = edit_with_buttons(ctx, chat, msg, text, rows).await;
+}
+
 /// The forum topic `chat_id` is locked to (`/onlyreplyhere`), if any. Group
 /// chats only; `None` for private chats and unlocked groups. Used by the send
 /// helpers below to thread the bot's messages into the locked topic so it stays
@@ -115,6 +144,37 @@ fn build_keyboard(rows: &[Row]) -> Value {
     json!({ "inline_keyboard": json_rows })
 }
 
+/// Post a `sendMessage` payload and parse the reply into the sent `Message`. The
+/// shared tail of every `send_*` helper here — they differ only in how they build
+/// the payload (buttons, reply parameters, HTML, topic threading).
+async fn post_send(ctx: &Context, payload: Value) -> Result<Message, CommandError> {
+    let resp = ctx.api.post(APIEndpoint::SendMessage, Some(payload)).await?;
+    let msg: telexide::Result<Message> = resp.into();
+    Ok(msg?)
+}
+
+/// Post an edit payload (`editMessageText` / `editMessageReplyMarkup`) and surface
+/// a logical rejection (HTTP 200 + `{"ok":false}`, e.g. message too long or
+/// `BUTTON_DATA_INVALID`) on stderr — **except** the expected "message is not
+/// modified" no-op (an unchanged re-render, e.g. odds still in the cache window).
+/// `what` labels the call site in that log. The shared tail of every `edit_*` /
+/// `clear_buttons` helper.
+async fn post_edit(
+    ctx: &Context,
+    endpoint: APIEndpoint,
+    payload: Value,
+    what: &str,
+) -> Result<(), CommandError> {
+    let resp = ctx.api.post(endpoint, Some(payload)).await?;
+    if let Err(e) = Into::<telexide::Result<Value>>::into(resp) {
+        let msg = e.to_string();
+        if !msg.contains("not modified") {
+            eprintln!("[tg] {what} failed: {msg}");
+        }
+    }
+    Ok(())
+}
+
 pub async fn send_with_buttons(
     ctx: &Context,
     chat_id: i64,
@@ -126,12 +186,7 @@ pub async fn send_with_buttons(
         "text": text,
         "reply_markup": build_keyboard(rows),
     })).await;
-    let resp = ctx
-        .api
-        .post(APIEndpoint::SendMessage, Some(payload))
-        .await?;
-    let msg: telexide::Result<Message> = resp.into();
-    Ok(msg?)
+    post_send(ctx, payload).await
 }
 
 /// Send a message **with an inline keyboard** as a **reply** to `reply_to`. Used
@@ -155,12 +210,7 @@ pub async fn send_with_buttons_reply(
         "reply_markup": build_keyboard(rows),
         "reply_parameters": { "message_id": reply_to, "allow_sending_without_reply": true },
     });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::SendMessage, Some(payload))
-        .await?;
-    let msg: telexide::Result<Message> = resp.into();
-    Ok(msg?)
+    post_send(ctx, payload).await
 }
 
 /// Delete a message (best-effort). Used to remove a per-user stake board once the
@@ -214,12 +264,7 @@ pub async fn send_text_reply(
         "text": text,
         "reply_parameters": { "message_id": reply_to, "allow_sending_without_reply": true },
     });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::SendMessage, Some(payload))
-        .await?;
-    let msg: telexide::Result<Message> = resp.into();
-    msg?;
+    post_send(ctx, payload).await?;
     Ok(())
 }
 
@@ -238,12 +283,7 @@ pub async fn send_html(ctx: &Context, chat_id: i64, text: &str) -> Result<(), Co
         "text": text,
         "parse_mode": "HTML",
     })).await;
-    let resp = ctx
-        .api
-        .post(APIEndpoint::SendMessage, Some(payload))
-        .await?;
-    let msg: telexide::Result<Message> = resp.into();
-    msg?;
+    post_send(ctx, payload).await?;
     Ok(())
 }
 
@@ -260,22 +300,13 @@ pub async fn edit_with_buttons(
         "text": text,
         "reply_markup": build_keyboard(rows),
     });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::EditMessageText, Some(payload))
-        .await?;
-    // Telegram returns HTTP 200 with `{"ok":false}` for logical rejections
-    // (e.g. message too long, BUTTON_DATA_INVALID) — surface those instead of
-    // silently leaving the message unchanged. The one exception is "message is not
-    // modified": that's the expected no-op when re-rendering a card with unchanged
-    // content (odds still in the cache window), so don't log it as an error.
-    if let Err(e) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
-        let msg = e.to_string();
-        if !msg.contains("not modified") {
-            eprintln!("[tg] editMessageText failed (chat {chat_id}, msg {message_id}): {msg}");
-        }
-    }
-    Ok(())
+    post_edit(
+        ctx,
+        APIEndpoint::EditMessageText,
+        payload,
+        &format!("editMessageText (chat {chat_id}, msg {message_id})"),
+    )
+    .await
 }
 
 pub async fn edit_text_only(
@@ -289,20 +320,13 @@ pub async fn edit_text_only(
         "message_id": message_id,
         "text": text,
     });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::EditMessageText, Some(payload))
-        .await?;
-    // Surface logical rejections (HTTP 200 + `{"ok":false}`, e.g. message too
-    // long) instead of discarding them silently — matches `edit_with_buttons`,
-    // including ignoring the expected "message is not modified" no-op.
-    if let Err(e) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
-        let msg = e.to_string();
-        if !msg.contains("not modified") {
-            eprintln!("[tg] editMessageText (text) failed (chat {chat_id}, msg {message_id}): {msg}");
-        }
-    }
-    Ok(())
+    post_edit(
+        ctx,
+        APIEndpoint::EditMessageText,
+        payload,
+        &format!("editMessageText (text) (chat {chat_id}, msg {message_id})"),
+    )
+    .await
 }
 
 /// Remove a message's inline keyboard **without touching its text** (Telegram
@@ -313,17 +337,13 @@ pub async fn clear_buttons(ctx: &Context, chat_id: i64, message_id: i64) -> Resu
         "chat_id": chat_id,
         "message_id": message_id,
     });
-    let resp = ctx
-        .api
-        .post(APIEndpoint::EditMessageReplyMarkup, Some(payload))
-        .await?;
-    if let Err(e) = Into::<telexide::Result<serde_json::Value>>::into(resp) {
-        let msg = e.to_string();
-        if !msg.contains("not modified") {
-            eprintln!("[tg] editMessageReplyMarkup failed (chat {chat_id}, msg {message_id}): {msg}");
-        }
-    }
-    Ok(())
+    post_edit(
+        ctx,
+        APIEndpoint::EditMessageReplyMarkup,
+        payload,
+        &format!("editMessageReplyMarkup (chat {chat_id}, msg {message_id})"),
+    )
+    .await
 }
 
 /// Pin a message in `chat_id` (best-effort). `disable_notification: true` keeps it

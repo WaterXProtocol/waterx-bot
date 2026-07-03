@@ -1,19 +1,13 @@
 use crate::commands::tg;
 use crate::commands::util::*;
 use crate::core::i18n;
-use telexide::api::types::DeleteMessage;
 use telexide::prelude::*;
 
 #[command(description = "post a buy offer; the seller presses the inline button")]
 pub async fn buy(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(buyer) = message.from.clone() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((buyer, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, &buyer);
     let parts = args(&message);
     if parts.len() < 2 {
         reply(&ctx, &message, i18n::usage_buy(lang)).await?;
@@ -54,18 +48,12 @@ pub async fn buy(ctx: Context, message: Message) -> CommandResult {
         &fruits,
         price_units,
     )? {
-        let _ = ctx
-            .api
-            .delete_message(DeleteMessage::new(
-                sent.chat.get_id().into(),
-                sent.message_id,
-            ))
-            .await;
+        let _ = tg::delete_message(&ctx, sent.chat.get_id(), sent.message_id).await;
         reply(&ctx, &message, i18n::not_enough_money(lang)).await?;
         return Ok(());
     }
 
-    let listing = i18n::buy_listing(lang, &full_name(&buyer), &fruits, &format_number(price));
+    let listing = i18n::buy_listing(lang, &full_name(buyer), &fruits, &format_number(price));
     // Best-effort: the coin escrow + offer row are already committed and the
     // placeholder already carries a working (DB-backed) button, so a failed
     // cosmetic refresh must not report the whole `/buy` as failed.

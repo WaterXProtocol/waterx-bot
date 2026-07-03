@@ -1,5 +1,5 @@
 use crate::commands::util::{
-    bot_token, db, fmt_coins, full_name, is_group_chat,
+    bot_token, cb_lang, db, fmt_coins, full_name, is_group_chat,
     SORRY_FRUITS,
 };
 use crate::commands::{
@@ -268,16 +268,6 @@ async fn handle_board_dismiss(ctx: &Context, cb: &CallbackQuery, rest: &str) -> 
     answer(ctx, cb, "", false).await
 }
 
-/// Resolve the locale for a callback presser: their saved choice if any, else
-/// the Telegram-reported language.
-fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
-    db(ctx)
-        .get_lang(cb.from.id)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| Lang::from_user(&cb.from))
-}
-
 /// `setlang:<store_code>` — persist the chosen locale and swap the picker for
 /// the Xaliah main menu in place.
 async fn handle_set_lang(
@@ -348,6 +338,18 @@ async fn handle_set_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<
     answer(ctx, cb, "", false).await
 }
 
+/// Re-render the `/settings` hub in place on the callback's message, then ack.
+/// The shared tail of every settings-pick handler (`setfmt:`/`cfg:home`/`slang:`/
+/// `stz:`), rendered in `lang` (the *new* locale for a language pick).
+async fn rerender_settings_hub(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    lang: Lang,
+) -> Result<(), telexide::Error> {
+    tg::edit_cb(ctx, cb, i18n::settings_title(lang), &menu::settings_rows(lang)).await;
+    answer(ctx, cb, "", false).await
+}
+
 /// `setfmt:<code>` — settings-variant odds pick: persist the chosen format and
 /// return to the `/settings` hub in place (uniform with `slang:`/`stz:`).
 async fn handle_set_fmt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
@@ -357,49 +359,20 @@ async fn handle_set_fmt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     if db.set_odds_fmt(cb.from.id, fmt).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
-    if let Some(message) = cb.message.clone() {
-        let _ = tg::edit_with_buttons(
-            ctx,
-            message.chat.get_id(),
-            message.message_id,
-            i18n::settings_title(lang),
-            &menu::settings_rows(lang),
-        )
-        .await;
-    }
-    answer(ctx, cb, "", false).await
+    rerender_settings_hub(ctx, cb, lang).await
 }
 
 /// `cfg:home` — re-render the `/settings` hub in place (from a sub-picker's Back).
 async fn handle_cfg_home(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    if let Some(message) = cb.message.clone() {
-        let _ = tg::edit_with_buttons(
-            ctx,
-            message.chat.get_id(),
-            message.message_id,
-            i18n::settings_title(lang),
-            &menu::settings_rows(lang),
-        )
-        .await;
-    }
-    answer(ctx, cb, "", false).await
+    rerender_settings_hub(ctx, cb, lang).await
 }
 
 /// `cfg:lang` — open the language picker from the `/settings` hub, ✅-marking the
 /// current locale. The picker's `slang:` buttons persist + return to the hub.
 async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    if let Some(message) = cb.message.clone() {
-        let _ = tg::edit_with_buttons(
-            ctx,
-            message.chat.get_id(),
-            message.message_id,
-            i18n::CHOOSE_LANGUAGE,
-            &menu::lang_picker_rows(Some(lang), true),
-        )
-        .await;
-    }
+    tg::edit_cb(ctx, cb, i18n::CHOOSE_LANGUAGE, &menu::lang_picker_rows(Some(lang), true)).await;
     answer(ctx, cb, "", false).await
 }
 
@@ -408,16 +381,7 @@ async fn handle_cfg_lang(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexi
 async fn handle_cfg_tz(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let current = db(ctx).get_tz(cb.from.id).ok().flatten();
-    if let Some(message) = cb.message.clone() {
-        let _ = tg::edit_with_buttons(
-            ctx,
-            message.chat.get_id(),
-            message.message_id,
-            i18n::choose_timezone(lang),
-            &menu::tz_picker_rows(current, true),
-        )
-        .await;
-    }
+    tg::edit_cb(ctx, cb, i18n::choose_timezone(lang), &menu::tz_picker_rows(current, true)).await;
     answer(ctx, cb, "", false).await
 }
 
@@ -431,17 +395,7 @@ async fn handle_settings_lang(ctx: &Context, cb: &CallbackQuery, rest: &str) -> 
     if db.set_lang(cb.from.id, lang).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
-    if let Some(message) = cb.message.clone() {
-        let _ = tg::edit_with_buttons(
-            ctx,
-            message.chat.get_id(),
-            message.message_id,
-            i18n::settings_title(lang),
-            &menu::settings_rows(lang),
-        )
-        .await;
-    }
-    answer(ctx, cb, "", false).await
+    rerender_settings_hub(ctx, cb, lang).await
 }
 
 /// `stz:<minutes>` — settings-variant timezone pick: persist the UTC offset and
@@ -455,17 +409,7 @@ async fn handle_settings_tz(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Re
     if db.set_tz(cb.from.id, minutes).is_err() {
         return answer(ctx, cb, i18n::db_error(lang), true).await;
     }
-    if let Some(message) = cb.message.clone() {
-        let _ = tg::edit_with_buttons(
-            ctx,
-            message.chat.get_id(),
-            message.message_id,
-            i18n::settings_title(lang),
-            &menu::settings_rows(lang),
-        )
-        .await;
-    }
-    answer(ctx, cb, "", false).await
+    rerender_settings_hub(ctx, cb, lang).await
 }
 
 /// `cfg:odds` — open the odds-format picker from the `/settings` hub, ✅-marking
@@ -691,22 +635,14 @@ async fn handle_menu_balance(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
 /// holding) + back-to-home. This is the sell flow's back target.
 async fn handle_menu_bets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
     answer(ctx, cb, "", false).await?;
-    let pos = assets::positions_block(ctx, lang, &cb.from).await;
-    let body = if pos.is_empty() {
-        format!("{}\n{}", full_name(&cb.from), i18n::no_open_bets(lang))
-    } else {
-        format!("{}{pos}", full_name(&cb.from))
-    };
+    let (body, holds) = assets::bets_body(ctx, lang, &cb.from).await;
     let mut rows = Vec::new();
-    if !pos.is_empty() {
+    if holds {
         rows.push(vec![(i18n::btn_sell(lang).to_string(), selling::SELL_PICK.to_string())]);
     }
     rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]);
-    let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &body, &rows).await;
+    tg::edit_cb(ctx, cb, &body, &rows).await;
     Ok(())
 }
 
@@ -714,13 +650,10 @@ async fn handle_menu_bets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
 /// `/history` surface) + back-to-home.
 async fn handle_menu_history(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
     answer(ctx, cb, "", false).await?;
     let text = history::history_text(ctx, lang, &cb.from).await;
     let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
-    let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
+    tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
 }
 
@@ -728,11 +661,8 @@ async fn handle_menu_history(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
 /// in place.
 async fn handle_menu_markets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
     answer(ctx, cb, "", false).await?;
-    let chat = message.chat.get_id();
+    let chat = tg::cb_coords(cb).0;
     let tz = if is_group_chat(chat) {
         0
     } else {
@@ -740,7 +670,7 @@ async fn handle_menu_markets(ctx: &Context, cb: &CallbackQuery) -> Result<(), te
     };
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (text, rows) = markets::brief(lang, tz, fmt, 0, true).await;
-    let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &text, &rows).await;
+    tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
 }
 
@@ -753,13 +683,10 @@ async fn handle_events_page(
     rest: &str,
 ) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
     answer(ctx, cb, "", false).await?;
     let (flag, page_str) = rest.split_once(':').unwrap_or(("s", rest));
     let page: usize = page_str.parse().unwrap_or(0);
-    let chat = message.chat.get_id();
+    let chat = tg::cb_coords(cb).0;
     let tz = if is_group_chat(chat) {
         0
     } else {
@@ -767,7 +694,7 @@ async fn handle_events_page(
     };
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (text, rows) = markets::brief(lang, tz, fmt, page, flag == "m").await;
-    let _ = tg::edit_with_buttons(ctx, chat, message.message_id, &text, &rows).await;
+    tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
 }
 
@@ -776,13 +703,10 @@ async fn handle_menu_rule(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     use crate::commands::checkin::CHECKIN_REWARD;
     use crate::commands::referral::REFERRAL_REWARD;
     let lang = cb_lang(ctx, cb);
-    let Some(message) = cb.message.clone() else {
-        return Ok(());
-    };
     answer(ctx, cb, "", false).await?;
     let text = i18n::rules_text(lang, &fmt_coins(CHECKIN_REWARD), &fmt_coins(REFERRAL_REWARD));
     let rows = vec![vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_HOME.to_string())]];
-    let _ = tg::edit_with_buttons(ctx, message.chat.get_id(), message.message_id, &text, &rows).await;
+    tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
 }
 

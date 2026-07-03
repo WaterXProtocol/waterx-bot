@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use telexide::api::types::SendMessage;
 use telexide::framework::CommandError;
-use telexide::model::{Message, MessageContent, User};
+use telexide::model::{CallbackQuery, Message, MessageContent, User};
 use telexide::prelude::Context;
 use tokio::sync::Mutex;
 
@@ -191,11 +191,42 @@ pub fn lang_for_msg(ctx: &Context, msg: &Message) -> crate::core::i18n::Lang {
         .unwrap_or(crate::core::i18n::Lang::En)
 }
 
+/// [`lang_for`] keyed off a callback query's presser. The single home for what
+/// used to be a per-module `cb_lang` copy in every button-flow file.
+pub fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> crate::core::i18n::Lang {
+    lang_for(ctx, &cb.from)
+}
+
 /// True for group / supergroup / channel chats. Telegram gives private chats a
 /// positive id (== the user id) and everything else a negative id.
 pub fn is_group_chat(chat_id: i64) -> bool {
     chat_id < 0
 }
+
+/// Current wall-clock time as unix seconds. The single home for what used to be
+/// a per-module `now()` copy in `betting`/`predmarket`/`predict`.
+pub fn now() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
+/// Parse a colon-separated run of `N` integers out of callback data (e.g.
+/// `"12:3:0"` → `[12, 3, 0]`). Returns `None` if any of the first `N` fields is
+/// missing or non-numeric; trailing fields are ignored. Every field parses as
+/// `i64` — call sites cast to `u64`/`usize` as needed. Replaces the hand-rolled
+/// `parse2`/`parse3`/`parse4`/`parse_qid_outcome_total` copies in the button
+/// flows (all fields there are numeric and colon-free).
+pub fn parse_ints<const N: usize>(rest: &str) -> Option<[i64; N]> {
+    let mut it = rest.split(':');
+    let mut out = [0i64; N];
+    for slot in out.iter_mut() {
+        *slot = it.next()?.parse().ok()?;
+    }
+    Some(out)
+}
+
+/// Whole-coin amount presets offered by the buy / spend / fund builders — each
+/// button *adds* this much to the running total.
+pub const WHOLE_COIN_PRESETS: [i64; 4] = [1, 5, 10, 50];
 
 /// Prefix an **in-group** stake board with a `👤 name` header so members can tell
 /// whose owner-locked board is whose. In a private chat (the board's only user is
@@ -314,6 +345,52 @@ pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandE
         crate::commands::referral::maybe_bind_group(ctx, msg.chat.get_id(), user).await;
     }
     Ok(false)
+}
+
+/// Standard command entry guard: enforce the pause kill-switch, then resolve the
+/// sender and their locale. Returns `None` — meaning the command body should
+/// early-return `Ok(())` — when the bot is paused for this user, or the message
+/// has no sender (a bare [`ERR_REPLY`] is sent in that case). Otherwise
+/// `Some((sender, locale))`. Mirrors `admin::owner_guard`'s style for the
+/// non-owner path and collapses the ~7-line preamble repeated across every text
+/// command into `let Some((user, lang)) = begin(&ctx, &message).await? else { … };`.
+pub async fn begin<'a>(
+    ctx: &Context,
+    msg: &'a Message,
+) -> Result<Option<(&'a User, crate::core::i18n::Lang)>, CommandError> {
+    if paused_block(ctx, msg).await? {
+        return Ok(None);
+    }
+    let Some(user) = msg.from.as_ref() else {
+        reply(ctx, msg, ERR_REPLY).await?;
+        return Ok(None);
+    };
+    let lang = lang_for(ctx, user);
+    Ok(Some((user, lang)))
+}
+
+/// After trying to DM a user to open a private flow (`/predict`, `/feedback`, the
+/// group `/settings` hub), point them at the outcome: when the DM **landed**, a
+/// group caller gets `check_dm` ("look in your DMs") and a private caller nothing
+/// (they're already there); when it **bounced** (they never started the bot),
+/// `dm_first` ("message me first"). Collapses the identical branch these flows
+/// each hand-rolled. Best-effort on the group "check DM" ack (the real surface —
+/// the DM — already landed).
+pub async fn dm_pointer(
+    ctx: &Context,
+    msg: &Message,
+    landed: bool,
+    check_dm: &str,
+    dm_first: &str,
+) -> Result<(), CommandError> {
+    if landed {
+        if is_group_chat(msg.chat.get_id()) {
+            let _ = reply(ctx, msg, check_dm).await;
+        }
+    } else {
+        reply(ctx, msg, dm_first).await?;
+    }
+    Ok(())
 }
 
 pub const ERR_REPLY: &str = "🤯";

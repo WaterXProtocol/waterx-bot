@@ -25,26 +25,6 @@ pub const SELL_PICK: &str = "slpick"; // exact — open the holdings picker
 pub const SELL_BUILD: &str = "slb:"; // slb:<event>:<idx>:<micro_shares>
 pub const SELL_PLACE: &str = "slgo:"; // slgo:<event>:<idx>:<micro_shares>
 
-fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
-    db(ctx)
-        .get_lang(cb.from.id)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| Lang::from_user(&cb.from))
-}
-
-fn cb_coords(cb: &CallbackQuery) -> (i64, i64) {
-    cb.message
-        .as_ref()
-        .map(|m| (m.chat.get_id(), m.message_id))
-        .unwrap_or((0, 0))
-}
-
-async fn edit(ctx: &Context, cb: &CallbackQuery, text: &str, rows: &[tg::Row]) {
-    let (chat, msg) = cb_coords(cb);
-    let _ = tg::edit_with_buttons(ctx, chat, msg, text, rows).await;
-}
-
 /// Current YES price (cents, > 0) of a sourced event's outcome `idx`, or `None`
 /// when the index isn't listed / unpriced. The held position's `market_idx` lines
 /// up with the feed event's outcome order (the same order the bet was placed in).
@@ -71,7 +51,7 @@ pub async fn handle_sell_pick(ctx: &Context, cb: &CallbackQuery) -> Result<(), t
         })
         .collect();
     rows.push(vec![(i18n::bet_btn_back(lang).to_string(), menu::MENU_BETS.to_string())]);
-    edit(ctx, cb, i18n::positions_title(lang), &rows).await;
+    tg::edit_cb(ctx, cb, i18n::positions_title(lang), &rows).await;
     Ok(())
 }
 
@@ -83,7 +63,7 @@ pub async fn handle_sell_build(
     rest: &str,
 ) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((eid, idx, micro)) = parse3(rest) else {
+    let Some([eid, idx, micro]) = parse_ints::<3>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     let Some(c) = db(ctx).sell_context(eid, idx, cb.from.id).ok().flatten() else {
@@ -92,7 +72,7 @@ pub async fn handle_sell_build(
     let micro = micro.clamp(0, c.held);
     let proceeds = quote_proceeds(ctx, lang, &c, eid, idx, micro).await;
     let (text, rows) = build_screen(lang, eid, idx, &c, micro, proceeds);
-    edit(ctx, cb, &text, &rows).await;
+    tg::edit_cb(ctx, cb, &text, &rows).await;
     answer(ctx, cb, "", false).await
 }
 
@@ -103,7 +83,7 @@ pub async fn handle_sell_place(
     rest: &str,
 ) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((eid, idx, micro)) = parse3(rest) else {
+    let Some([eid, idx, micro]) = parse_ints::<3>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if micro <= 0 {
@@ -135,7 +115,7 @@ pub async fn handle_sell_place(
                 i18n::bet_btn_back(lang).to_string(),
                 menu::MENU_BETS.to_string(),
             )]];
-            edit(ctx, cb, &body, &rows).await;
+            tg::edit_cb(ctx, cb, &body, &rows).await;
             answer(ctx, cb, &body, true).await
         }
         Ok(_) => answer(ctx, cb, i18n::bet_unavailable(lang), true).await,
@@ -222,15 +202,6 @@ fn build_screen(
     ];
     let back_row = vec![(i18n::bet_btn_back(lang).to_string(), SELL_PICK.to_string())];
     (text, vec![preset_row, action_row, back_row])
-}
-
-/// Parse `<event>:<idx>:<micro>` (all integers).
-fn parse3(rest: &str) -> Option<(i64, i64, i64)> {
-    let mut it = rest.split(':');
-    let a = it.next()?.parse().ok()?;
-    let b = it.next()?.parse().ok()?;
-    let c = it.next()?.parse().ok()?;
-    Some((a, b, c))
 }
 
 #[cfg(test)]

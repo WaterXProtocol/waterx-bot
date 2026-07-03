@@ -15,14 +15,9 @@ const HISTORY_LIMIT: i64 = 20;
 /// `/bets`); no counterparty names are rendered, so it's group-safe.
 #[command(description = "show your recent activity")]
 pub async fn history(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(user) = message.from.as_ref() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((user, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, user);
     let body = history_text(&ctx, lang, user).await;
     reply(&ctx, &message, body).await?;
     Ok(())

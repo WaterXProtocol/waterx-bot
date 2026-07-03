@@ -12,14 +12,9 @@ use telexide::prelude::*;
 
 #[command(description = "claim your settled winnings")]
 pub async fn claim(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(user) = message.from.as_ref() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((user, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, user);
     // Detect Polymarket resolution for the caller's open sourced events and cache
     // the winner on the event row (so every later claim/settle reuses it, no
     // re-fetch). Best-effort: a feed error or still-open event just leaves it.

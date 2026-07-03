@@ -96,16 +96,12 @@ impl Database {
         let tx = conn.transaction()?;
         if split {
             let half = amount / 2;
-            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![half, referrer])?;
-            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount - half, co_referrer])?;
-            super::history::record(&tx, referrer, super::HK_REFERRAL, half, None, Some(referee))?;
-            super::history::record(&tx, co_referrer, super::HK_REFERRAL, amount - half, None, Some(referee))?;
+            super::credit_and_log(&tx, referrer, half, super::HK_REFERRAL, None, Some(referee))?;
+            super::credit_and_log(&tx, co_referrer, amount - half, super::HK_REFERRAL, None, Some(referee))?;
         } else {
-            tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, referrer])?;
-            super::history::record(&tx, referrer, super::HK_REFERRAL, amount, None, Some(referee))?;
+            super::credit_and_log(&tx, referrer, amount, super::HK_REFERRAL, None, Some(referee))?;
         }
-        tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, referee])?;
-        super::history::record(&tx, referee, super::HK_REFERRAL, amount, None, Some(referrer))?;
+        super::credit_and_log(&tx, referee, amount, super::HK_REFERRAL, None, Some(referrer))?;
         tx.commit()?;
         Ok(())
     }

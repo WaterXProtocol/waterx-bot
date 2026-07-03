@@ -13,7 +13,7 @@ use crate::bot::QuotesKey;
 use crate::commands::markets;
 use crate::commands::menu;
 use crate::commands::tg;
-use crate::commands::tg::answer;
+use crate::commands::tg::{answer, CbMessage};
 use crate::commands::util::*;
 use crate::database::{decimal_payout, TradeOutcome, COIN};
 use crate::core::i18n::{self, Lang};
@@ -26,9 +26,6 @@ use telexide::prelude::*;
 
 /// How long a quoted set of odds stays valid.
 const QUOTE_TTL_SECS: i64 = 10;
-/// Whole-coin stake presets — each button *adds* this much to the running stake.
-const SIZE_PRESETS: [i64; 4] = [1, 5, 10, 50];
-
 /// Callback-data prefixes (the `bet:` prefix lives in `markets`).
 pub const OPT: &str = "opt:"; // pick a side → open the stake builder
 pub const SIZE: &str = "sz:"; // re-render the builder at an accumulated total
@@ -112,10 +109,6 @@ fn quotes(ctx: &Context) -> Arc<Mutex<QuoteStore>> {
         .clone()
 }
 
-fn now() -> i64 {
-    chrono::Utc::now().timestamp()
-}
-
 /// **Always** re-price `qid` from the current feed (cache-served, so at most
 /// `markets::FEED_CACHE_TTL` old) and store the relocked quote, ignoring the
 /// quote's own TTL. Every real-money placement goes through this so a wager is
@@ -158,14 +151,6 @@ async fn fresh_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
         return Some(q);
     }
     refetch_quote(ctx, lang, qid).await
-}
-
-fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
-    db(ctx)
-        .get_lang(cb.from.id)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| Lang::from_user(&cb.from))
 }
 
 /// Whether `uid` owns the stake board behind `qid`. `None` when the quote is gone
@@ -370,9 +355,10 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
 /// (preset buttons add, `Clear` resets to 0, `Back` from confirm lands here).
 pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((qid, idx, total)) = parse_qid_outcome_total(rest) else {
+    let Some([qid, idx, total]) = parse_ints::<3>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    let (qid, idx) = (qid as u64, idx as usize);
     if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
         return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
     }
@@ -393,9 +379,10 @@ pub async fn handle_size_place(
     rest: &str,
 ) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((qid, idx, total)) = parse_qid_outcome_total(rest) else {
+    let Some([qid, idx, total]) = parse_ints::<3>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
+    let (qid, idx) = (qid as u64, idx as usize);
     if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
         return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
     }
@@ -510,7 +497,7 @@ fn builder_text_rows(
         owner_name,
         &i18n::bet_build(lang, &side, &format_odds(odds, fmt), &fmt_coins(stake_units), &win),
     );
-    let add_row: tg::Row = SIZE_PRESETS
+    let add_row: tg::Row = WHOLE_COIN_PRESETS
         .iter()
         .map(|p| (format!("+{p}"), format!("{SIZE}{qid}:{idx}:{}", total.saturating_add(*p))))
         .collect();
@@ -556,7 +543,7 @@ async fn render_builder(
     else {
         return answer(ctx, cb, "", false).await;
     };
-    edit(ctx, cb, &text, &rows).await?;
+    tg::edit_cb(ctx, cb, &text, &rows).await;
     answer(ctx, cb, "", false).await
 }
 
@@ -587,16 +574,6 @@ async fn finish_card(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<()
     answer(ctx, cb, "", false).await
 }
 
-async fn edit(
-    ctx: &Context,
-    cb: &CallbackQuery,
-    text: &str,
-    rows: &[tg::Row],
-) -> Result<(), telexide::Error> {
-    let _ = tg::edit_with_buttons(ctx, cb.message_chat(), cb.message_id(), text, rows).await;
-    Ok(())
-}
-
 /// Parse `<lang>:<fmt>:<key>:<idx>` from an `opt:` callback. `lang`/`fmt` are the
 /// store codes the card was created in (pin the shared card's locale + odds format
 /// so it can't flip per tapper); the key (a slug) is parsed off the front and the
@@ -611,29 +588,6 @@ fn parse_card_opt(rest: &str) -> Option<(Lang, OddsFormat, String, usize)> {
         return None;
     }
     Some((lang, fmt, key.to_string(), idx.parse().ok()?))
-}
-
-/// Parse `<qid>:<idx>:<total>` (all numeric, colon-free).
-fn parse_qid_outcome_total(rest: &str) -> Option<(u64, usize, i64)> {
-    let parts: Vec<&str> = rest.split(':').collect();
-    let [qid, idx, total] = parts.as_slice() else {
-        return None;
-    };
-    Some((qid.parse().ok()?, idx.parse().ok()?, total.parse().ok()?))
-}
-
-/// Small extension so the handlers can read the message coordinates concisely.
-trait CbMessage {
-    fn message_chat(&self) -> i64;
-    fn message_id(&self) -> i64;
-}
-impl CbMessage for CallbackQuery {
-    fn message_chat(&self) -> i64 {
-        self.message.as_ref().map(|m| m.chat.get_id()).unwrap_or(0)
-    }
-    fn message_id(&self) -> i64 {
-        self.message.as_ref().map(|m| m.message_id).unwrap_or(0)
-    }
 }
 
 #[cfg(test)]

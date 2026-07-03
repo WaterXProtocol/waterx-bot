@@ -38,14 +38,9 @@ async fn send_to_owner(ctx: &Context, user: &User, body: &str) {
 
 #[command(description = "send feedback to the bot team")]
 pub async fn feedback(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(user) = message.from.clone() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((user, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, &user);
 
     // Inline fast-path: anything after the command word is the feedback body, sent
     // straight away (handy in DMs; in a group the "thanks" reply leaks nothing).
@@ -54,7 +49,7 @@ pub async fn feedback(ctx: Context, message: Message) -> CommandResult {
         .map_or("", |(_, rest)| rest.trim())
         .to_string();
     if !body.is_empty() {
-        send_to_owner(&ctx, &user, &body).await;
+        send_to_owner(&ctx, user, &body).await;
         reply(&ctx, &message, i18n::feedback_sent(lang)).await?;
         return Ok(());
     }
@@ -62,20 +57,11 @@ pub async fn feedback(ctx: Context, message: Message) -> CommandResult {
     // No inline text → open the DM compose flow. DM the prompt first; only register
     // the draft once we know the DM lands (a user who never started the bot can't
     // use the flow). Inserting overwrites any in-flight `/predict` draft.
-    match send_text(&ctx, user.id, i18n::feedback_ask(lang)).await {
-        Ok(_) => {
-            convos(&ctx).lock().await.insert(user.id, Convo::Feedback { lang });
-            if is_group_chat(message.chat.get_id()) {
-                // The DM prompt already landed (the real surface); a failed group
-                // ack shouldn't surface the whole command as an error.
-                let _ = reply(&ctx, &message, i18n::feedback_check_dm(lang)).await;
-            }
-        }
-        Err(_) => {
-            reply(&ctx, &message, i18n::feedback_dm_first(lang)).await?;
-        }
+    let landed = send_text(&ctx, user.id, i18n::feedback_ask(lang)).await.is_ok();
+    if landed {
+        convos(&ctx).lock().await.insert(user.id, Convo::Feedback { lang });
     }
-    Ok(())
+    dm_pointer(&ctx, &message, landed, i18n::feedback_check_dm(lang), i18n::feedback_dm_first(lang)).await
 }
 
 /// DM message listener: forwards a user's plain-text reply to the owner when they

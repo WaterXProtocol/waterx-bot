@@ -18,9 +18,6 @@ use crate::database::{AmmBoard, FundOutcome, TradeOutcome, COIN, MIN_SEED};
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
-/// Whole-coin spend presets for the buy builder.
-const SPEND_PRESETS: [i64; 4] = [1, 5, 10, 50];
-
 // Callback prefixes (all under `pm:`).
 pub const PM_BUY: &str = "pm:buy:"; // pm:buy:<event>:<idx>
 pub const PM_SIZE: &str = "pm:sz:"; // pm:sz:<event>:<idx>:<owner>:<spend>
@@ -37,14 +34,6 @@ pub const PM_FPLACE: &str = "pm:fgo:"; // pm:fgo:<event>:<idx>:<owner>:<amount>
 fn circled(n: usize) -> String {
     const C: [&str; 10] = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
     C.get(n - 1).map_or_else(|| format!("{n}."), |c| (*c).to_string())
-}
-
-fn cb_lang(ctx: &Context, cb: &CallbackQuery) -> Lang {
-    db(ctx).get_lang(cb.from.id).ok().flatten().unwrap_or_else(|| Lang::from_user(&cb.from))
-}
-
-fn cb_coords(cb: &CallbackQuery) -> (i64, i64) {
-    cb.message.as_ref().map(|m| (m.chat.get_id(), m.message_id)).unwrap_or((0, 0))
 }
 
 /// Each outcome's YES price in cents from the LMSR curve (`SHARE == COIN`).
@@ -221,7 +210,7 @@ fn builder(
     let shares = db(ctx).amm_buy_quote(b.event_id, idx, spend_micro).ok().flatten().unwrap_or(0);
     let body = i18n::bet_build(lang, name, &format_odds(price, fmt), &fmt_coins(spend_micro), &fmt_coins(shares));
     let text = board_header(chat, owner_name, &body);
-    let preset_row: tg::Row = SPEND_PRESETS
+    let preset_row: tg::Row = WHOLE_COIN_PRESETS
         .iter()
         .map(|p| {
             (format!("+{p}"), format!("{PM_SIZE}{}:{idx}:{owner}:{}", b.event_id, spend_whole.saturating_add(*p)))
@@ -242,7 +231,7 @@ fn builder(
 /// in a group; a fresh DM message privately). Owner-locked to the tapper.
 pub async fn handle_buy(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((event_id, idx)) = parse2(rest) else {
+    let Some([event_id, idx]) = parse_ints::<2>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
@@ -254,7 +243,7 @@ pub async fn handle_buy(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     if idx < 0 || idx as usize >= board.options.len() {
         return answer(ctx, cb, "", false).await;
     }
-    let (chat, msg) = cb_coords(cb);
+    let (chat, msg) = tg::cb_coords(cb);
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (text, rows) = builder(ctx, lang, fmt, &board, idx, cb.from.id, 0, chat, &full_name(&cb.from));
     answer(ctx, cb, "", false).await?;
@@ -269,7 +258,7 @@ pub async fn handle_buy(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
 /// `pm:sz:<event>:<idx>:<owner>:<spend>` — re-render the builder at the new total.
 pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((event_id, idx, owner, spend)) = parse4(rest) else {
+    let Some([event_id, idx, owner, spend]) = parse_ints::<4>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if owner != cb.from.id {
@@ -278,7 +267,7 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
         return answer(ctx, cb, i18n::bet_expired(lang), true).await;
     };
-    let (chat, msg) = cb_coords(cb);
+    let (chat, msg) = tg::cb_coords(cb);
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (text, rows) = builder(ctx, lang, fmt, &board, idx, owner, spend, chat, &full_name(&cb.from));
     let _ = tg::edit_with_buttons(ctx, chat, msg, &text, &rows).await;
@@ -289,7 +278,7 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
 /// the board, and announce.
 pub async fn handle_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((event_id, idx, owner, spend_whole)) = parse4(rest) else {
+    let Some([event_id, idx, owner, spend_whole]) = parse_ints::<4>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if owner != cb.from.id {
@@ -320,7 +309,7 @@ pub async fn handle_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
     refresh_card(ctx, event_id).await;
     let odds_str = format_odds(price, fmt);
     let placed = i18n::bet_placed(lang, &fmt_coins(spend), &name, &odds_str, &fmt_coins(shares));
-    let (chat, msg) = cb_coords(cb);
+    let (chat, msg) = tg::cb_coords(cb);
     if is_group_chat(chat) {
         let _ = tg::delete_message(ctx, chat, msg).await;
         let announce = i18n::bet_announce(lang, &full_name(&cb.from), &fmt_coins(spend), &name, &odds_str);
@@ -361,7 +350,7 @@ fn fund_builder(
         crate::core::lmsr_fund::opening_prices(&funded).get(idx as usize).copied().unwrap_or(0.0) * 100.0;
     let body = i18n::fund_build(lang, name, &fmt_coins(amount_micro), &format_odds(cents, fmt));
     let text = board_header(chat, owner_name, &body);
-    let preset_row: tg::Row = SPEND_PRESETS
+    let preset_row: tg::Row = WHOLE_COIN_PRESETS
         .iter()
         .map(|p| {
             (format!("+{p}"), format!("{PM_FSIZE}{}:{idx}:{owner}:{}", b.event_id, amount_whole.saturating_add(*p)))
@@ -381,7 +370,7 @@ fn fund_builder(
 /// `pm:fund:<event>:<idx>` — open the tapper's funding builder for outcome `idx`.
 pub async fn handle_fund(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((event_id, idx)) = parse2(rest) else {
+    let Some([event_id, idx]) = parse_ints::<2>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     // If the window just closed, open the market and bounce the tapper to trading.
@@ -396,7 +385,7 @@ pub async fn handle_fund(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     if idx < 0 || idx as usize >= board.options.len() {
         return answer(ctx, cb, "", false).await;
     }
-    let (chat, msg) = cb_coords(cb);
+    let (chat, msg) = tg::cb_coords(cb);
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (text, rows) = fund_builder(lang, fmt, &board, idx, cb.from.id, 0, chat, &full_name(&cb.from));
     answer(ctx, cb, "", false).await?;
@@ -411,7 +400,7 @@ pub async fn handle_fund(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
 /// `pm:fsz:<event>:<idx>:<owner>:<amount>` — re-render the funding builder.
 pub async fn handle_fund_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((event_id, idx, owner, amount)) = parse4(rest) else {
+    let Some([event_id, idx, owner, amount]) = parse_ints::<4>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if owner != cb.from.id {
@@ -420,7 +409,7 @@ pub async fn handle_fund_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> 
     let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
         return answer(ctx, cb, i18n::bet_expired(lang), true).await;
     };
-    let (chat, msg) = cb_coords(cb);
+    let (chat, msg) = tg::cb_coords(cb);
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (text, rows) = fund_builder(lang, fmt, &board, idx, owner, amount, chat, &full_name(&cb.from));
     let _ = tg::edit_with_buttons(ctx, chat, msg, &text, &rows).await;
@@ -431,7 +420,7 @@ pub async fn handle_fund_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> 
 /// refresh the board, and announce.
 pub async fn handle_fund_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((event_id, idx, owner, amount_whole)) = parse4(rest) else {
+    let Some([event_id, idx, owner, amount_whole]) = parse_ints::<4>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     if owner != cb.from.id {
@@ -453,7 +442,7 @@ pub async fn handle_fund_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
         Ok(FundOutcome::Funded { total }) => {
             refresh_card(ctx, event_id).await;
             let done = i18n::fund_done(lang, &name, &fmt_coins(total));
-            let (chat, msg) = cb_coords(cb);
+            let (chat, msg) = tg::cb_coords(cb);
             if is_group_chat(chat) {
                 let _ = tg::delete_message(ctx, chat, msg).await;
                 let announce = i18n::fund_announce(lang, &full_name(&cb.from), &fmt_coins(total), &name);
@@ -485,7 +474,7 @@ pub async fn handle_resolve(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Re
     let Some(board) = host_board(ctx, cb, rest, lang).await? else {
         return Ok(());
     };
-    let (chat, msg) = cb_coords(cb);
+    let (chat, msg) = tg::cb_coords(cb);
     let _ = tg::edit_with_buttons(ctx, chat, msg, &board_text(&board), &resolve_rows(&board)).await;
     answer(ctx, cb, "", false).await
 }
@@ -505,7 +494,7 @@ pub async fn handle_back(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
 /// `pm:win:<event>:<idx>` — host only: declare the winner (`resolve_event`).
 pub async fn handle_win(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
-    let Some((event_id, idx)) = parse2(rest) else {
+    let Some([event_id, idx]) = parse_ints::<2>(rest) else {
         return answer(ctx, cb, "", false).await;
     };
     let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
@@ -560,25 +549,6 @@ async fn host_board(
         return Ok(None);
     }
     Ok(Some(board))
-}
-
-fn now() -> i64 {
-    chrono::Utc::now().timestamp()
-}
-
-fn parse2(rest: &str) -> Option<(i64, i64)> {
-    let mut it = rest.split(':');
-    Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
-}
-
-fn parse4(rest: &str) -> Option<(i64, i64, i64, i64)> {
-    let mut it = rest.split(':');
-    Some((
-        it.next()?.parse().ok()?,
-        it.next()?.parse().ok()?,
-        it.next()?.parse().ok()?,
-        it.next()?.parse().ok()?,
-    ))
 }
 
 /// Render a freshly-created AMM event's board for its first post (used by the

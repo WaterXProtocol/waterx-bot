@@ -53,19 +53,11 @@ impl Database {
         self.ensure_row(to)?;
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let debited = tx.execute(
-            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
-            params![amount, from],
-        )?;
-        if debited != 1 {
+        if !super::try_debit(&tx, from, amount)? {
             return Ok(false); // tx drops here → rollback, nothing written
         }
-        tx.execute(
-            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-            params![amount, to],
-        )?;
         super::history::record(&tx, from, super::HK_SEND_OUT, -amount, None, Some(to))?;
-        super::history::record(&tx, to, super::HK_SEND_IN, amount, None, Some(from))?;
+        super::credit_and_log(&tx, to, amount, super::HK_SEND_IN, None, Some(from))?;
         tx.commit()?;
         Ok(true)
     }
@@ -78,16 +70,8 @@ impl Database {
         self.ensure_row(b)?;
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        tx.execute(
-            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-            params![amount, a],
-        )?;
-        tx.execute(
-            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-            params![amount, b],
-        )?;
-        super::history::record(&tx, a, super::HK_REFERRAL, amount, None, Some(b))?;
-        super::history::record(&tx, b, super::HK_REFERRAL, amount, None, Some(a))?;
+        super::credit_and_log(&tx, a, amount, super::HK_REFERRAL, None, Some(b))?;
+        super::credit_and_log(&tx, b, amount, super::HK_REFERRAL, None, Some(a))?;
         tx.commit()?;
         Ok(())
     }
@@ -220,17 +204,10 @@ impl Database {
             }
             if level == 0 && co > 0 && co != up {
                 let half = bonus / 2;
-                tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![half, up])?;
-                tx.execute("INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')", params![co])?;
-                tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![bonus - half, co])?;
-                super::history::record(&tx, up, super::HK_REFERRAL, half, None, Some(user_id))?;
-                super::history::record(&tx, co, super::HK_REFERRAL, bonus - half, None, Some(user_id))?;
+                super::credit_and_log(&tx, up, half, super::HK_REFERRAL, None, Some(user_id))?;
+                super::credit_and_log(&tx, co, bonus - half, super::HK_REFERRAL, None, Some(user_id))?;
             } else {
-                tx.execute(
-                    "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-                    params![bonus, up],
-                )?;
-                super::history::record(&tx, up, super::HK_REFERRAL, bonus, None, Some(user_id))?;
+                super::credit_and_log(&tx, up, bonus, super::HK_REFERRAL, None, Some(user_id))?;
             }
             up = tx
                 .query_row(

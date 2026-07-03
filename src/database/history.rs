@@ -92,20 +92,12 @@ impl Database {
         event_id: Option<i64>,
         counter: Option<i64>,
     ) -> SqlResult<()> {
-        let conn = self.conn.lock();
-        conn.execute(
-            "INSERT INTO history (user, at, kind, delta, event_id, counter)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                user,
-                super::current_unix_time(),
-                kind,
-                delta,
-                event_id,
-                counter
-            ],
-        )?;
-        Ok(())
+        // Delegate to the shared [`record`] so the INSERT lives in one place; a
+        // one-statement transaction gives it the `&Transaction` it wants.
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        record(&tx, user, kind, delta, event_id, counter)?;
+        tx.commit()
     }
 
     /// The user's most recent actions, newest first, capped at `limit`. Left-joins

@@ -1,4 +1,4 @@
-use super::{Database, COIN};
+use super::{credit, credit_and_log, Database, COIN};
 use crate::core::lmsr;
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult, Transaction};
 
@@ -166,8 +166,10 @@ fn escrow_micro(b: i64, k: usize) -> i64 {
 }
 
 /// Load `(b_param, fee_bps, pool)` for an event iff it's an **open AMM** event.
-fn load_amm_open(tx: &Transaction, event_id: i64) -> SqlResult<Option<(i64, i64, i64)>> {
-    tx.query_row(
+/// Takes `&Connection` so both the transaction paths (`&Transaction` derefs to
+/// `&Connection`) and the read-only quote paths (`&MutexGuard<Connection>`) share it.
+fn load_amm_open(conn: &Connection, event_id: i64) -> SqlResult<Option<(i64, i64, i64)>> {
+    conn.query_row(
         "SELECT b_param, fee_bps, pool FROM events
          WHERE id = ?1 AND kind = 'amm' AND state = 'open'",
         params![event_id],
@@ -176,13 +178,20 @@ fn load_amm_open(tx: &Transaction, event_id: i64) -> SqlResult<Option<(i64, i64,
     .optional()
 }
 
-/// The event's net outstanding YES shares per outcome, ordered by `idx`.
-fn load_q(tx: &Transaction, event_id: i64) -> SqlResult<Vec<i64>> {
-    let mut stmt = tx.prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+/// The event's net outstanding YES shares per outcome, ordered by `idx`. `&Connection`
+/// so both transaction and read-only quote callers share it (see [`load_amm_open`]).
+fn load_q(conn: &Connection, event_id: i64) -> SqlResult<Vec<i64>> {
+    let mut stmt = conn.prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
     let v = stmt
         .query_map(params![event_id], |r| r.get(0))?
         .collect::<SqlResult<Vec<i64>>>()?;
     Ok(v)
+}
+
+/// Net micro-share counts → whole shares (the LMSR curve's `q` input). The single
+/// home for the `x / SHARE` conversion every buy/sell/quote path does.
+fn whole_shares(q: &[i64]) -> Vec<f64> {
+    q.iter().map(|x| *x as f64 / SHARE as f64).collect()
 }
 
 /// Add `add_shares` / `add_cost` to a (event, outcome, user) position, creating
@@ -217,14 +226,68 @@ pub fn basis_for_sold(basis: i64, sold: i64, held: i64) -> i64 {
     }
 }
 
-/// Credit `amount` micro-coins to `user`, creating the balance row if absent.
-fn credit(tx: &Transaction, user: i64, amount: i64) -> SqlResult<()> {
-    tx.execute(
-        "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
-        params![user],
-    )?;
-    tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, user])?;
+/// Insert the per-outcome `markets` rows for a freshly-created event — one row per
+/// name, `idx` in order (`q_shares`/`funded` default to 0). Shared by the AMM,
+/// funding, and sourced create paths.
+fn insert_markets(tx: &Transaction, event_id: i64, names: &[String]) -> SqlResult<()> {
+    for (idx, name) in names.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO markets (event_id, idx, name) VALUES (?1, ?2, ?3)",
+            params![event_id, idx as i64, name],
+        )?;
+    }
     Ok(())
+}
+
+/// Load a user's `(held_shares, cost_basis)` for one outcome — `(0, 0)` if absent.
+fn load_position(tx: &Transaction, event_id: i64, idx: i64, user: i64) -> SqlResult<(i64, i64)> {
+    Ok(tx
+        .query_row(
+            "SELECT shares, cost FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
+            params![event_id, idx, user],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .unwrap_or((0, 0)))
+}
+
+/// Reduce a position by `shares` (of `held`, total cost `basis`): delete the row on
+/// a full sell, else decrement `shares` and the **pro-rata** cost. Returns the cost
+/// basis removed (the whole basis on a full sell, floored pro-rata otherwise) — the
+/// input to the realized-P&L line. Shared by `amm_sell` and `sourced_sell`.
+fn reduce_position(
+    tx: &Transaction,
+    event_id: i64,
+    idx: i64,
+    user: i64,
+    shares: i64,
+    held: i64,
+    basis: i64,
+) -> SqlResult<i64> {
+    let basis_removed = basis_for_sold(basis, shares, held);
+    if held == shares {
+        tx.execute(
+            "DELETE FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
+            params![event_id, idx, user],
+        )?;
+    } else {
+        tx.execute(
+            "UPDATE positions SET shares = shares - ?1, cost = cost - ?2
+             WHERE event_id = ?3 AND market_idx = ?4 AND user = ?5",
+            params![shares, basis_removed, event_id, idx, user],
+        )?;
+    }
+    Ok(basis_removed)
+}
+
+/// The event's LPs as `(user, contributed)` rows. Shared by the two resolution
+/// payout paths ([`refund_liquidity`] and [`distribute_residual`]).
+fn load_lps(tx: &Transaction, event_id: i64) -> SqlResult<Vec<(i64, i64)>> {
+    let mut stmt = tx.prepare("SELECT user, contributed FROM liquidity WHERE event_id = ?1")?;
+    let v = stmt
+        .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<SqlResult<Vec<_>>>()?;
+    Ok(v)
 }
 
 /// The event's per-outcome funding-stage allocation (micro-coins), ordered by `idx`.
@@ -237,18 +300,11 @@ fn load_funded(tx: &Transaction, event_id: i64) -> SqlResult<Vec<i64>> {
 /// Refund each LP their full contribution and delete the `liquidity` rows — the
 /// path for an under-seeded / never-traded funding stage. Returns coins refunded.
 fn refund_liquidity(tx: &Transaction, event_id: i64) -> SqlResult<i64> {
-    let lps: Vec<(i64, i64)> = {
-        let mut stmt = tx.prepare("SELECT user, contributed FROM liquidity WHERE event_id = ?1")?;
-        let v = stmt
-            .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        v
-    };
+    let lps = load_lps(tx, event_id)?;
     let mut total = 0i64;
     for (user, amount) in &lps {
         if *amount > 0 {
-            credit(tx, *user, *amount)?;
-            super::history::record(tx, *user, super::HK_LP_RETURN, *amount, Some(event_id), None)?;
+            credit_and_log(tx, *user, *amount, super::HK_LP_RETURN, Some(event_id), None)?;
             total += amount;
         }
     }
@@ -266,24 +322,16 @@ fn distribute_residual(
     creator: i64,
     residual: i64,
 ) -> SqlResult<()> {
-    let lps: Vec<(i64, i64)> = {
-        let mut stmt = tx.prepare("SELECT user, contributed FROM liquidity WHERE event_id = ?1")?;
-        let v = stmt
-            .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        v
-    };
+    let lps = load_lps(tx, event_id)?;
     if residual > 0 {
         if lps.is_empty() {
-            credit(tx, creator, residual)?;
-            super::history::record(tx, creator, super::HK_LP_RETURN, residual, Some(event_id), None)?;
+            credit_and_log(tx, creator, residual, super::HK_LP_RETURN, Some(event_id), None)?;
         } else {
             let contributions: Vec<i64> = lps.iter().map(|(_, c)| *c).collect();
             let split = crate::core::lmsr_fund::pro_rata(&contributions, residual);
             for ((user, _), amount) in lps.iter().zip(split.iter()) {
                 if *amount > 0 {
-                    credit(tx, *user, *amount)?;
-                    super::history::record(tx, *user, super::HK_LP_RETURN, *amount, Some(event_id), None)?;
+                    credit_and_log(tx, *user, *amount, super::HK_LP_RETURN, Some(event_id), None)?;
                 }
             }
         }
@@ -447,11 +495,7 @@ impl Database {
         self.ensure_row(host)?;
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let debited = tx.execute(
-            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
-            params![escrow, host],
-        )?;
-        if debited != 1 {
+        if !super::try_debit(&tx, host, escrow)? {
             return Ok(None); // host can't fund the escrow → rollback on drop
         }
         tx.execute(
@@ -462,12 +506,7 @@ impl Database {
             params![title, host, lang, odds_fmt, tz_offset, ends_at, b, fee_bps, escrow, now],
         )?;
         let event_id = tx.last_insert_rowid();
-        for (idx, name) in options.iter().enumerate() {
-            tx.execute(
-                "INSERT INTO markets (event_id, idx, name, q_shares) VALUES (?1, ?2, ?3, 0)",
-                params![event_id, idx as i64, name],
-            )?;
-        }
+        insert_markets(&tx, event_id, options)?;
         // The host is the sole LP (their seed == the pool), so resolution / void /
         // reset distribute the residual back to them through the same `liquidity`
         // path multi-LP funding uses.
@@ -509,12 +548,7 @@ impl Database {
             params![title, host, lang, odds_fmt, tz_offset, ends_at, fee_bps, open_at, now],
         )?;
         let event_id = tx.last_insert_rowid();
-        for (idx, name) in options.iter().enumerate() {
-            tx.execute(
-                "INSERT INTO markets (event_id, idx, name, q_shares, funded) VALUES (?1, ?2, ?3, 0, 0)",
-                params![event_id, idx as i64, name],
-            )?;
-        }
+        insert_markets(&tx, event_id, options)?;
         tx.commit()?;
         Ok(event_id)
     }
@@ -548,11 +582,7 @@ impl Database {
         if state != "funding" || now >= open_at || alloc.len() as i64 != k {
             return Ok(FundOutcome::Unavailable);
         }
-        let debited = tx.execute(
-            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
-            params![total, user],
-        )?;
-        if debited != 1 {
+        if !super::try_debit(&tx, user, total)? {
             return Ok(FundOutcome::Rejected); // insufficient funds → rollback
         }
         for (idx, &a) in alloc.iter().enumerate() {
@@ -610,18 +640,14 @@ impl Database {
         }
         let fee = mul_bps(spend, fee_bps);
         let cost = spend - fee;
-        let q_whole: Vec<f64> = q.iter().map(|qi| *qi as f64 / SHARE as f64).collect();
+        let q_whole = whole_shares(&q);
         let shares_whole =
             lmsr::shares_for_budget(&q_whole, b as f64, idx as usize, cost as f64 / COIN as f64);
         let shares = (shares_whole * SHARE as f64).floor() as i64;
         if shares <= 0 {
             return Ok(TradeOutcome::Rejected); // spend too small for one micro-share
         }
-        let debited = tx.execute(
-            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
-            params![spend, user],
-        )?;
-        if debited != 1 {
+        if !super::try_debit(&tx, user, spend)? {
             return Ok(TradeOutcome::Rejected); // insufficient funds → rollback
         }
         add_position(&tx, event_id, idx, user, shares, spend)?;
@@ -655,18 +681,11 @@ impl Database {
         if idx < 0 || idx as usize >= q.len() {
             return Ok(TradeOutcome::Unavailable);
         }
-        let (held, basis): (i64, i64) = tx
-            .query_row(
-                "SELECT shares, cost FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
-                params![event_id, idx, user],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?
-            .unwrap_or((0, 0));
+        let (held, basis) = load_position(&tx, event_id, idx, user)?;
         if held < shares {
             return Ok(TradeOutcome::Rejected);
         }
-        let q_whole: Vec<f64> = q.iter().map(|qi| *qi as f64 / SHARE as f64).collect();
+        let q_whole = whole_shares(&q);
         let refund_whole =
             lmsr::refund_to_sell(&q_whole, b as f64, idx as usize, shares as f64 / SHARE as f64);
         let refund = (refund_whole * COIN as f64).floor().max(0.0) as i64;
@@ -682,21 +701,7 @@ impl Database {
             params![shares, event_id, idx],
         )?;
         tx.execute("UPDATE events SET pool = pool - ?1 WHERE id = ?2", params![proceeds, event_id])?;
-        // Cost basis of the shares sold (the whole basis on a full sell, else
-        // pro-rata); realized P&L = proceeds − this.
-        let basis_removed = basis_for_sold(basis, shares, held);
-        if held == shares {
-            tx.execute(
-                "DELETE FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
-                params![event_id, idx, user],
-            )?;
-        } else {
-            tx.execute(
-                "UPDATE positions SET shares = shares - ?1, cost = cost - ?2
-                 WHERE event_id = ?3 AND market_idx = ?4 AND user = ?5",
-                params![shares, basis_removed, event_id, idx, user],
-            )?;
-        }
+        let basis_removed = reduce_position(&tx, event_id, idx, user, shares, held, basis)?;
         super::history::record(&tx, user, super::HK_SELL, proceeds, Some(event_id), None)?;
         tx.commit()?;
         Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee, basis: basis_removed })
@@ -738,12 +743,7 @@ impl Database {
             params![source_ref, title, lang, odds_fmt, tz_offset, ends_at, now],
         )?;
         let id = tx.last_insert_rowid();
-        for (idx, name) in outcomes.iter().enumerate() {
-            tx.execute(
-                "INSERT INTO markets (event_id, idx, name, q_shares) VALUES (?1, ?2, ?3, 0)",
-                params![id, idx as i64, name],
-            )?;
-        }
+        insert_markets(&tx, id, outcomes)?;
         tx.commit()?;
         Ok(id)
     }
@@ -787,11 +787,7 @@ impl Database {
         if shares <= 0 {
             return Ok(TradeOutcome::Rejected);
         }
-        let debited = tx.execute(
-            "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
-            params![spend, user],
-        )?;
-        if debited != 1 {
+        if !super::try_debit(&tx, user, spend)? {
             return Ok(TradeOutcome::Rejected);
         }
         add_position(&tx, event_id, idx, user, shares, spend)?;
@@ -831,43 +827,17 @@ impl Database {
         if open.is_none() {
             return Ok(TradeOutcome::Unavailable);
         }
-        let (held, basis): (i64, i64) = tx
-            .query_row(
-                "SELECT shares, cost FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
-                params![event_id, idx, user],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?
-            .unwrap_or((0, 0));
+        let (held, basis) = load_position(&tx, event_id, idx, user)?;
         if held < shares {
             return Ok(TradeOutcome::Rejected);
         }
         let proceeds = (shares as f64 * price_cents / 100.0).floor() as i64;
-        tx.execute(
-            "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
-            params![user],
-        )?;
-        tx.execute(
-            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-            params![proceeds, user],
-        )?;
+        credit(&tx, user, proceeds)?;
         tx.execute(
             "UPDATE markets SET q_shares = q_shares - ?1 WHERE event_id = ?2 AND idx = ?3",
             params![shares, event_id, idx],
         )?;
-        let basis_removed = basis_for_sold(basis, shares, held);
-        if held == shares {
-            tx.execute(
-                "DELETE FROM positions WHERE event_id = ?1 AND market_idx = ?2 AND user = ?3",
-                params![event_id, idx, user],
-            )?;
-        } else {
-            tx.execute(
-                "UPDATE positions SET shares = shares - ?1, cost = cost - ?2
-                 WHERE event_id = ?3 AND market_idx = ?4 AND user = ?5",
-                params![shares, basis_removed, event_id, idx, user],
-            )?;
-        }
+        let basis_removed = reduce_position(&tx, event_id, idx, user, shares, held, basis)?;
         super::history::record(&tx, user, super::HK_SELL, proceeds, Some(event_id), None)?;
         tx.commit()?;
         Ok(TradeOutcome::Filled { shares: -shares, coins: proceeds, fee: 0, basis: basis_removed })
@@ -879,14 +849,19 @@ impl Database {
     /// oracle; amm: declared by the host). Returns `true` if it flipped an open
     /// event to `resolved`. Payouts happen later via [`Database::claim`] /
     /// [`Database::settle_all_sourced`].
-    pub fn resolve_event(&self, event_id: i64, winning_idx: i64, now: i64) -> SqlResult<bool> {
+    /// Flip an event's `state` via `set_sql` (a parameterised
+    /// `UPDATE events SET … WHERE id = ? AND state …`), then — if a row actually
+    /// changed — settle immediately when no positions remain. Returns whether the
+    /// flip took. The shared spine of [`Database::resolve_event`] / [`Database::void_event`].
+    fn flip_state(
+        &self,
+        event_id: i64,
+        set_sql: &str,
+        sql_params: impl rusqlite::Params,
+    ) -> SqlResult<bool> {
         let flipped = {
             let conn = self.conn.lock();
-            conn.execute(
-                "UPDATE events SET state = 'resolved', winning_market = ?1, resolved_at = ?2
-                 WHERE id = ?3 AND state = 'open'",
-                params![winning_idx, now, event_id],
-            )? == 1
+            conn.execute(set_sql, sql_params)? == 1
         };
         if flipped {
             self.settle_if_no_positions(event_id)?;
@@ -894,22 +869,25 @@ impl Database {
         Ok(flipped)
     }
 
+    pub fn resolve_event(&self, event_id: i64, winning_idx: i64, now: i64) -> SqlResult<bool> {
+        self.flip_state(
+            event_id,
+            "UPDATE events SET state = 'resolved', winning_market = ?1, resolved_at = ?2
+             WHERE id = ?3 AND state = 'open'",
+            params![winning_idx, now, event_id],
+        )
+    }
+
     /// Void an open **or funding-stage** event (no clear winner, or funding that
     /// won't open). Settlement refunds every trader's cost basis and every LP's
     /// pooled liquidity. Returns `true` if it flipped the event to `void`.
     pub fn void_event(&self, event_id: i64, now: i64) -> SqlResult<bool> {
-        let flipped = {
-            let conn = self.conn.lock();
-            conn.execute(
-                "UPDATE events SET state = 'void', resolved_at = ?1
-                 WHERE id = ?2 AND state IN ('open', 'funding')",
-                params![now, event_id],
-            )? == 1
-        };
-        if flipped {
-            self.settle_if_no_positions(event_id)?;
-        }
-        Ok(flipped)
+        self.flip_state(
+            event_id,
+            "UPDATE events SET state = 'void', resolved_at = ?1
+             WHERE id = ?2 AND state IN ('open', 'funding')",
+            params![now, event_id],
+        )
     }
 
     /// After a resolve/void, eagerly settle **iff the event has no positions** — so
@@ -994,14 +972,7 @@ impl Database {
                 (0, ClaimKind::Lost)
             };
             if coins > 0 {
-                tx.execute(
-                    "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
-                    params![user],
-                )?;
-                tx.execute(
-                    "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-                    params![coins, user],
-                )?;
+                credit(&tx, *user, coins)?;
                 if amm {
                     pool -= coins; // AMM payouts/refunds are funded by the pool
                 }
@@ -1228,14 +1199,7 @@ impl Database {
             )
             .optional()?
             .unwrap_or_default();
-        let q_shares = {
-            let mut stmt =
-                conn.prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
-            let v = stmt
-                .query_map(params![event_id], |r| r.get(0))?
-                .collect::<SqlResult<Vec<i64>>>()?;
-            v
-        };
+        let q_shares = load_q(&conn, event_id)?;
         Ok(Some(SellContext {
             kind,
             source_ref,
@@ -1257,28 +1221,14 @@ impl Database {
             return Ok(None);
         }
         let conn = self.conn.lock();
-        let row = conn
-            .query_row(
-                "SELECT b_param, fee_bps FROM events WHERE id = ?1 AND kind = 'amm' AND state = 'open'",
-                params![event_id],
-                |r| Ok((r.get::<_, Option<i64>>(0)?.unwrap_or(0), r.get::<_, i64>(1)?)),
-            )
-            .optional()?;
-        let Some((b, fee_bps)) = row else {
+        let Some((b, fee_bps, _)) = load_amm_open(&conn, event_id)? else {
             return Ok(None);
         };
-        let q = {
-            let mut stmt =
-                conn.prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
-            let v = stmt
-                .query_map(params![event_id], |r| r.get(0))?
-                .collect::<SqlResult<Vec<i64>>>()?;
-            v
-        };
+        let q = load_q(&conn, event_id)?;
         if idx < 0 || idx as usize >= q.len() {
             return Ok(None);
         }
-        let q_whole: Vec<f64> = q.iter().map(|x| *x as f64 / SHARE as f64).collect();
+        let q_whole = whole_shares(&q);
         let refund = (lmsr::refund_to_sell(&q_whole, b as f64, idx as usize, shares as f64 / SHARE as f64)
             * COIN as f64)
             .floor()
@@ -1429,29 +1379,15 @@ impl Database {
             return Ok(None);
         }
         let conn = self.conn.lock();
-        let row = conn
-            .query_row(
-                "SELECT b_param, fee_bps FROM events WHERE id = ?1 AND kind = 'amm' AND state = 'open'",
-                params![event_id],
-                |r| Ok((r.get::<_, Option<i64>>(0)?.unwrap_or(0), r.get::<_, i64>(1)?)),
-            )
-            .optional()?;
-        let Some((b, fee_bps)) = row else {
+        let Some((b, fee_bps, _)) = load_amm_open(&conn, event_id)? else {
             return Ok(None);
         };
-        let q = {
-            let mut stmt =
-                conn.prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")?;
-            let v = stmt
-                .query_map(params![event_id], |r| r.get(0))?
-                .collect::<SqlResult<Vec<i64>>>()?;
-            v
-        };
+        let q = load_q(&conn, event_id)?;
         if idx < 0 || idx as usize >= q.len() {
             return Ok(None);
         }
         let cost = spend - mul_bps(spend, fee_bps);
-        let q_whole: Vec<f64> = q.iter().map(|x| *x as f64 / SHARE as f64).collect();
+        let q_whole = whole_shares(&q);
         let shares = (lmsr::shares_for_budget(&q_whole, b as f64, idx as usize, cost as f64 / COIN as f64)
             * SHARE as f64)
             .floor() as i64;
@@ -1541,17 +1477,11 @@ mod tests {
 
     fn price_of(db: &Database, event_id: i64, idx: usize) -> f64 {
         let conn = db.conn.lock();
-        let q: Vec<i64> = conn
-            .prepare("SELECT q_shares FROM markets WHERE event_id = ?1 ORDER BY idx")
-            .unwrap()
-            .query_map([event_id], |r| r.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
+        let q = load_q(&conn, event_id).unwrap();
         let b: i64 = conn
             .query_row("SELECT b_param FROM events WHERE id = ?1", [event_id], |r| r.get(0))
             .unwrap();
-        let qf: Vec<f64> = q.iter().map(|x| *x as f64 / SHARE as f64).collect();
+        let qf = whole_shares(&q);
         crate::core::lmsr::price(&qf, b as f64, idx)
     }
 

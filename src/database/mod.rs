@@ -26,7 +26,7 @@ pub use user::UserRow;
 pub use wager::decimal_payout;
 
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection, Result as SqlResult, Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// On-disk SQLite filenames. Dev and production keep separate data files so a
@@ -64,6 +64,50 @@ pub(super) fn current_unix_time() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+/// Atomically debit `amount` micro-coins from `user` within `tx`, guarded so the
+/// balance can never go negative — a single conditional `UPDATE … WHERE balance −
+/// ?1 >= 0` (no read-then-write TOCTOU, so concurrent debits can't overdraw).
+/// Returns `true` iff the row was debited (the user could cover it). The
+/// transaction-scoped twin of [`Database::balance_change`]'s debit; the single home
+/// for the overdraw-safe guard every trade path (`transfer`, `create_amm_event`,
+/// `add_liquidity`, `amm_buy`, `sourced_buy`) previously inlined.
+pub(super) fn try_debit(tx: &Transaction, user: i64, amount: i64) -> SqlResult<bool> {
+    let n = tx.execute(
+        "UPDATE balance SET balance = balance - ?1 WHERE user = ?2 AND balance - ?1 >= 0",
+        params![amount, user],
+    )?;
+    Ok(n == 1)
+}
+
+/// Credit `amount` micro-coins to `user` within `tx`, creating the balance row if
+/// absent. The tx-scoped credit primitive shared across the engine, referral,
+/// check-in, and envelope paths.
+pub(super) fn credit(tx: &Transaction, user: i64, amount: i64) -> SqlResult<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
+        params![user],
+    )?;
+    tx.execute("UPDATE balance SET balance = balance + ?1 WHERE user = ?2", params![amount, user])?;
+    Ok(())
+}
+
+/// [`credit`] `user`, then append the `/history` entry in the same tx — the tight
+/// credit-then-record pair every money-in path (LP return, settle/claim, transfer,
+/// referral, check-in, envelope) repeats. Callers that already `ensure_row` still
+/// go through this; the extra `INSERT OR IGNORE` is a harmless no-op there.
+pub(super) fn credit_and_log(
+    tx: &Transaction,
+    user: i64,
+    amount: i64,
+    kind: &str,
+    event_id: Option<i64>,
+    counter: Option<i64>,
+) -> SqlResult<()> {
+    credit(tx, user, amount)?;
+    history::record(tx, user, kind, amount, event_id, counter)?;
+    Ok(())
 }
 
 pub struct Database {

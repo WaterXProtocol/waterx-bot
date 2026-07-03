@@ -1,19 +1,13 @@
 use crate::commands::tg;
 use crate::commands::util::*;
 use crate::core::i18n;
-use telexide::api::types::DeleteMessage;
 use telexide::prelude::*;
 
 #[command(description = "list fruit for sale; the buyer presses the inline button")]
 pub async fn sell(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(seller) = message.from.clone() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((seller, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, &seller);
     let parts = args(&message);
     if parts.len() < 2 {
         reply(&ctx, &message, i18n::usage_sell(lang)).await?;
@@ -48,13 +42,7 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
     )?;
     if escrowed.is_empty() {
         // Nothing to escrow — clean up the placeholder.
-        let _ = ctx
-            .api
-            .delete_message(DeleteMessage::new(
-                sent.chat.get_id().into(),
-                sent.message_id,
-            ))
-            .await;
+        let _ = tg::delete_message(&ctx, sent.chat.get_id(), sent.message_id).await;
         reply(&ctx, &message, i18n::messing_around(lang)).await?;
         return Ok(());
     }
@@ -65,7 +53,7 @@ pub async fn sell(ctx: Context, message: Message) -> CommandResult {
         i18n::sell_button(lang, &format_number(price)),
         format!("sell:{}:{escrowed}:{price}", seller.id),
     )]];
-    let listing = i18n::sell_listing(lang, &full_name(&seller), &escrowed, &format_number(price));
+    let listing = i18n::sell_listing(lang, &full_name(seller), &escrowed, &format_number(price));
     // Best-effort: the escrow + offer row are already committed and the
     // placeholder already carries a working (DB-backed) button, so a failed
     // cosmetic refresh must not report the whole `/sell` as failed.

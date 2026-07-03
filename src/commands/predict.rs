@@ -61,10 +61,6 @@ pub struct PredictDraft {
     pub fee_bps: Option<i64>,
 }
 
-fn now() -> i64 {
-    chrono::Utc::now().timestamp()
-}
-
 /// Open a fresh `/predict` builder for `host`: DM them the first prompt and (only
 /// if the DM lands) register the `Convo::Predict` draft pinned to `origin_chat`
 /// (where the finished card will post). Returns `true` when the DM landed and the
@@ -95,25 +91,15 @@ pub(crate) async fn open_draft(ctx: &Context, host: &User, origin_chat: i64) -> 
 
 #[command(description = "create a prediction")]
 pub async fn predict(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(host) = message.from.clone() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((host, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, &host);
     let origin_chat = message.chat.get_id();
 
-    if open_draft(&ctx, &host, origin_chat).await {
-        // In a group the prompt went to the host's DM — point them there.
-        if is_group_chat(origin_chat) {
-            reply(&ctx, &message, i18n::predict_check_dm(lang)).await?;
-        }
-    } else {
-        reply(&ctx, &message, i18n::bet_dm_first(lang)).await?;
-    }
-    Ok(())
+    // In a group the prompt went to the host's DM — point them there; a bounced DM
+    // means they never started the bot.
+    let landed = open_draft(&ctx, host, origin_chat).await;
+    dm_pointer(&ctx, &message, landed, i18n::predict_check_dm(lang), i18n::bet_dm_first(lang)).await
 }
 
 /// DM message listener: routes a host's plain-text reply into their in-flight

@@ -98,12 +98,7 @@ impl Database {
         if deleted != 1 {
             return Ok(None); // lost the race → rollback, no credit
         }
-        ensure_row_locked(&tx, user)?;
-        tx.execute(
-            "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-            params![amount, user],
-        )?;
-        super::history::record(&tx, user, super::HK_SEND_IN, amount, None, owner)?;
+        super::credit_and_log(&tx, user, amount, super::HK_SEND_IN, None, owner)?;
         tx.commit()?;
         Ok(Some(amount))
     }
@@ -127,12 +122,7 @@ impl Database {
         )?;
         if deleted == 1 {
             if let Some((Some(owner), Some(amount))) = row {
-                ensure_row_locked(&tx, owner)?;
-                tx.execute(
-                    "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
-                    params![amount, owner],
-                )?;
-                super::history::record(&tx, owner, super::HK_REFUND, amount, None, None)?;
+                super::credit_and_log(&tx, owner, amount, super::HK_REFUND, None, None)?;
             }
         }
         tx.commit()?;

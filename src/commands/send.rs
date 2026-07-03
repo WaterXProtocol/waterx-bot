@@ -15,14 +15,9 @@ fn refund_or_log(db: &crate::database::Database, user: i64, units: i64) {
 
 #[command(description = "send coins to the replied-to user")]
 pub async fn send(ctx: Context, message: Message) -> CommandResult {
-    if paused_block(&ctx, &message).await? {
-        return Ok(());
-    }
-    let Some(sender) = message.from.clone() else {
-        reply(&ctx, &message, ERR_REPLY).await?;
+    let Some((sender, lang)) = begin(&ctx, &message).await? else {
         return Ok(());
     };
-    let lang = lang_for(&ctx, &sender);
 
     let parts = args(&message);
     if parts.is_empty() {
@@ -61,7 +56,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
                 &message,
                 i18n::sent_coins(
                     lang,
-                    &full_name(&sender),
+                    &full_name(sender),
                     &full_name(&receiver),
                     &format_number(amount),
                 ),
@@ -88,7 +83,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         let title = if reply_target.is_some() {
             i18n::grab_envelope_title(lang).to_string()
         } else {
-            i18n::sent_envelope_title(lang, &full_name(&sender), &format_number(amount))
+            i18n::sent_envelope_title(lang, &full_name(sender), &format_number(amount))
         };
         let sent = match tg::send_with_buttons(&ctx, message.chat.get_id(), &title, &rows).await {
             Ok(sent) => sent,
@@ -134,7 +129,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
         send_text(
             &ctx,
             message.chat.get_id(),
-            i18n::sent_fruits(lang, &full_name(&sender), &full_name(&receiver), &moved),
+            i18n::sent_fruits(lang, &full_name(sender), &full_name(&receiver), &moved),
         )
         .await?;
         return Ok(());
@@ -153,7 +148,7 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
     reply(
         &ctx,
         &message,
-        i18n::thanks(lang, &full_name(&sender), i18n::eat_reaction(lang, n)),
+        i18n::thanks(lang, &full_name(sender), i18n::eat_reaction(lang, n)),
     )
     .await?;
     send_text(&ctx, chat_id, emoji).await?;
