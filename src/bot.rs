@@ -18,10 +18,12 @@ const POLL_RETRY_BACKOFF: Duration = Duration::from_secs(5);
 const STARTUP_BACKOFF_START: Duration = Duration::from_secs(1);
 const STARTUP_BACKOFF_MAX: Duration = Duration::from_secs(30);
 /// How often the background task snapshots the whole SQLite DB to a single
-/// rolling `<db>.bak` file (overwritten, no timestamp). The first snapshot is
-/// one interval *after* boot, so a crash-looping deploy — which never stays up
-/// this long — can't clobber the last good backup with a fresh-but-bad copy.
-const BACKUP_INTERVAL: Duration = Duration::from_secs(3600);
+/// rolling `<db>.bak` file (overwritten, no timestamp). Cheap regardless of
+/// frequency — one overwritten file, a few-ms `VACUUM INTO` of a tiny DB — so
+/// this is tuned for a fresh restore point (≤5 min of data loss), not cost. The
+/// first snapshot is one interval *after* boot, so a crash-looping deploy (which
+/// restarts within seconds) can't reach a snapshot and clobber the last good backup.
+const BACKUP_INTERVAL: Duration = Duration::from_secs(300);
 
 pub struct DbKey;
 impl TypeMapKey for DbKey {

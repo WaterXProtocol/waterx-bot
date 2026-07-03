@@ -57,9 +57,9 @@ dashboard). Because the DB lives on the `/data` volume, balances survive.
 
 ## Backups
 
-The bot auto-snapshots the **whole SQLite DB** hourly to a single rolling
-`waterx.db.bak` **in `DATA_DIR`** (the volume) — overwritten each time, no
-timestamp, so it never grows. `/backup` forces one on demand; the `[Everything]`
+The bot auto-snapshots the **whole SQLite DB** every 5 minutes to a single
+rolling `waterx.db.bak` **in `DATA_DIR`** (the volume) — overwritten each time,
+no timestamp, so it never grows. `/backup` forces one on demand; the `[Everything]`
 `/reset` also snapshots before wiping. It's a full `VACUUM INTO` copy (every
 table, not just balances).
 

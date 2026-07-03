@@ -25,8 +25,8 @@ is cut into a dated release when the version is bumped.
 - **Liquidity stakes shown in `/assets` (and `/bets`).** Open LP contributions now
   render under a **💧 Liquidity provided** section — event title + committed coins,
   tagged 🌱 (funding) or 🟢 (live) — next to your open positions.
-- **Automatic full-DB backups.** The bot snapshots the **whole SQLite DB** hourly
-  to a single rolling `<db>.bak` on the data volume (`VACUUM INTO`, written to a
+- **Automatic full-DB backups.** The bot snapshots the **whole SQLite DB** every
+  5 minutes to a single rolling `<db>.bak` on the data volume (`VACUUM INTO`, written to a
   temp file then atomically renamed; overwritten each time — no timestamp, so it
   never grows and captures **every** table, not just balances). `/backup`
   (owner-only) forces one on demand; the `[Everything]` `/reset` snapshots before
