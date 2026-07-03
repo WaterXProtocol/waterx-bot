@@ -25,7 +25,7 @@ use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
 /// How long a quoted set of odds stays valid.
-const QUOTE_TTL_SECS: i64 = 60;
+const QUOTE_TTL_SECS: i64 = 10;
 /// Whole-coin stake presets — each button *adds* this much to the running stake.
 const SIZE_PRESETS: [i64; 4] = [1, 5, 10, 50];
 

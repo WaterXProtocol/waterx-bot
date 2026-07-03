@@ -154,7 +154,7 @@ don't hammer the rate-limited API — the lock is never held across the network
 (`betting::refetch_quote`, see the betting section), so a wager is always booked
 from a feed snapshot **at most `FEED_CACHE_TTL` (5s) old** — never the older
 snapshot the quote was locked to. The
-displayed quote keeps its own 60s `QUOTE_TTL_SECS` purely for the build/confirm
+displayed quote keeps its own 10s `QUOTE_TTL_SECS` purely for the build/confirm
 UI (auto-renewed past that). Concurrent cold-cache misses
 aren't coalesced, so a startup burst may fetch a couple of times before the cache
 warms.
