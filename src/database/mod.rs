@@ -272,9 +272,24 @@ impl Database {
                         params![price, buyer],
                     )?;
                 }
+                ("envelope", Some(owner), _, Some(amount)) => {
+                    // Unclaimed envelope past its TTL: the sender was debited at
+                    // creation and the escrow lives in this row (`price`), so return
+                    // it to them — the DELETE below would otherwise burn the coins.
+                    // Mirrors the `buy` refund; the send_out logged at creation now
+                    // has its matching refund.
+                    tx.execute(
+                        "INSERT OR IGNORE INTO balance (user, balance, fruit) VALUES (?1, 0, '')",
+                        params![owner],
+                    )?;
+                    tx.execute(
+                        "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
+                        params![amount, owner],
+                    )?;
+                    history::record(&tx, *owner, HK_REFUND, *amount, None, None)?;
+                }
                 _ => {
-                    // envelope or malformed row — nothing to refund (envelope
-                    // amount lives in the callback_data, not the row).
+                    // malformed row (missing owner/amount) — nothing to refund.
                 }
             }
         }
@@ -475,5 +490,31 @@ mod reset_tests {
         // bot re-records the group adder; here we just recreate the row).
         db.force_change(1, 0).unwrap();
         assert!(db.set_referrer_if_new(2, 1).unwrap());
+    }
+
+    #[test]
+    fn prune_refunds_unclaimed_envelope_escrow() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(7, 10 * COIN).unwrap();
+        // Simulate a live envelope: the sender is debited and an escrow row is
+        // written with an old timestamp (so the TTL sweep will collect it).
+        assert!(db.balance_change(7, -4 * COIN).unwrap());
+        {
+            let conn = db.conn.lock();
+            conn.execute(
+                "INSERT INTO buffer (chat, msg, kind, owner, price, created_at)
+                 VALUES (-1, 1, 'envelope', 7, ?1, 0)",
+                rusqlite::params![4 * COIN],
+            )
+            .unwrap();
+            // Sweep everything older than cutoff 100 (the row's created_at is 0).
+            Database::refund_and_prune_old_buffer(&conn, 100).unwrap();
+        }
+        // Escrow returned to the sender, the buffer row is gone, and the refund
+        // is logged to their /history.
+        assert_eq!(db.get_user_info(7).unwrap().balance, 10 * COIN);
+        let h = db.user_history(7, 10).unwrap();
+        assert_eq!(h[0].kind, HK_REFUND);
+        assert_eq!(h[0].delta, 4 * COIN);
     }
 }
