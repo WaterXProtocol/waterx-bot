@@ -1220,7 +1220,7 @@ pub fn intro(l: Lang) -> &'static str {
         "Hey 👋 I'm Wixy.\nThe World Cup is live. Make your call and prove you know ball ⚽\nCheck in, Predict. Earn coins 👇",
         "嗨 👋 我是 Wixy。\n世界盃正熱烈開打！下好離手，證明你最懂球 ⚽\n簽到、預測，賺取金幣 👇",
         "嗨 👋 我是 Wixy。\n世界杯正火热开打！下好离手，证明你最懂球 ⚽\n签到、预测，赚取金币 👇",
-        "やあ 👋 ぼくは Wixy。\nワールドカップ開催中！予想を立てて、サッカー通なところを見せて ⚽\nチェックイン、予測してコインを稼ごう 👇",
+        "やあ 👋 わたしは Wixy。\nワールドカップ開催中！予想を立てて、サッカー通なところを見せて ⚽\nチェックイン、予測してコインを稼ごう 👇",
         "안녕 👋 나는 Wixy야.\n월드컵이 한창이야. 예측을 걸고 축구 실력을 증명해 봐 ⚽\n출석하고 예측해서 코인을 벌자 👇",
         "Привет 👋 Я Wixy.\nЧемпионат мира в разгаре. Сделай прогноз и докажи, что разбираешься в футболе ⚽\nОтмечайся, предсказывай, зарабатывай монеты 👇",
         "Salut 👋 Je suis Wixy.\nLa Coupe du monde est lancée. Fais ton pronostic et prouve que tu t'y connais en foot ⚽\nPointe-toi, prédis, gagne des pièces 👇",
