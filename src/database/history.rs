@@ -193,4 +193,22 @@ mod tests {
         db.reset_all().unwrap();
         assert!(db.user_history(1, 10).unwrap().is_empty());
     }
+
+    #[test]
+    fn envelope_send_and_claim_are_logged() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(5, 10 * COIN).unwrap();
+        // Mirror `send::send`: debit the sender, then post the envelope (which
+        // logs the send_out inside insert_buffer's tx).
+        assert!(db.balance_change(5, -3 * COIN).unwrap());
+        db.insert_buffer(100, 200, 5, 3 * COIN).unwrap();
+        let s = db.user_history(5, 10).unwrap();
+        assert_eq!(s[0].kind, HK_SEND_OUT);
+        assert_eq!(s[0].delta, -3 * COIN);
+        // Claimer grabs it → send_in logged for them.
+        assert_eq!(db.claim_envelope(100, 200, 6).unwrap(), Some(3 * COIN));
+        let c = db.user_history(6, 10).unwrap();
+        assert_eq!(c[0].kind, HK_SEND_IN);
+        assert_eq!(c[0].delta, 3 * COIN);
+    }
 }

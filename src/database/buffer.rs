@@ -34,11 +34,19 @@ impl Database {
     /// credits exactly what was escrowed — never a value taken from untrusted
     /// callback data. `owner` lets an unclaimed/cancelled envelope be refunded.
     pub fn insert_buffer(&self, chat: i64, msg: i64, owner: i64, amount: i64) -> SqlResult<()> {
-        let conn = self.conn.lock();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT OR REPLACE INTO buffer (chat, msg, kind, owner, price, created_at) VALUES (?1, ?2, 'envelope', ?3, ?4, ?5)",
             params![chat, msg, owner, amount, current_unix_time()],
         )?;
+        // The sender was already debited (see `send::send`); log the outgoing
+        // envelope alongside the escrow row so the `send_out` lands iff the
+        // envelope actually goes live — this tx rolls back on failure, and the
+        // caller then refunds the debited coins. Counter is unknown (anyone can
+        // grab it) until a claim.
+        super::history::record(&tx, owner, super::HK_SEND_OUT, -amount, None, None)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -71,16 +79,16 @@ impl Database {
     pub fn claim_envelope(&self, chat: i64, msg: i64, user: i64) -> SqlResult<Option<i64>> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        // Read the escrow first; only delete+credit when there's a real amount.
-        let amount: Option<i64> = tx
+        // Read the escrow (+ owner, for the history counter) first; only
+        // delete+credit when there's a real amount.
+        let row: Option<(Option<i64>, Option<i64>)> = tx
             .query_row(
-                "SELECT price FROM buffer WHERE chat = ?1 AND msg = ?2 AND kind = 'envelope'",
+                "SELECT price, owner FROM buffer WHERE chat = ?1 AND msg = ?2 AND kind = 'envelope'",
                 params![chat, msg],
-                |r| r.get::<_, Option<i64>>(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .optional()?
-            .flatten();
-        let Some(amount) = amount else {
+            .optional()?;
+        let Some((Some(amount), owner)) = row else {
             return Ok(None); // already taken, missing, or a NULL-price legacy row
         };
         let deleted = tx.execute(
@@ -95,6 +103,7 @@ impl Database {
             "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
             params![amount, user],
         )?;
+        super::history::record(&tx, user, super::HK_SEND_IN, amount, None, owner)?;
         tx.commit()?;
         Ok(Some(amount))
     }
@@ -123,6 +132,7 @@ impl Database {
                     "UPDATE balance SET balance = balance + ?1 WHERE user = ?2",
                     params![amount, owner],
                 )?;
+                super::history::record(&tx, owner, super::HK_REFUND, amount, None, None)?;
             }
         }
         tx.commit()?;
