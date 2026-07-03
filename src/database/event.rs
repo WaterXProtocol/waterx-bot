@@ -1061,6 +1061,13 @@ impl Database {
     /// marked resolved by the Gamma detect pass first, AMM events by their host, so
     /// this just flushes whatever is pending (and catches an AMM event whose
     /// resolve-time settle failed). Returns every payout made.
+    ///
+    /// **Per-event isolation:** each `settle_event` is its own atomic transaction, so
+    /// a failing event rolls back cleanly and stays `resolved`-with-positions. We
+    /// **log and skip** it rather than aborting the whole sweep — so one poison event
+    /// can never head-of-line-block every *other* event's payout, and the next sweep
+    /// (or `/settle`) retries it. Only a failure to *enumerate* the events (the
+    /// `SELECT`) propagates.
     pub fn settle_all_resolved(&self) -> SqlResult<Vec<Payout>> {
         let ids: Vec<i64> = {
             let conn = self.conn.lock();
@@ -1073,7 +1080,10 @@ impl Database {
         };
         let mut out = Vec::new();
         for ev in ids {
-            out.extend(self.settle_event(ev, None)?);
+            match self.settle_event(ev, None) {
+                Ok(payouts) => out.extend(payouts),
+                Err(e) => eprintln!("[settle] event {ev} failed (skipped, retried next sweep): {e}"),
+            }
         }
         Ok(out)
     }
