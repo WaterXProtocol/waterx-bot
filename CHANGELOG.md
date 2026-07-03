@@ -25,9 +25,14 @@ is cut into a dated release when the version is bumped.
 - **Liquidity stakes shown in `/assets` (and `/bets`).** Open LP contributions now
   render under a **💧 Liquidity provided** section — event title + committed coins,
   tagged 🌱 (funding) or 🟢 (live) — next to your open positions.
-- **`/backup` command** (owner-only) — snapshot every account with coins **or**
-  fruit to a timestamped `balances-*.json` file *without* wiping anything; restore
-  later with `/load`.
+- **Automatic full-DB backups.** The bot snapshots the **whole SQLite DB** every
+  5 minutes to a single rolling `<db>.bak` on the data volume (`VACUUM INTO`, written to a
+  temp file then atomically renamed; overwritten each time — no timestamp, so it
+  never grows and captures **every** table, not just balances). `/backup`
+  (owner-only) forces one on demand; the `[Everything]` `/reset` snapshots before
+  wiping. Restore is a file swap (stop the bot, copy the `.bak` over the live DB,
+  restart). Replaces the earlier JSON `balances-*.json` export + `/load` restore,
+  which were removed.
 
 ### Changed
 
@@ -39,10 +44,6 @@ is cut into a dated release when the version is bumped.
   the feed's award (multi-outcome) and crypto categories remain excluded, and
   Yes/No props were investigated but can't auto-settle (no reliable waterx→Gamma
   market link), so they're not ingested. Match settlement is unchanged.
-- **Account snapshots now include fruit.** `/backup`, `/load`, and the
-  `[Everything]` `/reset` safety snapshot persist `(user, balance, fruit)` (was
-  balance-only); old balance-only snapshots still load (fruit → empty).
-
 ### Security
 
 - **`#![forbid(unsafe_code)]` crate-wide** — a compile-time guarantee that no

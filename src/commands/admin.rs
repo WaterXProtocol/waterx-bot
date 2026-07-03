@@ -421,15 +421,15 @@ pub async fn handle_reset_cb(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
                         lines.push("📈 Market refunds — ⚠️ error".to_string());
                     }
                 }
-                // (2) Snapshot balances to a backup file — the safety net for /load.
-                // If it fails, **abort the wipe** (balances are kept, no data loss).
-                match backup_balances(ctx) {
+                // (2) Snapshot the whole DB to `<db>.bak` — the safety net before
+                // wiping. If it fails, **abort the wipe** (data is kept, no loss).
+                match database.snapshot() {
                     Ok(file) => {
                         // (3) …then wipe everything.
                         match database.reset_all() {
                             Ok(()) => {
                                 lines.push(format!(
-                                    "💾 Backup saved: {file} (restore with /load {file})\n🗑️ Everything wiped — kick + re-add the bot to re-record the group adder, then members re-refer."
+                                    "💾 Pre-wipe snapshot: {file}\n🗑️ Everything wiped — kick + re-add the bot to re-record the group adder, then members re-refer."
                                 ));
                             }
                             Err(e) => {
@@ -439,8 +439,8 @@ pub async fn handle_reset_cb(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
                         }
                     }
                     Err(e) => {
-                        eprintln!("backup_balances error: {e}");
-                        lines.push(format!("💾 Backup FAILED — wipe aborted, balances kept ({e})"));
+                        eprintln!("reset snapshot error: {e}");
+                        lines.push(format!("💾 Snapshot FAILED — wipe aborted, data kept ({e})"));
                     }
                 }
             } else if flags & RESET_MARKETS != 0 {
@@ -464,134 +464,22 @@ pub async fn handle_reset_cb(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
     answer(ctx, cb, "", false).await
 }
 
-/// Snapshot every account with coins or fruit (`export_accounts`) to a timestamped
-/// `balances-*.json` file in the working directory, returning the filename. Shared
-/// by `/backup` and the `[Everything]` reset's safety net — restored via `/load`.
-/// `Err(String)` on a DB or filesystem failure so a reset caller can abort the wipe.
-fn backup_balances(ctx: &Context) -> Result<String, String> {
-    let rows = db(ctx).export_accounts().map_err(|e| e.to_string())?;
-    let json = serde_json::to_string(&rows).map_err(|e| e.to_string())?;
-    let file = format!("balances-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
-    // Persist alongside the DB (a mounted volume on Railway/Fly), not the ephemeral
-    // CWD; the returned value stays the bare, separator-free filename for `/load`.
-    let path = format!("{}/{}", crate::database::data_dir(), file);
-    std::fs::write(&path, json).map_err(|e| e.to_string())?;
-    Ok(file)
-}
-
-/// A safe backup filename: our `balances-*.json` pattern with no path separators —
-/// so a `/load <name>` can't traverse out of the working directory.
-fn valid_backup_name(name: &str) -> bool {
-    name.starts_with("balances-")
-        && name.ends_with(".json")
-        && !name.contains('/')
-        && !name.contains('\\')
-        && !name.contains("..")
-}
-
-/// Balance-backup files in the working directory, newest first (timestamped names
-/// sort lexicographically, so a reversed sort puts the newest on top).
-fn list_backup_files() -> Vec<String> {
-    let mut files: Vec<String> = std::fs::read_dir(crate::database::data_dir())
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| valid_backup_name(n))
-        .collect();
-    files.sort();
-    files.reverse();
-    files
-}
-
-/// `/load` — owner-only. With no argument, list the `balances-*.json` backups
-/// (written by `/backup` or an `[Everything]` reset). With a filename, restore
-/// it — upsert each user's coin balance **and** fruit from the file.
-#[command(description = "owner: list/restore balance backups")]
-pub async fn load(ctx: Context, message: Message) -> CommandResult {
-    if owner_guard(&ctx, &message).is_none() {
-        return Ok(());
-    }
-    let parts = args(&message);
-    let Some(name) = parts.first() else {
-        // No arg → list the available backups.
-        let files = list_backup_files();
-        if files.is_empty() {
-            reply(&ctx, &message, "💾 No balance backups found.").await?;
-        } else {
-            let mut s = String::from("💾 Balance backups (newest first):\n");
-            for f in &files {
-                s.push_str(&format!("\n· {f}"));
-            }
-            s.push_str("\n\nRestore with: /load <filename>");
-            reply(&ctx, &message, s).await?;
-        }
-        return Ok(());
-    };
-    // With an arg → restore that backup.
-    if !valid_backup_name(name) {
-        reply(
-            &ctx,
-            &message,
-            "⚠️ Invalid backup name — run /load to list valid files.",
-        )
-        .await?;
-        return Ok(());
-    }
-    // `name` is `valid_backup_name`-checked above (no path separators), so joining
-    // it onto the data dir can't traverse out of it.
-    let path = format!("{}/{}", crate::database::data_dir(), name);
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            reply(&ctx, &message, format!("⚠️ Can't read {name}: {e}")).await?;
-            return Ok(());
-        }
-    };
-    // New snapshots are `[user, micro_coins, fruit]`; fall back to the old
-    // balance-only `[user, micro_coins]` shape so pre-fruit backups still restore
-    // (their fruit defaults to empty).
-    let rows: Vec<(i64, i64, String)> = match serde_json::from_str::<Vec<(i64, i64, String)>>(&content) {
-        Ok(r) => r,
-        Err(_) => match serde_json::from_str::<Vec<(i64, i64)>>(&content) {
-            Ok(old) => old.into_iter().map(|(u, b)| (u, b, String::new())).collect(),
-            Err(e) => {
-                reply(&ctx, &message, format!("⚠️ Bad backup file ({name}): {e}")).await?;
-                return Ok(());
-            }
-        },
-    };
-    match db(&ctx).import_accounts(&rows) {
-        Ok(n) => {
-            reply(
-                &ctx,
-                &message,
-                format!("✅ Restored {n} account(s) (balances + fruit) from {name}"),
-            )
-            .await?
-        }
-        Err(e) => reply(&ctx, &message, format!("⚠️ Restore failed: {e}")).await?,
-    }
-    Ok(())
-}
-
-/// `/backup` — owner-only. Snapshot every user's coins **and** fruit to a
-/// timestamped `balances-*.json` file in the working directory, **without** wiping
-/// anything (unlike the `[Everything]` reset). Restore later with `/load <file>`.
-#[command(description = "owner: snapshot balances + fruit to a file")]
+/// `/backup` — owner-only. Snapshot the **whole DB** on demand to the rolling
+/// `<db>.bak` on the volume (the same file the hourly auto-backup writes),
+/// **without** wiping anything. Captures every table, not just balances. To
+/// restore: stop the bot, copy the `.bak` over the live DB, restart (see
+/// RAILWAY.md) — a full DB file can't be hot-swapped under a live connection.
+#[command(description = "owner: snapshot the whole DB to <db>.bak")]
 pub async fn backup(ctx: Context, message: Message) -> CommandResult {
     if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
-    let n = db(&ctx).export_accounts().map(|v| v.len()).unwrap_or(0);
-    match backup_balances(&ctx) {
+    match db(&ctx).snapshot() {
         Ok(file) => {
             reply(
                 &ctx,
                 &message,
-                format!(
-                    "💾 Backed up {n} account(s) (balances + fruit) → {file}\nRestore with: /load {file}"
-                ),
+                format!("💾 Full-DB snapshot written → {file}\nRestore: stop the bot, copy it over the live DB, restart."),
             )
             .await?;
         }

@@ -57,10 +57,21 @@ dashboard). Because the DB lives on the `/data` volume, balances survive.
 
 ## Backups
 
-`/backup` and the `[Everything]` `/reset` safety-snapshot now write
-`balances-*.json` **into `DATA_DIR`** (the volume), so they persist. To pull one
-off the box, open the service's **shell** in Railway (or `railway ssh`) and read
-`/data/balances-*.json`, or restore in-place with `/load <file>`.
+The bot auto-snapshots the **whole SQLite DB** every 5 minutes to a single
+rolling `waterx.db.bak` **in `DATA_DIR`** (the volume) — overwritten each time,
+no timestamp, so it never grows. `/backup` forces one on demand; the `[Everything]`
+`/reset` also snapshots before wiping. It's a full `VACUUM INTO` copy (every
+table, not just balances).
+
+**Restore** (a full DB file can't be hot-swapped under the running bot):
+
+1. Stop the service (Railway → the service → **Remove/Stop**, or scale to 0).
+2. In the Railway **shell** (or `railway ssh`): `cp /data/waterx.db.bak /data/waterx.db`
+   (and delete any stale `/data/waterx.db-wal` / `-shm`).
+3. Start the service again.
+
+To pull a copy off the box for safekeeping, read `/data/waterx.db.bak` via the
+shell / `railway ssh`.
 
 ## Notes & gotchas
 

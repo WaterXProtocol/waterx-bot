@@ -135,6 +135,9 @@ pub struct Database {
     /// Bot's own Telegram user id. Fruit sent to this id is *consumed* by the
     /// bot rather than added to its inventory (see `fruit_transfer`).
     pub(super) bot_id: i64,
+    /// The on-disk path this DB was opened from — used to derive the backup
+    /// target (`<path>.bak`). `":memory:"` for tests.
+    path: String,
 }
 
 impl Database {
@@ -317,7 +320,23 @@ impl Database {
         Ok(Self {
             conn: Mutex::new(conn),
             bot_id,
+            path: db_name.to_string(),
         })
+    }
+
+    /// The rolling full-DB backup target for this database: `<db path>.bak`
+    /// (e.g. `/data/waterx.db.bak`). Overwritten in place — no timestamp.
+    pub fn backup_path(&self) -> String {
+        format!("{}.bak", self.path)
+    }
+
+    /// Snapshot the whole DB to [`Database::backup_path`] and return that path.
+    /// The one-liner behind the hourly auto-backup task and the `/backup` command
+    /// (and the `[Everything]` reset's pre-wipe safety net) — see [`snapshot_to`].
+    pub fn snapshot(&self) -> anyhow::Result<String> {
+        let path = self.backup_path();
+        self.snapshot_to(&path)?;
+        Ok(path)
     }
 
     fn refund_and_prune_old_buffer(conn: &Connection, cutoff: i64) -> SqlResult<()> {
@@ -426,35 +445,28 @@ impl Database {
         })
     }
 
-    /// Snapshot every user with coins **or** fruit as `(user, micro_coins, fruit)`
-    /// — what `/backup` (and the `[Everything]` reset) writes to disk and `/load`
-    /// restores. A user holding only fruit (zero coins) is still captured.
-    pub fn export_accounts(&self) -> SqlResult<Vec<(i64, i64, String)>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT user, balance, COALESCE(fruit, '') FROM balance \
-             WHERE balance > 0 OR (fruit IS NOT NULL AND fruit != '')",
-        )?;
-        let v = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        Ok(v)
-    }
-
-    /// Restore coins + fruit from a `/load` backup: upsert each user's `balance`
-    /// **and** `fruit` (creating the row if needed), leaving every other column
-    /// untouched, in one transaction. Returns the number of accounts written.
-    pub fn import_accounts(&self, rows: &[(i64, i64, String)]) -> SqlResult<usize> {
-        self.with_tx(|tx| {
-            for (user, balance, fruit) in rows {
-                tx.execute(
-                    "INSERT INTO balance (user, balance, fruit) VALUES (?1, ?2, ?3)
-                     ON CONFLICT(user) DO UPDATE SET balance = excluded.balance, fruit = excluded.fruit",
-                    params![user, balance, fruit],
-                )?;
-            }
-            Ok(rows.len())
-        })
+    /// Write a consistent **full-database** snapshot to `path` — a single rolling
+    /// file, overwritten each call (no timestamp, so it never grows). Uses
+    /// `VACUUM INTO` (a clean, compact copy of the committed state) into a temp
+    /// file, then atomically renames it over `path` — `VACUUM INTO` refuses a
+    /// pre-existing target, and the rename makes the swap atomic so a reader never
+    /// sees a half-written file. Captures **every** table, so restoring is just
+    /// copying this file back over the live DB (stop the bot first). Backs the
+    /// periodic backup task in `bot::run`; best-effort (the caller logs failures).
+    /// Holds the connection lock for the copy (milliseconds for a small DB).
+    pub fn snapshot_to(&self, path: &str) -> anyhow::Result<()> {
+        let tmp = format!("{path}.tmp");
+        // Clear any leftover temp from a previous crash (VACUUM INTO won't overwrite).
+        let _ = std::fs::remove_file(&tmp);
+        {
+            let conn = self.conn.lock();
+            // VACUUM INTO takes a string literal, not a bound parameter; the path is
+            // operator-controlled (DATA_DIR), but escape quotes to be safe anyway.
+            let sql = format!("VACUUM INTO '{}'", tmp.replace('\'', "''"));
+            conn.execute_batch(&sql)?;
+        }
+        std::fs::rename(&tmp, path)?;
+        Ok(())
     }
 
     pub(super) fn ensure_row(&self, user_id: i64) -> SqlResult<()> {
@@ -524,35 +536,6 @@ mod reset_tests {
     }
 
     #[test]
-    fn export_then_import_round_trips_balances_and_fruit() {
-        let db = Database::new(":memory:", 1).unwrap();
-        db.force_change(10, 50 * COIN).unwrap();
-        db.force_change(20, 7 * COIN).unwrap();
-        db.force_change(30, 0).unwrap(); // zero coins…
-        db.conn
-            .lock()
-            .execute("UPDATE balance SET fruit = '🍎🍌' WHERE user = 30", [])
-            .unwrap(); // …but holds fruit
-        db.force_change(40, 0).unwrap(); // zero coins + no fruit → not exported
-
-        let snapshot = db.export_accounts().unwrap();
-        assert_eq!(snapshot.len(), 3); // 10, 20 (coins) + 30 (fruit-only); 40 excluded
-        assert!(snapshot.contains(&(10, 50 * COIN, String::new())));
-        assert!(snapshot.contains(&(30, 0, "🍎🍌".to_string())));
-
-        // Wipe, then restore from the snapshot.
-        db.reset_all().unwrap();
-        assert!(!db.user_exists(10).unwrap());
-        let n = db.import_accounts(&snapshot).unwrap();
-        assert_eq!(n, 3);
-        assert_eq!(db.get_user_info(10).unwrap().balance, 50 * COIN);
-        assert_eq!(db.get_user_info(20).unwrap().balance, 7 * COIN);
-        let u30 = db.get_user_info(30).unwrap();
-        assert_eq!(u30.balance, 0);
-        assert_eq!(u30.fruit, "🍎🍌"); // fruit restored
-    }
-
-    #[test]
     fn delete_user_makes_one_user_brand_new_for_re_refer() {
         let db = Database::new(":memory:", 1).unwrap();
         db.force_change(1, 0).unwrap(); // referrer exists
@@ -606,6 +589,42 @@ mod reset_tests {
         // bot re-records the group adder; here we just recreate the row).
         db.force_change(1, 0).unwrap();
         assert!(db.set_referrer_if_unset(2, 1).unwrap());
+    }
+
+    #[test]
+    fn snapshot_to_round_trips_the_full_db() {
+        let db = Database::new(":memory:", 1).unwrap();
+        db.force_change(1, 42 * COIN).unwrap();
+        db.force_change(2, 7 * COIN).unwrap();
+        // Non-balance state, to prove the snapshot is the *whole* DB, not just
+        // balances: a chat + group adder, a referral, and a /history row.
+        db.touch_chat(-500).unwrap();
+        db.set_group_adder(-500, 1).unwrap();
+        assert!(db.set_referrer_if_unset(2, 1).unwrap());
+        db.record_action(1, HK_MINT, 42 * COIN, None, None).unwrap();
+
+        // Unique temp target so parallel test runs don't collide.
+        let bak = std::env::temp_dir().join(format!("waterx_snap_{}.db", std::process::id()));
+        let path = bak.to_str().unwrap();
+        let _ = std::fs::remove_file(&bak);
+
+        db.snapshot_to(path).unwrap();
+        assert!(bak.exists(), "snapshot file should exist");
+        assert!(
+            !std::path::Path::new(&format!("{path}.tmp")).exists(),
+            "temp file should be renamed away"
+        );
+
+        // Re-open the snapshot as a fresh DB — balances *and* every other table
+        // survived the round-trip.
+        let restored = Database::new(path, 1).unwrap();
+        assert_eq!(restored.get_user_info(1).unwrap().balance, 42 * COIN);
+        assert_eq!(restored.get_user_info(2).unwrap().balance, 7 * COIN);
+        assert_eq!(restored.group_adder(-500).unwrap(), Some(1));
+        assert_eq!(restored.get_referrers(2).unwrap().0, 1);
+        assert_eq!(restored.count_referrals(1).unwrap(), 1);
+        assert!(!restored.user_history(1, 10).unwrap().is_empty());
+        let _ = std::fs::remove_file(&bak);
     }
 
     #[test]
