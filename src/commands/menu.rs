@@ -100,6 +100,8 @@ pub fn home_row(lang: Lang) -> Vec<Row> {
 pub const MENU_BALANCE: &str = "menu:balance";
 /// Edit-in-place `/bets` view (open positions only) — the sell flow's back target.
 pub const MENU_BETS: &str = "menu:bets";
+/// Edit-in-place `/history` view (the caller's activity statement).
+pub const MENU_HISTORY: &str = "menu:history";
 pub const MENU_MARKETS: &str = "menu:markets";
 pub const MENU_RULE: &str = "menu:rule";
 pub const MENU_INVITE: &str = "menu:invite";
@@ -168,6 +170,10 @@ pub fn main_menu_rows(lang: Lang, checkin_available: bool, is_group: bool) -> Ve
         rows.push(vec![(
             i18n::btn_balance(lang).to_string(),
             MENU_BALANCE.to_string(),
+        )]);
+        rows.push(vec![(
+            i18n::btn_history(lang).to_string(),
+            MENU_HISTORY.to_string(),
         )]);
     }
     rows.push(vec![(

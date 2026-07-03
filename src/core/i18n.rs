@@ -1254,6 +1254,14 @@ pub fn btn_balance(l: Lang) -> &'static str {
         "💰 Ver ativos", "💰 संपत्ति देखें", "💰 عرض الأصول")
 }
 
+pub fn btn_history(l: Lang) -> &'static str {
+    tr!(l;
+        "🧾 History", "🧾 紀錄", "🧾 记录", "🧾 履歴", "🧾 기록",
+        "🧾 История", "🧾 Historique", "🧾 Historial", "🧾 Verlauf", "🧾 Lịch sử",
+        "🧾 Riwayat", "🧾 Kasaysayan", "🧾 ประวัติ", "🧾 Geschiedenis", "🧾 Geçmiş",
+        "🧾 Histórico", "🧾 इतिहास", "🧾 السجل")
+}
+
 pub fn btn_markets(l: Lang) -> &'static str {
     tr!(l;
         "⚽ Today's markets", "⚽ 今日市場", "⚽ 今日市场", "⚽ 今日のマーケット", "⚽ 오늘의 마켓",

@@ -4,6 +4,7 @@ use crate::database::{
     HK_BUY, HK_CHECKIN, HK_CLAIM, HK_LP_FUND, HK_LP_RETURN, HK_MINT, HK_REFERRAL, HK_REFUND,
     HK_SELL, HK_SEND_IN, HK_SEND_OUT,
 };
+use telexide::model::User;
 use telexide::prelude::*;
 
 /// How many recent actions `/history` shows (newest first).
@@ -22,46 +23,46 @@ pub async fn history(ctx: Context, message: Message) -> CommandResult {
         return Ok(());
     };
     let lang = lang_for(&ctx, user);
-    let database = db(&ctx);
+    let body = history_text(&ctx, lang, user).await;
+    reply(&ctx, &message, body).await?;
+    Ok(())
+}
 
+/// Render the caller's activity statement — shared by the `/history` command and
+/// the `menu:history` home-page button (which edits it in place). Times render in
+/// the user's saved timezone (0 = UTC when unset). Falls back to a db-error notice
+/// rather than a misleading empty statement.
+pub async fn history_text(ctx: &Context, lang: Lang, user: &User) -> String {
+    let database = db(ctx);
     let rows = match database.user_history(user.id, HISTORY_LIMIT) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("user_history error (user {}): {e}", user.id);
-            reply(&ctx, &message, i18n::db_error(lang)).await?;
-            return Ok(());
+            return format!("{}\n{}", full_name(user), i18n::db_error(lang));
         }
     };
-    // Render absolute times in the caller's local timezone (0 = UTC when unset).
+    if rows.is_empty() {
+        return format!("{}\n{}", full_name(user), i18n::history_empty(lang));
+    }
     let tz = database.get_tz(user.id).ok().flatten().unwrap_or(0);
-
-    let body = if rows.is_empty() {
-        format!("{}\n{}", full_name(user), i18n::history_empty(lang))
-    } else {
-        let lines: Vec<String> = rows
-            .iter()
-            .map(|h| {
-                let when = fmt_local_time(h.at, tz).unwrap_or_default();
-                let (emoji, label) = kind_label(lang, &h.kind);
-                let ctx_str = match h.event_title.as_deref() {
-                    Some(t) if !t.is_empty() => format!(" · {t}"),
-                    _ => String::new(),
-                };
-                format!(
-                    "{when} — {emoji} {label}{ctx_str}  {}🪙",
-                    fmt_signed_coins(h.delta)
-                )
-            })
-            .collect();
-        format!(
-            "{}\n{}\n\n{}",
-            i18n::history_title(lang),
-            full_name(user),
-            lines.join("\n")
-        )
-    };
-    reply(&ctx, &message, body).await?;
-    Ok(())
+    let lines: Vec<String> = rows
+        .iter()
+        .map(|h| {
+            let when = fmt_local_time(h.at, tz).unwrap_or_default();
+            let (emoji, label) = kind_label(lang, &h.kind);
+            let ctx_str = match h.event_title.as_deref() {
+                Some(t) if !t.is_empty() => format!(" · {t}"),
+                _ => String::new(),
+            };
+            format!("{when} — {emoji} {label}{ctx_str}  {}🪙", fmt_signed_coins(h.delta))
+        })
+        .collect();
+    format!(
+        "{}\n{}\n\n{}",
+        i18n::history_title(lang),
+        full_name(user),
+        lines.join("\n")
+    )
 }
 
 /// Map an action tag to its display emoji + localized label. The tags come from
