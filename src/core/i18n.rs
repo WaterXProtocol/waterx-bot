@@ -2103,6 +2103,31 @@ pub fn history_empty(l: Lang) -> &'static str {
         "Ainda sem atividade 🫥", "अभी कोई गतिविधि नहीं 🫥", "لا يوجد نشاط بعد 🫥")
 }
 
+/// `/history` filter-tab labels (button text + the active-tab header).
+pub fn hist_tab_mining(l: Lang) -> &'static str {
+    tr!(l;
+        "⛏ Mining", "⛏ 挖礦", "⛏ 挖矿", "⛏ マイニング", "⛏ 채굴",
+        "⛏ Майнинг", "⛏ Minage", "⛏ Minería", "⛏ Mining", "⛏ Đào coin",
+        "⛏ Menambang", "⛏ Mining", "⛏ ขุดเหรียญ", "⛏ Minen", "⛏ Madencilik",
+        "⛏ Mineração", "⛏ माइनिंग", "⛏ التعدين")
+}
+
+pub fn hist_tab_trading(l: Lang) -> &'static str {
+    tr!(l;
+        "📈 Trading", "📈 交易", "📈 交易", "📈 取引", "📈 거래",
+        "📈 Торговля", "📈 Trading", "📈 Trading", "📈 Trading", "📈 Giao dịch",
+        "📈 Trading", "📈 Trading", "📈 เทรด", "📈 Handel", "📈 İşlem",
+        "📈 Negociação", "📈 ट्रेडिंग", "📈 التداول")
+}
+
+pub fn hist_tab_transfer(l: Lang) -> &'static str {
+    tr!(l;
+        "↔️ Transfer", "↔️ 轉帳", "↔️ 转账", "↔️ 送金", "↔️ 송금",
+        "↔️ Перевод", "↔️ Transfert", "↔️ Transferencia", "↔️ Überweisung", "↔️ Chuyển coin",
+        "↔️ Transfer", "↔️ Transfer", "↔️ โอน", "↔️ Overboeking", "↔️ Transfer",
+        "↔️ Transferência", "↔️ ट्रांसफर", "↔️ تحويل")
+}
+
 pub fn hist_buy(l: Lang) -> &'static str {
     tr!(l;
         "Bought shares", "買入份額", "买入份额", "シェアを購入", "지분 매수",

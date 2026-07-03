@@ -154,6 +154,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         handle_menu_bets(&ctx, &cb).await
     } else if data == menu::MENU_HISTORY {
         handle_menu_history(&ctx, &cb).await
+    } else if let Some(rest) = data.strip_prefix(history::HIST_TAB) {
+        handle_history_tab(&ctx, &cb, rest).await
     } else if data == menu::MENU_MARKETS {
         handle_menu_markets(&ctx, &cb).await
     } else if data == menu::MENU_RULE {
@@ -210,6 +212,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         predmarket::handle_back(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(admin::RESET_CB) {
         admin::handle_reset_cb(&ctx, &cb, rest).await
+    } else if data == admin::DASH_REFRESH {
+        handle_dashboard_refresh(&ctx, &cb).await
     } else {
         Ok(())
     };
@@ -708,18 +712,40 @@ async fn handle_menu_bets(ctx: &Context, cb: &CallbackQuery) -> Result<(), telex
     Ok(())
 }
 
-/// `menu:history` — edit the message into the caller's activity statement (the
-/// `/history` surface) + back-to-home.
+/// `menu:history` — edit the message into the caller's tabbed activity statement
+/// (default the Mining tab) with the filter tabs + back-to-home.
 async fn handle_menu_history(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     answer(ctx, cb, "", false).await?;
-    let text = history::history_text(ctx, lang, &cb.from).await;
-    let rows = vec![vec![(
-        i18n::bet_btn_back(lang).to_string(),
-        menu::MENU_HOME.to_string(),
-    )]];
+    let (text, rows) = history::tab_view(ctx, lang, &cb.from, crate::database::HistoryTab::Mining).await;
     tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
+}
+
+/// `hist:<tab>` — switch the caller's history filter tab (Mining/Trading/Transfer),
+/// edit-in-place. Renders the *tapper's* own history, so it's safe if a group's
+/// shared `/history` somehow carried tabs (it doesn't — groups get the flat view).
+async fn handle_history_tab(ctx: &Context, cb: &CallbackQuery, suffix: &str) -> Result<(), telexide::Error> {
+    let lang = cb_lang(ctx, cb);
+    let Some(tab) = history::parse_tab(suffix) else {
+        return answer(ctx, cb, "", false).await;
+    };
+    answer(ctx, cb, "", false).await?;
+    let (text, rows) = history::tab_view(ctx, lang, &cb.from, tab).await;
+    tg::edit_cb(ctx, cb, &text, &rows).await;
+    Ok(())
+}
+
+/// `dash:refresh` — owner-only: rebuild the `/dashboard` snapshot and edit it in
+/// place. The button is only posted to the owner, but gate anyway (the snapshot
+/// exposes bot-wide totals). No i18n — the dashboard is a plain-English diagnostic.
+async fn handle_dashboard_refresh(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
+    if !crate::commands::util::is_owner(ctx, cb.from.id) {
+        return answer(ctx, cb, "", false).await;
+    }
+    let (text, rows) = admin::dashboard_view(ctx);
+    tg::edit_cb(ctx, cb, &text, &rows).await;
+    answer(ctx, cb, "Refreshed", false).await
 }
 
 /// `menu:markets` — post the market brief as a fresh message, leaving the menu
