@@ -848,7 +848,7 @@ pub fn no_one_bet_suffix(l: Lang) -> &'static str {
 
 /// `(command, description)` pairs for the bot's command menu in `l`. Order and
 /// command names must match the `create_framework!` list in `bot.rs`.
-pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 11] {
+pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 10] {
     [
         ("start", menu_start(l)),
         ("balance", menu_balance(l)),
@@ -857,7 +857,6 @@ pub fn command_menu(l: Lang) -> [(&'static str, &'static str); 11] {
         ("send", menu_send(l)),
         ("predict", menu_predict(l)),
         ("events", menu_markets(l)),
-        ("claim", menu_claim(l)),
         ("rule", menu_rule(l)),
         ("feedback", menu_feedback(l)),
         ("settings", menu_settings(l)),
@@ -2014,13 +2013,6 @@ pub fn predict_need_coins(l: Lang, coins: &str) -> String {
     .replace("{coins}", coins)
 }
 
-fn menu_claim(l: Lang) -> &'static str {
-    tr!(l;
-        "Claim winnings", "領取獎金", "领取奖金", "獲得分を受け取る", "당첨금 받기",
-        "Забрать выигрыш", "Récupérer les gains", "Reclamar ganancias", "Gewinne abholen", "Nhận tiền thắng",
-        "Klaim kemenangan", "Kunin ang panalo", "รับเงินรางวัล", "Winst claimen", "Kazancı al",
-        "Resgatar ganhos", "जीत प्राप्त करें", "اطلب أرباحك")
-}
 
 pub fn settle_nothing(l: Lang) -> &'static str {
     tr!(l;
