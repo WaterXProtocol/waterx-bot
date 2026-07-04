@@ -1250,24 +1250,24 @@ pub fn greeting(l: Lang, part: DayPart) -> &'static str {
 /// at the 👋. `menu::menu_text` composes `greeting + " " + intro`.
 pub fn intro(l: Lang) -> &'static str {
     tr!(l;
-        "👋 I'm Wixy.\nThe World Cup is live. Make your call and prove you know ball ⚽\nCheck in, Predict. Earn coins 👇",
-        "👋 我是 Wixy。\n世界盃正熱烈開打！下好離手，證明你最懂球 ⚽\n簽到、預測，賺取金幣 👇",
-        "👋 我是 Wixy。\n世界杯正火热开打！下好离手，证明你最懂球 ⚽\n签到、预测，赚取金币 👇",
-        "👋 わたしは Wixy。\nワールドカップ開催中！予想を立てて、サッカー通なところを見せて ⚽\nチェックイン、予測してコインを稼ごう 👇",
-        "👋 나는 Wixy야.\n월드컵이 한창이야. 예측을 걸고 축구 실력을 증명해 봐 ⚽\n출석하고 예측해서 코인을 벌자 👇",
-        "👋 Я Wixy.\nЧемпионат мира в разгаре. Сделай прогноз и докажи, что разбираешься в футболе ⚽\nОтмечайся, предсказывай, зарабатывай монеты 👇",
-        "👋 Je suis Wixy.\nLa Coupe du monde est lancée. Fais ton pronostic et prouve que tu t'y connais en foot ⚽\nPointe-toi, prédis, gagne des pièces 👇",
-        "👋 Soy Wixy.\nEl Mundial está en marcha. Haz tu pronóstico y demuestra que sabes de fútbol ⚽\nRegístrate, predice y gana monedas 👇",
-        "👋 Ich bin Wixy.\nDie WM läuft. Tipp ab und beweise, dass du was von Fußball verstehst ⚽\nEinchecken, tippen, Coins verdienen 👇",
-        "👋 Mình là Wixy.\nWorld Cup đang diễn ra. Đặt kèo và chứng minh bạn rành bóng đá ⚽\nĐiểm danh, dự đoán, kiếm xu 👇",
-        "👋 Aku Wixy.\nPiala Dunia sedang berlangsung. Buat tebakanmu dan buktikan kamu paham bola ⚽\nCheck-in, prediksi, kumpulkan koin 👇",
-        "👋 Ako si Wixy.\nBuhay ang World Cup. Itaya ang hula mo at patunayang marunong ka sa bola ⚽\nMag-check-in, mag-predict, kumita ng coins 👇",
-        "👋 ฉันชื่อ Wixy\nฟุตบอลโลกกำลังแข่งอยู่ ทายผลแล้วพิสูจน์ว่าคุณรู้จริงเรื่องบอล ⚽\nเช็คอิน ทายผล รับเหรียญ 👇",
-        "👋 Ik ben Wixy.\nHet WK is bezig. Doe je voorspelling en bewijs dat je verstand van voetbal hebt ⚽\nCheck in, voorspel, verdien munten 👇",
-        "👋 Ben Wixy.\nDünya Kupası başladı. Tahminini yap ve topdan anladığını kanıtla ⚽\nGiriş yap, tahmin et, coin kazan 👇",
-        "👋 Eu sou a Wixy.\nA Copa do Mundo está rolando. Faça seu palpite e prove que manja de futebol ⚽\nFaça check-in, preveja e ganhe moedas 👇",
-        "👋 मैं Wixy हूँ।\nवर्ल्ड कप जारी है। अपनी भविष्यवाणी करो और साबित करो कि तुम फ़ुटबॉल के उस्ताद हो ⚽\nचेक-इन करो, भविष्यवाणी करो, सिक्के कमाओ 👇",
-        "👋 أنا Wixy.\nكأس العالم مستمرة. توقّع النتيجة وأثبت أنك تفهم في كرة القدم ⚽\nسجّل حضورك وتوقّع واكسب العملات 👇")
+        "👋 I'm Wixy!\nThe World Cup is live 🔥\nMake your call and prove you know ball ⚽\nCheck-in ✍️ Predict 🧐 Earn coins 👇",
+        "👋 我是 Wixy！\n世界盃正熱烈開打 🔥\n下好離手，證明你最懂球 ⚽\n簽到 ✍️ 預測 🧐 賺金幣 👇",
+        "👋 我是 Wixy！\n世界杯正火热开打 🔥\n下好离手，证明你最懂球 ⚽\n签到 ✍️ 预测 🧐 赚金币 👇",
+        "👋 わたしは Wixy！\nワールドカップ開催中 🔥\n予想を立てて、サッカー通なところを見せて ⚽\nチェックイン ✍️ 予測 🧐 コインを稼ぐ 👇",
+        "👋 나는 Wixy야!\n월드컵이 한창이야 🔥\n예측을 걸고 축구 실력을 증명해 봐 ⚽\n출석 ✍️ 예측 🧐 코인 벌기 👇",
+        "👋 Я Wixy!\nЧемпионат мира в разгаре 🔥\nСделай прогноз и докажи, что разбираешься в футболе ⚽\nОтмечайся ✍️ Прогнозируй 🧐 Зарабатывай монеты 👇",
+        "👋 Je suis Wixy !\nLa Coupe du monde est lancée 🔥\nFais ton pronostic et prouve que tu t'y connais en foot ⚽\nPointe-toi ✍️ Prédis 🧐 Gagne des pièces 👇",
+        "👋 ¡Soy Wixy!\nEl Mundial está en marcha 🔥\nHaz tu pronóstico y demuestra que sabes de fútbol ⚽\nRegístrate ✍️ Predice 🧐 Gana monedas 👇",
+        "👋 Ich bin Wixy!\nDie WM läuft 🔥\nTipp ab und beweise, dass du was von Fußball verstehst ⚽\nEinchecken ✍️ Tippen 🧐 Coins verdienen 👇",
+        "👋 Mình là Wixy!\nWorld Cup đang diễn ra 🔥\nĐặt kèo và chứng minh bạn rành bóng đá ⚽\nĐiểm danh ✍️ Dự đoán 🧐 Kiếm xu 👇",
+        "👋 Aku Wixy!\nPiala Dunia sedang berlangsung 🔥\nBuat tebakanmu dan buktikan kamu paham bola ⚽\nCheck-in ✍️ Prediksi 🧐 Kumpulkan koin 👇",
+        "👋 Ako si Wixy!\nBuhay ang World Cup 🔥\nItaya ang hula mo at patunayang marunong ka sa bola ⚽\nMag-check-in ✍️ Mag-predict 🧐 Kumita ng coins 👇",
+        "👋 ฉันชื่อ Wixy!\nฟุตบอลโลกกำลังแข่งอยู่ 🔥\nทายผลแล้วพิสูจน์ว่าคุณรู้จริงเรื่องบอล ⚽\nเช็คอิน ✍️ ทายผล 🧐 รับเหรียญ 👇",
+        "👋 Ik ben Wixy!\nHet WK is bezig 🔥\nDoe je voorspelling en bewijs dat je verstand van voetbal hebt ⚽\nCheck in ✍️ Voorspel 🧐 Verdien munten 👇",
+        "👋 Ben Wixy!\nDünya Kupası başladı 🔥\nTahminini yap ve topdan anladığını kanıtla ⚽\nGiriş yap ✍️ Tahmin et 🧐 Coin kazan 👇",
+        "👋 Eu sou a Wixy!\nA Copa do Mundo está rolando 🔥\nFaça seu palpite e prove que manja de futebol ⚽\nFaça check-in ✍️ Preveja 🧐 Ganhe moedas 👇",
+        "👋 मैं Wixy हूँ!\nवर्ल्ड कप जारी है 🔥\nअपनी भविष्यवाणी करो और साबित करो कि तुम फ़ुटबॉल के उस्ताद हो ⚽\nचेक-इन ✍️ भविष्यवाणी करो 🧐 सिक्के कमाओ 👇",
+        "👋 أنا Wixy!\nكأس العالم مستمرة 🔥\nتوقّع النتيجة وأثبت أنك تفهم في كرة القدم ⚽\nسجّل حضورك ✍️ توقّع 🧐 اكسب العملات 👇")
 }
 
 /// Closing prompt shown as the last line of the menu, after the status block.
