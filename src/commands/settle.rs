@@ -8,10 +8,10 @@
 //! task ever stalls. (There is no per-user `/claim` anymore — everything settles
 //! automatically.)
 
-use crate::commands::markets;
 use crate::commands::util::*;
-use crate::core::i18n;
-use crate::database::{Database, Payout};
+use crate::commands::{markets, tg};
+use crate::core::i18n::{self, Lang};
+use crate::database::{ClaimKind, Database, Payout};
 use std::collections::HashSet;
 use telexide::prelude::*;
 
@@ -30,6 +30,9 @@ pub async fn settle(ctx: Context, message: Message) -> CommandResult {
             return Ok(());
         }
     };
+    // DM each winner/refundee (same as the auto-settle task), then reply to the
+    // caller with the sweep summary.
+    notify_settled(&bot_token(&ctx), &database, &payouts).await;
     if payouts.is_empty() {
         reply(&ctx, &message, i18n::settle_nothing(lang)).await?;
         return Ok(());
@@ -62,10 +65,33 @@ pub async fn sweep(database: &Database) -> rusqlite::Result<Vec<Payout>> {
 }
 
 /// The periodic auto-settle task body (every `bot::AUTO_SETTLE_INTERVAL`): run the
-/// [`sweep`], logging on error. Silent on success — each winner's credited balance
-/// and their `/history` `claim`/`refund` row are the record; no per-user DM.
-pub async fn auto_settle(database: &Database) {
-    if let Err(e) = sweep(database).await {
-        eprintln!("[auto-settle] sweep error: {e}");
+/// [`sweep`], then DM each credited user ([`notify_settled`]). Logs on sweep error.
+/// The `token` is used to send DMs directly via the Bot API — the task runs outside
+/// the telexide framework, so it has no `Context`.
+pub async fn auto_settle(token: &str, database: &Database) {
+    match sweep(database).await {
+        Ok(payouts) => notify_settled(token, database, &payouts).await,
+        Err(e) => eprintln!("[auto-settle] sweep error: {e}"),
+    }
+}
+
+/// DM each user a settlement credited — winners (`Won`) and void refunds
+/// (`Refunded`), i.e. every payout with `coins > 0`. Pure losers (`coins == 0`,
+/// which is also all the sweep logs to `/history`) are not messaged. Each renders
+/// in the user's saved locale (English if unset). Best-effort per user: a DM to
+/// someone who bet in a group but never started the bot just fails and is skipped —
+/// the coins already landed on their balance regardless. Shared by the auto-settle
+/// task and the manual `/settle` (whichever path settles an event first sees its
+/// payouts; the other gets an empty list, so a user is never double-notified).
+pub(crate) async fn notify_settled(token: &str, database: &Database, payouts: &[Payout]) {
+    for p in payouts.iter().filter(|p| p.coins > 0) {
+        let lang = database.get_lang(p.user).ok().flatten().unwrap_or(Lang::En);
+        let coins = fmt_coins(p.coins);
+        let text = if p.kind == ClaimKind::Refunded {
+            i18n::bet_refunded(lang, &p.title, &coins)
+        } else {
+            i18n::bet_won(lang, &p.title, &coins)
+        };
+        let _ = tg::send_text_token(token, p.user, &text).await;
     }
 }

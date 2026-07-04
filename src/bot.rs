@@ -109,15 +109,18 @@ pub async fn run() -> anyhow::Result<()> {
 
     // Auto-settle resolved markets on a timer (replaces the manual `/claim`):
     // detect Gamma resolution for open `/events` + pay out every resolved/void
-    // position. Best-effort; `/settle` remains as the manual fallback.
+    // position, then DM each winner/refundee. Best-effort; `/settle` remains as the
+    // manual fallback. The token is passed through so the task can DM directly via
+    // the Bot API — it runs outside the framework, so it has no `Context`.
     {
         let db = db.clone();
+        let token = cfg.token.clone();
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(AUTO_SETTLE_INTERVAL);
             tick.tick().await; // consume the immediate first tick
             loop {
                 tick.tick().await;
-                crate::commands::settle::auto_settle(&db).await;
+                crate::commands::settle::auto_settle(&token, &db).await;
             }
         });
     }
