@@ -292,6 +292,26 @@ pub async fn send_html(ctx: &Context, chat_id: i64, text: &str) -> Result<(), Co
     Ok(())
 }
 
+/// Send a plain text message via the raw Bot API using the **token** directly (no
+/// `Context`). For background tasks that run outside the telexide framework and so
+/// have no `Context` — e.g. the auto-settle sweep DMing winners. Best-effort: a 403
+/// (the user bet in a group but never started the bot) or any transport error is
+/// returned for the caller to ignore. Mirrors the token-based `sendPhoto` helpers.
+pub async fn send_text_token(token: &str, chat_id: i64, text: &str) -> Result<(), CommandError> {
+    let url = format!("https://api.telegram.org/bot{token}/sendMessage");
+    let resp = crate::commands::util::http_client()
+        .post(url)
+        .json(&json!({ "chat_id": chat_id, "text": text }))
+        .send()
+        .await
+        .map_err(|e| CommandError(e.to_string()))?;
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(CommandError(format!("sendMessage failed: {body}")));
+    }
+    Ok(())
+}
+
 pub async fn edit_with_buttons(
     ctx: &Context,
     chat_id: i64,

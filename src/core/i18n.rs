@@ -2082,6 +2082,16 @@ pub fn bet_won(l: Lang, m: &str, payout: &str) -> String {
     .replace("{payout}", payout)
 }
 
+pub fn bet_refunded(l: Lang, m: &str, amount: &str) -> String {
+    tr!(l;
+        "↩️ {market}\nMarket voided — {amount} 🪙 refunded", "↩️ {market}\n盤口作廢 — 退回 {amount} 🪙", "↩️ {market}\n盘口作废 — 退回 {amount} 🪙", "↩️ {market}\nマーケットが無効に — {amount} 🪙 返金したよ", "↩️ {market}\n마켓 무효 — {amount} 🪙 환불했어",
+        "↩️ {market}\nСобытие отменено — возвращено {amount} 🪙", "↩️ {market}\nMarché annulé — {amount} 🪙 remboursés", "↩️ {market}\nMercado anulado — {amount} 🪙 reembolsados", "↩️ {market}\nMarkt annulliert — {amount} 🪙 erstattet", "↩️ {market}\nThị trường bị hủy — đã hoàn {amount} 🪙",
+        "↩️ {market}\nPasar dibatalkan — {amount} 🪙 dikembalikan", "↩️ {market}\nPinawalang-bisa ang market — {amount} 🪙 na-refund", "↩️ {market}\nตลาดถูกยกเลิก — คืนเงิน {amount} 🪙", "↩️ {market}\nMarkt geannuleerd — {amount} 🪙 terugbetaald", "↩️ {market}\nPiyasa iptal edildi — {amount} 🪙 iade edildi",
+        "↩️ {market}\nMercado anulado — {amount} 🪙 reembolsados", "↩️ {market}\nमार्केट रद्द — {amount} 🪙 रिफंड", "↩️ {market}\nأُلغي السوق — تم رد {amount} 🪙")
+    .replace("{market}", m)
+    .replace("{amount}", amount)
+}
+
 // --- /history — user activity statement --------------------------------------
 
 pub fn history_title(l: Lang) -> &'static str {
