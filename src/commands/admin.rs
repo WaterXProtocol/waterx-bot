@@ -108,12 +108,14 @@ pub(crate) fn dashboard_view(ctx: &Context) -> (String, Vec<tg::Row>) {
         ("⏸ Pause", DASH_PAUSE)
     };
     let rows = vec![
-        vec![("🔄 Refresh".to_string(), DASH_REFRESH.to_string())],
         vec![
-            (pause_label.to_string(), pause_cb.to_string()),
-            ("💾 Backup".to_string(), DASH_BACKUP.to_string()),
+            ("🔄 Refresh".to_string(), DASH_REFRESH.to_string()),
+            ("🏁 Settle".to_string(), DASH_SETTLE.to_string()),
         ],
-        vec![("⚙️ Settle".to_string(), DASH_SETTLE.to_string())],
+        vec![
+            ("💾 Backup".to_string(), DASH_BACKUP.to_string()),
+            (pause_label.to_string(), pause_cb.to_string()),
+        ],
     ];
     (dashboard_text(ctx), rows)
 }
@@ -206,7 +208,7 @@ async fn dashboard_settle(ctx: &Context) -> String {
     let events: HashSet<i64> = report.payouts.iter().map(|p| p.event_id).collect();
     let paid: i64 = report.payouts.iter().map(|p| p.coins).sum();
     if events.is_empty() {
-        "⚙️ Nothing to settle right now.".to_string()
+        "🏁 Nothing to settle right now.".to_string()
     } else {
         format!(
             "✅ Settled {} event(s) — {} 🪙 paid.",
