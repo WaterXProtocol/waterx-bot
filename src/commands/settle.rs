@@ -82,8 +82,9 @@ pub async fn settle(ctx: Context, message: Message) -> CommandResult {
 }
 
 /// Alert the owner (log + DM) about events whose settle tx failed this sweep, so a
-/// stuck payout doesn't stay buried in stderr. No-op when nothing failed.
-async fn alert_failures(ctx: &Context, failed: &[i64]) {
+/// stuck payout doesn't stay buried in stderr. No-op when nothing failed. Shared by
+/// the `/settle` command and the `/dashboard` settle button.
+pub(crate) async fn alert_failures(ctx: &Context, failed: &[i64]) {
     if failed.is_empty() {
         return;
     }
