@@ -117,7 +117,7 @@ pub async fn handle_sell_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
         }
         Ok(_) => answer(ctx, cb, i18n::bet_unavailable(lang), true).await,
         Err(e) => {
-            eprintln!("sell error (event {eid}, idx {idx}): {e}");
+            alert_owner(ctx, &format!("sell error (event {eid}, idx {idx}): {e}")).await;
             answer(ctx, cb, i18n::db_error(lang), true).await
         }
     }

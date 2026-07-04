@@ -125,8 +125,7 @@ async fn refetch_quote(ctx: &Context, lang: Lang, qid: u64) -> Option<Quote> {
         Ok(Some(m)) => m,
         Ok(None) => return None,
         Err(e) => {
-            eprintln!("[bet] feed fetch error (reprice {}): {e}", q.key);
-            notify_owner(ctx, &format!("match-bet reprice fetch failed ({}): {e}", q.key)).await;
+            alert_owner(ctx, &format!("[bet] reprice feed fetch failed ({}): {e}", q.key)).await;
             return None;
         }
     };
@@ -220,8 +219,7 @@ pub async fn handle_bet(ctx: &Context, cb: &CallbackQuery, key: &str) -> Result<
         }
         Err(e) => {
             // Genuine feed fetch/parse failure — alert the owner.
-            eprintln!("[bet] feed fetch error for {key}: {e}");
-            notify_owner(ctx, &format!("match-bet feed fetch failed ({key}): {e}")).await;
+            alert_owner(ctx, &format!("[bet] feed fetch failed ({key}): {e}")).await;
             return answer(ctx, cb, i18n::bet_unavailable(lang), true).await;
         }
     };
@@ -282,8 +280,7 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         Ok(Some(m)) => m,
         Ok(None) => return finish_card(ctx, cb, card_lang).await,
         Err(e) => {
-            eprintln!("[opt] feed fetch error for {key}: {e}");
-            notify_owner(ctx, &format!("match-bet odds fetch failed ({key}): {e}")).await;
+            alert_owner(ctx, &format!("[opt] odds feed fetch failed ({key}): {e}")).await;
             return answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await;
         }
     };
@@ -343,10 +340,14 @@ pub async fn handle_opt(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
         match tg::send_with_buttons_reply(ctx, cb.message_chat(), cb.message_id(), &btext, &brows).await {
             Ok(_) => answer(ctx, cb, "", false).await,
             Err(e) => {
-                eprintln!(
-                    "[opt] stake board post failed (chat {}): {e:?}",
-                    cb.message_chat()
-                );
+                alert_owner(
+                    ctx,
+                    &format!(
+                        "[opt] stake board post failed (chat {}): {e:?}",
+                        cb.message_chat()
+                    ),
+                )
+                .await;
                 answer(ctx, cb, i18n::bet_unavailable(tapper_lang), true).await
             }
         }
@@ -419,7 +420,7 @@ pub async fn handle_size_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
     ) {
         Ok(id) => id,
         Err(err) => {
-            eprintln!("get_or_create_sourced_event error: {err}");
+            alert_owner(ctx, &format!("get_or_create_sourced_event error: {err}")).await;
             return answer(ctx, cb, i18n::db_error(lang), true).await;
         }
     };
@@ -429,7 +430,7 @@ pub async fn handle_size_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
         Ok(TradeOutcome::Rejected) => return answer(ctx, cb, i18n::not_enough_money(lang), true).await,
         Ok(TradeOutcome::Unavailable) => return expire(ctx, cb, lang).await,
         Err(err) => {
-            eprintln!("sourced_buy error: {err}");
+            alert_owner(ctx, &format!("sourced_buy error: {err}")).await;
             return answer(ctx, cb, i18n::db_error(lang), true).await;
         }
     };

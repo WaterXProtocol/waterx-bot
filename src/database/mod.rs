@@ -12,8 +12,8 @@ mod wager;
 pub use buffer::OfferOutcome;
 pub use dashboard::Dashboard;
 pub use event::{
-    basis_for_sold, AmmBoard, ClaimKind, FundOutcome, LiquidityView, Payout, PositionView, SellContext,
-    TradeOutcome, B_MEDIUM, FEE_BPS_DEFAULT, FEE_BPS_MAX, MIN_SEED,
+    basis_for_sold, AmmBoard, ClaimKind, FundOutcome, LiquidityView, Outcomes, Payout, PositionView,
+    SellContext, SettleReport, TradeOutcome, B_MEDIUM, FEE_BPS_DEFAULT, FEE_BPS_MAX, MIN_SEED,
 };
 pub use history::{HistoryRow, HistoryTab};
 // Action tags for `/history` — re-exported so the command's label mapping shares

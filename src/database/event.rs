@@ -77,6 +77,19 @@ pub struct Payout {
     pub kind: ClaimKind,
 }
 
+/// `(outcome idx, name)` pairs of an event's markets — the manual-settle picker.
+pub type Outcomes = Vec<(i64, String)>;
+
+/// Outcome of a settle sweep: everyone paid this pass, plus any events whose settle
+/// transaction errored (already logged; surfaced so the caller can alert the owner
+/// — the next sweep retries them).
+#[derive(Debug, Default)]
+pub struct SettleReport {
+    pub payouts: Vec<Payout>,
+    /// Event ids whose settle tx failed this sweep.
+    pub failed: Vec<i64>,
+}
+
 /// A user's open share holding, for the `/assets` / `/bets` positions view (the
 /// `event_id`/`market_idx` let the sell flow address the exact holding).
 #[derive(Debug, Clone)]
@@ -1068,7 +1081,7 @@ impl Database {
     /// can never head-of-line-block every *other* event's payout, and the next sweep
     /// (or `/settle`) retries it. Only a failure to *enumerate* the events (the
     /// `SELECT`) propagates.
-    pub fn settle_all_resolved(&self) -> SqlResult<Vec<Payout>> {
+    pub fn settle_all_resolved(&self) -> SqlResult<SettleReport> {
         let ids: Vec<i64> = {
             let conn = self.conn.lock();
             let mut stmt = conn.prepare(
@@ -1078,14 +1091,17 @@ impl Database {
             let v = stmt.query_map([], |r| r.get(0))?.collect::<SqlResult<Vec<_>>>()?;
             v
         };
-        let mut out = Vec::new();
+        let mut report = SettleReport::default();
         for ev in ids {
             match self.settle_event(ev, None) {
-                Ok(payouts) => out.extend(payouts),
-                Err(e) => eprintln!("[settle] event {ev} failed (skipped, retried next sweep): {e}"),
+                Ok(payouts) => report.payouts.extend(payouts),
+                Err(e) => {
+                    eprintln!("[settle] event {ev} failed (skipped, retried next sweep): {e}");
+                    report.failed.push(ev);
+                }
             }
         }
-        Ok(out)
+        Ok(report)
     }
 
     /// Dev `/reset` (Markets) — refund every committed coin and wipe the whole
@@ -1289,6 +1305,47 @@ impl Database {
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<SqlResult<Vec<_>>>()?;
         Ok(v)
+    }
+
+    /// **Finished** open sourced events (`/events`) for the owner's manual `/settle`
+    /// picker — `(id, title)`, most-overdue first. Restricted to events whose end
+    /// time is **known and past** (`ends_at > 0 AND ends_at < now`), so a match still
+    /// in progress is never offered for manual settlement — only ones that have ended
+    /// but the Gamma auto-detect sweep couldn't resolve (Polymarket unreachable, or a
+    /// result it can't map). `now` = current unix seconds.
+    pub fn open_sourced_events(&self, now: i64) -> SqlResult<Vec<(i64, String)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, title FROM events
+             WHERE kind = 'sourced' AND state = 'open' AND ends_at > 0 AND ends_at < ?1
+             ORDER BY ends_at ASC, id ASC",
+        )?;
+        let v = stmt
+            .query_map(params![now], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(v)
+    }
+
+    /// An open sourced event's `(title, [(idx, name)])` for the manual-settle
+    /// outcome picker. `None` if it isn't an open sourced event (already settled,
+    /// wrong kind, or gone).
+    pub fn sourced_outcomes(&self, event_id: i64) -> SqlResult<Option<(String, Outcomes)>> {
+        let conn = self.conn.lock();
+        let title: Option<String> = conn
+            .query_row(
+                "SELECT title FROM events WHERE id = ?1 AND kind = 'sourced' AND state = 'open'",
+                params![event_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(title) = title else {
+            return Ok(None);
+        };
+        let mut stmt = conn.prepare("SELECT idx, name FROM markets WHERE event_id = ?1 ORDER BY idx")?;
+        let outcomes = stmt
+            .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(Some((title, outcomes)))
     }
 
     /// The `(chat, msg)` of an event's board, or `None` if not posted yet.
@@ -1709,7 +1766,7 @@ mod tests {
         let ev = sourced(&db);
         db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap(); // 20 shares, bal 90
         assert!(db.resolve_event(ev, 0, 200).unwrap());
-        let payouts = db.settle_all_resolved().unwrap();
+        let payouts = db.settle_all_resolved().unwrap().payouts;
         assert_eq!(payouts.len(), 1);
         assert_eq!(payouts[0].kind, ClaimKind::Won);
         assert_eq!(payouts[0].coins, 20 * COIN); // 20 winning shares → 20 coins
@@ -1724,7 +1781,7 @@ mod tests {
         let ev = sourced(&db);
         db.sourced_buy(ev, 0, 2, 10 * COIN, 50.0).unwrap();
         db.resolve_event(ev, 1, 200).unwrap(); // B wins; user held A
-        let payouts = db.settle_all_resolved().unwrap();
+        let payouts = db.settle_all_resolved().unwrap().payouts;
         assert_eq!(payouts[0].kind, ClaimKind::Lost);
         assert_eq!(payouts[0].coins, 0);
         assert_eq!(db.get_user_info(2).unwrap().balance, 90 * COIN); // lost the 10
@@ -1770,7 +1827,7 @@ mod tests {
             .unwrap();
         db.amm_buy(ev, 0, 2, 60 * COIN).unwrap();
         db.void_event(ev, 200).unwrap();
-        let payouts = db.settle_all_resolved().unwrap();
+        let payouts = db.settle_all_resolved().unwrap().payouts;
         assert_eq!(payouts[0].kind, ClaimKind::Refunded);
         assert_eq!(
             db.get_user_info(2).unwrap().balance,
@@ -1802,7 +1859,7 @@ mod tests {
         db.resolve_event(amm, 0, 200).unwrap();
 
         // The auto-settle sweep settles **both** kinds in one pass.
-        let payouts = db.settle_all_resolved().unwrap();
+        let payouts = db.settle_all_resolved().unwrap().payouts;
         let events: std::collections::HashSet<i64> = payouts.iter().map(|p| p.event_id).collect();
         assert!(
             events.contains(&src) && events.contains(&amm),

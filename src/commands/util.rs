@@ -283,12 +283,48 @@ pub fn owner_id(ctx: &Context) -> i64 {
         .unwrap_or(0)
 }
 
-/// DM the configured `BOT_OWNER` a technical-error alert, best-effort (a bounced
-/// owner DM must never affect the user's flow). No-op if no owner is configured.
-pub async fn notify_owner(ctx: &Context, text: &str) {
-    let owner = owner_id(ctx);
-    if owner != 0 {
-        let _ = send_text(ctx, owner, format!("⚠️ {text}")).await;
+/// How long the same alert message is suppressed after it's DM'd once, so a
+/// persistent failure (a down DB, an outage that fires on every interaction) can't
+/// flood the owner's DMs or get the bot rate-limited. Stderr logging is never
+/// throttled — only the DM.
+const ALERT_DEDUP_WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// True if `what` was already DM'd within [`ALERT_DEDUP_WINDOW`] (so the caller
+/// skips re-DMing). Records this message's time and prunes stale entries to bound
+/// memory. The first call for a given message always returns false.
+fn alert_recently_sent(what: &str) -> bool {
+    static SEEN: std::sync::OnceLock<parking_lot::Mutex<HashMap<String, std::time::Instant>>> =
+        std::sync::OnceLock::new();
+    let now = std::time::Instant::now();
+    let mut seen = SEEN
+        .get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+        .lock();
+    let recent = seen
+        .get(what)
+        .is_some_and(|t| now.duration_since(*t) < ALERT_DEDUP_WINDOW);
+    if !recent {
+        seen.insert(what.to_string(), now);
+    }
+    seen.retain(|_, t| now.duration_since(*t) < ALERT_DEDUP_WINDOW);
+    recent
+}
+
+/// Log an operational failure to stderr **and** DM the owner about it (best-effort,
+/// deduped by [`alert_recently_sent`]), so a problem the owner should act on doesn't
+/// just sit in the logs. For handler paths that hold a `Context`. A bounced owner DM
+/// never affects the user's flow.
+pub async fn alert_owner(ctx: &Context, what: &str) {
+    alert_owner_token(&bot_token(ctx), owner_id(ctx), what).await;
+}
+
+/// [`alert_owner`] for background tasks with **no** `Context` (the auto-settle /
+/// backup tasks) — pass the bot token + owner id directly and DM via the raw Bot
+/// API. The single funnel where the stderr log, the throttle, and the `⚠️` prefix
+/// live, so every alert path shares them.
+pub async fn alert_owner_token(token: &str, owner: i64, what: &str) {
+    eprintln!("{what}");
+    if owner != 0 && !token.is_empty() && !alert_recently_sent(what) {
+        let _ = crate::commands::tg::send_text_token(token, owner, &format!("⚠️ {what}")).await;
     }
 }
 
@@ -345,10 +381,17 @@ pub async fn paused_block(ctx: &Context, msg: &Message) -> Result<bool, CommandE
     // Fail **closed**: if the pause flag can't be read, treat the bot as paused
     // (a kill-switch that can't confirm "off" should stop, not pass through). The
     // owner is already let through above, so they can still recover.
-    let paused = db(ctx).is_paused().unwrap_or_else(|e| {
-        eprintln!("paused_block is_paused error (failing closed): {e}");
-        true
-    });
+    let paused = match db(ctx).is_paused() {
+        Ok(p) => p,
+        Err(e) => {
+            alert_owner(
+                ctx,
+                &format!("paused_block is_paused error (failing closed): {e}"),
+            )
+            .await;
+            true
+        }
+    };
     if paused {
         reply(
             ctx,

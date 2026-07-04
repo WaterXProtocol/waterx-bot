@@ -382,7 +382,7 @@ pub async fn handle_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
         Ok(TradeOutcome::Rejected) => return answer(ctx, cb, i18n::not_enough_money(lang), true).await,
         Ok(TradeOutcome::Unavailable) => return answer(ctx, cb, i18n::bet_closed(lang), true).await,
         Err(e) => {
-            eprintln!("amm_buy error (event {event_id}): {e}");
+            alert_owner(ctx, &format!("amm_buy error (event {event_id}): {e}")).await;
             return answer(ctx, cb, i18n::db_error(lang), true).await;
         }
     };
@@ -565,7 +565,7 @@ pub async fn handle_fund_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
             answer(ctx, cb, i18n::fund_closed(lang), true).await
         }
         Err(e) => {
-            eprintln!("add_liquidity error (event {event_id}): {e}");
+            alert_owner(ctx, &format!("add_liquidity error (event {event_id}): {e}")).await;
             answer(ctx, cb, i18n::db_error(lang), true).await
         }
     }
@@ -614,9 +614,19 @@ pub async fn handle_win(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Result
     match db(ctx).resolve_event(event_id, idx, now()) {
         Ok(true) => {
             // Pay all winners + return the LP residual immediately (no manual
-            // /claim). The 5-min auto-settle task is the backstop if this errors.
-            if let Err(e) = db(ctx).settle_event(event_id, None) {
-                eprintln!("[predict] settle on resolve failed (event {event_id}): {e}");
+            // /claim), then DM each winner. The 5-min auto-settle task is the
+            // backstop if the settle errors.
+            match db(ctx).settle_event(event_id, None) {
+                Ok(payouts) => {
+                    crate::commands::settle::notify_settled(&bot_token(ctx), &db(ctx), &payouts).await
+                }
+                Err(e) => {
+                    alert_owner(
+                        ctx,
+                        &format!("[predict] settle on resolve failed (event {event_id}): {e}"),
+                    )
+                    .await
+                }
             }
             refresh_card(ctx, event_id).await;
             answer(ctx, cb, &i18n::pm_resolved(lang, &winner), true).await
@@ -634,9 +644,19 @@ pub async fn handle_void(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     };
     match db(ctx).void_event(board.event_id, now()) {
         Ok(true) => {
-            // Refund every trader's cost basis + return the seed to LPs immediately.
-            if let Err(e) = db(ctx).settle_event(board.event_id, None) {
-                eprintln!("[predict] settle on void failed (event {}): {e}", board.event_id);
+            // Refund every trader's cost basis + return the seed to LPs immediately,
+            // then DM each refundee.
+            match db(ctx).settle_event(board.event_id, None) {
+                Ok(payouts) => {
+                    crate::commands::settle::notify_settled(&bot_token(ctx), &db(ctx), &payouts).await
+                }
+                Err(e) => {
+                    alert_owner(
+                        ctx,
+                        &format!("[predict] settle on void failed (event {}): {e}", board.event_id),
+                    )
+                    .await
+                }
             }
             refresh_card(ctx, board.event_id).await;
             answer(ctx, cb, i18n::pm_voided(lang), true).await

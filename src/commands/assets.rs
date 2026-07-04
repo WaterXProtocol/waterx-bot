@@ -43,7 +43,11 @@ pub(crate) async fn balance_block(ctx: &Context, lang: Lang, user: &User) -> Str
             i18n::menu_status(lang, &fmt_coins(info.balance))
         ),
         Err(e) => {
-            eprintln!("balance get_user_info error (user {}): {e}", user.id);
+            alert_owner(
+                ctx,
+                &format!("balance get_user_info error (user {}): {e}", user.id),
+            )
+            .await;
             format!("{}\n{}", full_name(user), i18n::db_error(lang))
         }
     }
@@ -78,10 +82,13 @@ pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> S
     // engine. Each line is cost basis paid → potential payout (1 share settles to
     // 1 coin, so the payout is the share count) — mirroring the old stake→payout
     // format, language-neutral (title + outcome name + numbers + symbols).
-    let positions = database.user_positions(user.id).unwrap_or_else(|e| {
-        eprintln!("user_positions error (user {}): {e}", user.id);
-        Vec::new()
-    });
+    let positions = match database.user_positions(user.id) {
+        Ok(v) => v,
+        Err(e) => {
+            alert_owner(ctx, &format!("user_positions error (user {}): {e}", user.id)).await;
+            Vec::new()
+        }
+    };
     if !positions.is_empty() {
         body.push_str(&format!("\n\n{}", i18n::positions_title(lang)));
         for p in &positions {
@@ -98,10 +105,13 @@ pub(crate) async fn positions_block(ctx: &Context, lang: Lang, user: &User) -> S
     // Open liquidity-provider stakes in host AMM events (funding-stage seed or a
     // live pool). Committed capital that's repaid pro-rata at resolution, so it's
     // shown separately from tradeable positions. A 🌱/🟢 tag marks funding vs live.
-    let lps = database.user_liquidity(user.id).unwrap_or_else(|e| {
-        eprintln!("user_liquidity error (user {}): {e}", user.id);
-        Vec::new()
-    });
+    let lps = match database.user_liquidity(user.id) {
+        Ok(v) => v,
+        Err(e) => {
+            alert_owner(ctx, &format!("user_liquidity error (user {}): {e}", user.id)).await;
+            Vec::new()
+        }
+    };
     if !lps.is_empty() {
         body.push_str(&format!("\n\n{}", i18n::liquidity_title(lang)));
         for lp in &lps {

@@ -1,7 +1,7 @@
 use crate::commands::tg::answer;
-use crate::commands::util::{bot_token, cb_lang, db, fmt_coins, is_group_chat, SORRY_FRUITS};
+use crate::commands::util::{alert_owner, bot_token, cb_lang, db, fmt_coins, is_group_chat, SORRY_FRUITS};
 use crate::commands::{
-    admin, assets, betting, history, markets, menu, predict, predmarket, referral, selling, tg,
+    admin, assets, betting, history, markets, menu, predict, predmarket, referral, selling, settle, tg,
 };
 use crate::core::i18n::{self, Lang};
 use crate::database::OfferOutcome;
@@ -100,10 +100,17 @@ pub async fn on_callback(ctx: Context, update: Update) {
     // Fail **closed** — if we can't read the flag, treat the bot as paused (a
     // kill-switch that can't confirm "off" should stop, not pass through).
     if !crate::commands::util::is_owner(&ctx, cb.from.id) {
-        let paused = db(&ctx).is_paused().unwrap_or_else(|e| {
-            eprintln!("on_callback is_paused error (failing closed): {e}");
-            true
-        });
+        let paused = match db(&ctx).is_paused() {
+            Ok(p) => p,
+            Err(e) => {
+                alert_owner(
+                    &ctx,
+                    &format!("on_callback is_paused error (failing closed): {e}"),
+                )
+                .await;
+                true
+            }
+        };
         if paused {
             let _ = answer(&ctx, &cb, i18n::service_paused(cb_lang(&ctx, &cb)), false).await;
             return;
@@ -210,6 +217,14 @@ pub async fn on_callback(ctx: Context, update: Update) {
         predmarket::handle_void(&ctx, &cb, rest).await
     } else if let Some(rest) = data.strip_prefix(predmarket::PM_BACK) {
         predmarket::handle_back(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(settle::MSTL_PICK) {
+        settle::handle_manual_pick(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(settle::MSTL_WIN) {
+        settle::handle_manual_win(&ctx, &cb, rest).await
+    } else if let Some(rest) = data.strip_prefix(settle::MSTL_VOID) {
+        settle::handle_manual_void(&ctx, &cb, rest).await
+    } else if data == settle::MSTL_LIST {
+        settle::handle_manual_list(&ctx, &cb).await
     } else if let Some(rest) = data.strip_prefix(admin::RESET_CB) {
         admin::handle_reset_cb(&ctx, &cb, rest).await
     } else if data == admin::DASH_REFRESH {
@@ -218,7 +233,7 @@ pub async fn on_callback(ctx: Context, update: Update) {
         Ok(())
     };
     if let Err(err) = result {
-        eprintln!("callback handler error: {err}");
+        alert_owner(&ctx, &format!("callback handler error: {err}")).await;
     }
 }
 
@@ -272,7 +287,11 @@ async fn handle_envelope(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
         Ok(Some(units)) => units,
         Ok(None) => return answer(ctx, cb, i18n::someone_took_it(lang), false).await,
         Err(e) => {
-            eprintln!("claim_envelope error (chat {chat_id}, msg {msg_id}): {e}");
+            alert_owner(
+                ctx,
+                &format!("claim_envelope error (chat {chat_id}, msg {msg_id}): {e}"),
+            )
+            .await;
             return answer(ctx, cb, i18n::db_error(lang), true).await;
         }
     };

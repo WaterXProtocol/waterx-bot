@@ -100,7 +100,7 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
             .await?;
         }
         Err(e) => {
-            eprintln!("redeploy spawn error: {e}");
+            alert_owner(&ctx, &format!("redeploy spawn error: {e}")).await;
             reply(
                 &ctx,
                 &message,
@@ -308,7 +308,7 @@ pub async fn mint(ctx: Context, message: Message) -> CommandResult {
     // Best-effort activity log (mint uses the generic force_change, outside an
     // engine transaction) — a failed log must not fail the mint.
     if let Err(e) = db(&ctx).record_action(receiver.id, crate::database::HK_MINT, units, None, None) {
-        eprintln!("record_action(mint) error: {e}");
+        alert_owner(&ctx, &format!("record_action(mint) error: {e}")).await;
     }
     reply(
         &ctx,
@@ -370,7 +370,7 @@ pub async fn delete(ctx: Context, message: Message) -> CommandResult {
             reply(&ctx, &message, format!("No profile on record for id {target}.")).await?;
         }
         Err(e) => {
-            eprintln!("delete_user error ({target}): {e}");
+            alert_owner(&ctx, &format!("delete_user error ({target}): {e}")).await;
             reply(&ctx, &message, format!("⚠️ Delete failed: {e}")).await?;
         }
     }
@@ -431,7 +431,7 @@ pub async fn handle_reset_cb(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
                         fmt_coins(refunded)
                     )),
                     Err(e) => {
-                        eprintln!("reset_events (everything) error: {e}");
+                        alert_owner(ctx, &format!("reset_events (everything) error: {e}")).await;
                         lines.push("📈 Market refunds — ⚠️ error".to_string());
                     }
                 }
@@ -447,13 +447,13 @@ pub async fn handle_reset_cb(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
                                 ));
                             }
                             Err(e) => {
-                                eprintln!("reset_all error: {e}");
+                                alert_owner(ctx, &format!("reset_all error: {e}")).await;
                                 lines.push("🗑️ Wipe — ⚠️ error".to_string());
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("reset snapshot error: {e}");
+                        alert_owner(ctx, &format!("reset snapshot error: {e}")).await;
                         lines.push(format!("💾 Snapshot FAILED — wipe aborted, data kept ({e})"));
                     }
                 }
@@ -464,7 +464,7 @@ pub async fn handle_reset_cb(ctx: &Context, cb: &CallbackQuery, rest: &str) -> R
                         fmt_coins(refunded)
                     )),
                     Err(e) => {
-                        eprintln!("reset_events error: {e}");
+                        alert_owner(ctx, &format!("reset_events error: {e}")).await;
                         lines.push("📈 Markets — ⚠️ error".to_string());
                     }
                 }
@@ -552,7 +552,7 @@ pub async fn broadcast(ctx: Context, message: Message) -> CommandResult {
     let ids = match db(&ctx).all_chat_ids() {
         Ok(ids) => ids,
         Err(e) => {
-            eprintln!("broadcast all_chat_ids error: {e}");
+            alert_owner(&ctx, &format!("broadcast all_chat_ids error: {e}")).await;
             reply(
                 &ctx,
                 &message,

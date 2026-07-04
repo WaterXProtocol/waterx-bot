@@ -115,7 +115,7 @@ pub async fn page_view(
             format!("{head}\n\n{}", render_lines(lang, tz, &rows))
         }
         Err(e) => {
-            eprintln!("user_history_by error (user {}): {e}", user.id);
+            alert_owner(ctx, &format!("user_history_by error (user {}): {e}", user.id)).await;
             format!("{head}\n\n{}", i18n::db_error(lang))
         }
     };
@@ -152,7 +152,7 @@ pub async fn flat_history_text(ctx: &Context, lang: Lang, user: &User) -> String
     let rows = match database.user_history(user.id, HISTORY_LIMIT) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("user_history error (user {}): {e}", user.id);
+            alert_owner(ctx, &format!("user_history error (user {}): {e}", user.id)).await;
             return format!("{}\n{}", full_name(user), i18n::db_error(lang));
         }
     };

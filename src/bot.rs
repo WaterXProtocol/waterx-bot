@@ -95,13 +95,22 @@ pub async fn run() -> anyhow::Result<()> {
     // immediately and is consumed, so the first real snapshot is one interval in.
     {
         let db = db.clone();
+        let token = cfg.token.clone();
+        let owner = cfg.owner;
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(BACKUP_INTERVAL);
             tick.tick().await; // consume the immediate first tick
             loop {
                 tick.tick().await;
                 if let Err(e) = db.snapshot() {
-                    eprintln!("[backup] full-DB snapshot failed: {e}");
+                    // A silently-failing backup is exactly the kind of thing the
+                    // owner must know about — alert (log + DM), not just stderr.
+                    crate::commands::util::alert_owner_token(
+                        &token,
+                        owner,
+                        &format!("[backup] full-DB snapshot failed: {e}"),
+                    )
+                    .await;
                 }
             }
         });
@@ -115,12 +124,13 @@ pub async fn run() -> anyhow::Result<()> {
     {
         let db = db.clone();
         let token = cfg.token.clone();
+        let owner = cfg.owner;
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(AUTO_SETTLE_INTERVAL);
             tick.tick().await; // consume the immediate first tick
             loop {
                 tick.tick().await;
-                crate::commands::settle::auto_settle(&token, &db).await;
+                crate::commands::settle::auto_settle(&token, owner, &db).await;
             }
         });
     }

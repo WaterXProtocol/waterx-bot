@@ -291,10 +291,14 @@ async fn finalize_funding(
         match tg::send_with_buttons(ctx, draft.origin_chat, &format!("🎲 {description}"), &no_rows).await {
             Ok(m) => m,
             Err(e) => {
-                eprintln!(
-                    "predict placeholder post failed (chat {}): {e:?}",
-                    draft.origin_chat
-                );
+                alert_owner(
+                    ctx,
+                    &format!(
+                        "predict placeholder post failed (chat {}): {e:?}",
+                        draft.origin_chat
+                    ),
+                )
+                .await;
                 return Finalized::Failed;
             }
         };
@@ -314,7 +318,7 @@ async fn finalize_funding(
     ) {
         Ok(id) => id,
         Err(e) => {
-            eprintln!("create_funding_event error: {e}");
+            alert_owner(ctx, &format!("create_funding_event error: {e}")).await;
             let _ = tg::delete_message(ctx, chat, msg).await;
             return Finalized::Failed;
         }
