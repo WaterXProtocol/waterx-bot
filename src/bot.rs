@@ -93,7 +93,9 @@ pub async fn run() -> anyhow::Result<()> {
     // a lost/corrupted DB is restored by copying the `.bak` back over the live
     // file. Best-effort: failures are logged, never fatal. The first tick fires
     // immediately and is consumed, so the first real snapshot is one interval in.
-    {
+    // Skipped in dev mode — the dev DB is throwaway, so periodic backups just add
+    // noise (`/backup` still works on demand for a manual one).
+    if !cfg.dev {
         let db = db.clone();
         let token = cfg.token.clone();
         let owner = cfg.owner;
