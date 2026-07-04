@@ -25,11 +25,6 @@ const RESET_MARKETS: u8 = 1;
 const RESET_EVERYTHING: u8 = 4;
 const RESET_PROMPT: &str = "🧹 Reset (dev) — tap to select, then Submit:";
 
-/// Marker file written by `/redeploy` (holds the chat id to notify) and read by
-/// `bot::run` on the next startup to confirm the bot is back online. Relative to
-/// the working directory (same place as the SQLite file).
-pub const REDEPLOY_MARKER: &str = "redeploy.notify";
-
 /// Owner gate for message-triggered admin commands. Returns the sender as a
 /// `User` iff they're the configured `BOT_OWNER`; otherwise `None`, meaning the
 /// caller should silently `return Ok(())` — non-owners (and the rare from-less
@@ -73,38 +68,6 @@ async fn send_resilient(ctx: &Context, chat_id: i64, text: &str) -> bool {
     false
 }
 
-/// `/redeploy` — owner-only. Fire-and-forget triggers a **separate** systemd
-/// oneshot (`waterx-deploy.service`) that pulls, builds, and restarts the bot.
-/// It runs in its own unit/cgroup so the restart can't kill the deploy mid-build.
-/// The trigger command is overridable via the `REDEPLOY_CMD` env var (default
-/// `sudo systemctl start --no-block waterx-deploy.service`). See `DEPLOY.md`.
-#[command(description = "owner: pull + rebuild + restart")]
-pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
-    if owner_guard(&ctx, &message).is_none() {
-        return Ok(());
-    }
-    match trigger_deploy(message.chat.get_id()) {
-        Ok(()) => {
-            reply(
-                &ctx,
-                &message,
-                "🚀 Deploying — pull + build + restart triggered. I'll message here when it's back.",
-            )
-            .await?;
-        }
-        Err(e) => {
-            alert_owner(&ctx, &format!("redeploy spawn error: {e}")).await;
-            reply(
-                &ctx,
-                &message,
-                "⚠️ Couldn't start the deploy — check waterx-deploy.service / sudoers (see DEPLOY.md).",
-            )
-            .await?;
-        }
-    }
-    Ok(())
-}
-
 // `/dashboard` action buttons (all `dash:*`, owner-gated in `handle_dashboard_action`).
 /// Rebuild the snapshot in place.
 pub const DASH_REFRESH: &str = "dash:refresh";
@@ -119,10 +82,6 @@ pub const DASH_UNPAUSE: &str = "dash:unpause";
 pub const DASH_BACKUP: &str = "dash:backup";
 /// Run the settlement sweep on demand.
 pub const DASH_SETTLE: &str = "dash:settle";
-/// Redeploy is destructive (restarts prod), so it's a two-tap confirm: `dash:redeploy`
-/// swaps in a confirm keyboard, `dash:redeploy:go` actually triggers the deploy.
-pub const DASH_REDEPLOY: &str = "dash:redeploy";
-pub const DASH_REDEPLOY_GO: &str = "dash:redeploy:go";
 
 /// `/dashboard` — owner-only snapshot of bot-wide metrics: user/chat counts, the
 /// circulating coin supply, and live market-engine exposure (open events +
@@ -154,10 +113,7 @@ pub(crate) fn dashboard_view(ctx: &Context) -> (String, Vec<tg::Row>) {
             (pause_label.to_string(), pause_cb.to_string()),
             ("💾 Backup".to_string(), DASH_BACKUP.to_string()),
         ],
-        vec![
-            ("⚙️ Settle".to_string(), DASH_SETTLE.to_string()),
-            ("🚀 Redeploy".to_string(), DASH_REDEPLOY.to_string()),
-        ],
+        vec![("⚙️ Settle".to_string(), DASH_SETTLE.to_string())],
     ];
     (dashboard_text(ctx), rows)
 }
@@ -174,18 +130,8 @@ pub async fn handle_dashboard_action(
     if !is_owner(ctx, cb.from.id) {
         return answer(ctx, cb, "", false).await;
     }
-    // Disruptive actions get a two-tap confirm: redeploy restarts prod, pause blocks
-    // every non-owner action. (Unpause is a safe recovery, so it fires directly.)
-    if data == DASH_REDEPLOY {
-        return dashboard_confirm(
-            ctx,
-            cb,
-            "🚀 Redeploy pulls + builds + restarts the LIVE bot. Confirm?",
-            "⚠️ Yes, redeploy",
-            DASH_REDEPLOY_GO,
-        )
-        .await;
-    }
+    // Pausing is disruptive (blocks every non-owner action), so it's a two-tap
+    // confirm. (Unpause is a safe recovery, so it fires directly.)
     if data == DASH_PAUSE {
         return dashboard_confirm(
             ctx,
@@ -214,13 +160,6 @@ pub async fn handle_dashboard_action(
             }
         },
         DASH_SETTLE => dashboard_settle(ctx).await,
-        DASH_REDEPLOY_GO => match trigger_deploy(cb.message.as_ref().map(|m| m.chat.get_id()).unwrap_or(0)) {
-            Ok(()) => "🚀 Deploying — I'll message here when it's back.".to_string(),
-            Err(e) => {
-                alert_owner(ctx, &format!("redeploy spawn error: {e}")).await;
-                "⚠️ Couldn't start the deploy — see DEPLOY.md.".to_string()
-            }
-        },
         _ => String::new(),
     };
     // Re-render in place (pause status / market counts may have changed).
@@ -275,20 +214,6 @@ async fn dashboard_settle(ctx: &Context) -> String {
             fmt_coins(paid)
         )
     }
-}
-
-/// Trigger the detached deploy (the systemd oneshot: pull + build + restart) and
-/// drop the marker so the freshly-restarted bot reports "back online" to `chat_id`.
-/// Shared by the `/redeploy` command and the dashboard button. `Err` = the spawn
-/// itself failed (unit/sudoers not installed — see DEPLOY.md).
-fn trigger_deploy(chat_id: i64) -> std::io::Result<()> {
-    let cmd = std::env::var("REDEPLOY_CMD")
-        .unwrap_or_else(|_| "sudo systemctl start --no-block waterx-deploy.service".to_string());
-    // Spawn detached: returns immediately (--no-block); the build/restart happens in
-    // waterx-deploy.service, not this process.
-    std::process::Command::new("sh").arg("-c").arg(&cmd).spawn()?;
-    let _ = std::fs::write(REDEPLOY_MARKER, chat_id.to_string());
-    Ok(())
 }
 
 /// Build the dashboard text (plain English). Returns an error-notice string on a
