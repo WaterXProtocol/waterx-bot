@@ -5,11 +5,16 @@ use crate::core::i18n;
 use std::time::Duration;
 use telexide::prelude::*;
 
-/// Best-effort refund of `units` micro-coins to `user`, logging (not swallowing)
-/// a failure — used when an envelope can't be posted/recorded after the debit.
-fn refund_or_log(db: &crate::database::Database, user: i64, units: i64) {
+/// Best-effort refund of `units` micro-coins to `user`, **alerting the owner** (not
+/// swallowing) on failure — used when an envelope can't be posted/recorded after
+/// the debit. A failed refund here means coins are stuck, so the owner must know.
+async fn refund_or_log(ctx: &Context, db: &crate::database::Database, user: i64, units: i64) {
     if let Err(e) = db.force_change(user, units) {
-        eprintln!("envelope refund failed (user {user}, +{units}): {e}");
+        alert_owner(
+            ctx,
+            &format!("envelope refund failed (user {user}, +{units}): {e}"),
+        )
+        .await;
     }
 }
 
@@ -83,18 +88,22 @@ pub async fn send(ctx: Context, message: Message) -> CommandResult {
             Ok(sent) => sent,
             Err(e) => {
                 // The envelope never went out → refund the debited coins.
-                refund_or_log(&database, sender.id, units);
+                refund_or_log(&ctx, &database, sender.id, units).await;
                 return Err(e);
             }
         };
         if let Err(e) = database.insert_buffer(sent.chat.get_id(), sent.message_id, sender.id, units) {
             // Button is live but the claim checks for this buffer row, so the
             // coins would be stuck — refund the sender.
-            eprintln!(
-                "envelope insert_buffer failed, refunding sender {}: {e}",
-                sender.id
-            );
-            refund_or_log(&database, sender.id, units);
+            alert_owner(
+                &ctx,
+                &format!(
+                    "envelope insert_buffer failed, refunding sender {}: {e}",
+                    sender.id
+                ),
+            )
+            .await;
+            refund_or_log(&ctx, &database, sender.id, units).await;
             return Ok(());
         }
         return Ok(());
