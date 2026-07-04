@@ -2013,7 +2013,6 @@ pub fn predict_need_coins(l: Lang, coins: &str) -> String {
     .replace("{coins}", coins)
 }
 
-
 pub fn settle_nothing(l: Lang) -> &'static str {
     tr!(l;
         "Nothing to settle right now.", "目前沒有可結算的。", "目前没有可结算的。", "今は精算できるものがありません。", "지금 정산할 것이 없습니다.",
