@@ -12,7 +12,7 @@ use crate::commands::menu;
 use crate::commands::tg::{self, answer};
 use crate::commands::util::*;
 use crate::core::i18n::{self, Lang};
-use crate::database::{basis_for_sold, SellContext, TradeOutcome};
+use crate::database::{basis_for_sold, PositionView, SellContext, TradeOutcome};
 use telexide::model::CallbackQuery;
 use telexide::prelude::*;
 
@@ -33,7 +33,8 @@ fn outcome_price(ev: &markets::SourcedEvent, idx: i64) -> Option<f64> {
     ev.outcomes.get(i).and_then(|o| o.yes_cents).filter(|x| *x > 0.0)
 }
 
-/// `slpick` — edit the assets view into a picker: one button per open holding.
+/// `slpick` — edit the assets view into the sell picker (numbered brief + numbered
+/// buttons, like the `/events` feed).
 pub async fn handle_sell_pick(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
     let lang = cb_lang(ctx, cb);
     let positions = db(ctx).user_positions(cb.from.id).unwrap_or_default();
@@ -41,21 +42,51 @@ pub async fn handle_sell_pick(ctx: &Context, cb: &CallbackQuery) -> Result<(), t
         return answer(ctx, cb, i18n::no_open_bets(lang), true).await;
     }
     answer(ctx, cb, "", false).await?;
+    let (text, rows) = sell_picker(lang, &positions);
+    tg::edit_cb(ctx, cb, &text, &rows).await;
+    Ok(())
+}
+
+/// The sell picker: a **numbered brief** of the caller's open holdings (event
+/// title, outcome, cost→shares), each with a numbered button `[1] [2] …` (4/row)
+/// that opens its sell builder — mirroring the `/events` brief. The bare outcome
+/// name alone ("Draw") doesn't say *which* match, so the event title is shown in
+/// the list text and the user picks by number.
+fn sell_picker(lang: Lang, positions: &[PositionView]) -> (String, Vec<tg::Row>) {
+    let mut text = format!("{}\n", i18n::sell_which(lang));
+    for (i, p) in positions.iter().enumerate() {
+        text.push_str(&format!(
+            "\n{}) {}\n  {} · 🪙{} → 🏆{}\n",
+            i + 1,
+            p.event_title,
+            p.outcome,
+            fmt_coins(p.cost),
+            fmt_coins(p.shares),
+        ));
+    }
+    // Numbered buttons (absolute index across rows), four per row, like `/events`.
     let mut rows: Vec<tg::Row> = positions
-        .iter()
-        .map(|p| {
-            vec![(
-                format!("{} · {}", p.outcome, fmt_coins(p.shares)),
-                format!("{SELL_BUILD}{}:{}:0", p.event_id, p.market_idx),
-            )]
+        .chunks(4)
+        .enumerate()
+        .map(|(row_idx, chunk)| {
+            chunk
+                .iter()
+                .enumerate()
+                .map(|(col, p)| {
+                    let n = row_idx * 4 + col + 1;
+                    (
+                        n.to_string(),
+                        format!("{SELL_BUILD}{}:{}:0", p.event_id, p.market_idx),
+                    )
+                })
+                .collect()
         })
         .collect();
     rows.push(vec![(
         i18n::bet_btn_back(lang).to_string(),
         menu::MENU_BETS.to_string(),
     )]);
-    tg::edit_cb(ctx, cb, i18n::positions_title(lang), &rows).await;
-    Ok(())
+    (text, rows)
 }
 
 /// `slb:<event>:<idx>:<micro>` — render the amount builder with a live proceeds
@@ -106,8 +137,9 @@ pub async fn handle_sell_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
             shares, coins, basis, ..
         }) => {
             let sold = i18n::sold(lang, &fmt_coins(-shares), &outcome, &fmt_coins(coins));
-            // Realized P&L on the sold shares = proceeds − their cost basis.
-            let body = format!("{sold}\n{}", pnl_line(lang, coins - basis));
+            // Realized P&L on the sold shares = proceeds − their cost basis. Lead with
+            // the event title so the sold position is identifiable (e.g. which "Draw").
+            let body = format!("{}\n{sold}\n{}", c.title, pnl_line(lang, coins - basis));
             let rows = vec![vec![(
                 i18n::bet_btn_back(lang).to_string(),
                 menu::MENU_BETS.to_string(),
@@ -167,12 +199,18 @@ fn build_screen(
     proceeds: Option<i64>,
 ) -> (String, Vec<tg::Row>) {
     let proceeds_str = proceeds.map(fmt_coins).unwrap_or_else(|| "—".to_string());
-    let base = i18n::sell_build(
-        lang,
-        &c.outcome,
-        &fmt_coins(c.held),
-        &fmt_coins(micro),
-        &proceeds_str,
+    // Lead with the event title so a "Draw" (or any outcome) is identifiable by its
+    // match after picking — the picker shows it, but the builder should too.
+    let base = format!(
+        "{}\n{}",
+        c.title,
+        i18n::sell_build(
+            lang,
+            &c.outcome,
+            &fmt_coins(c.held),
+            &fmt_coins(micro),
+            &proceeds_str,
+        )
     );
     // Estimated P&L for the selected amount at the current price = proceeds minus
     // the pro-rata cost basis of those shares (same `basis_for_sold` the sell

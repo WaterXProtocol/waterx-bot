@@ -227,8 +227,8 @@ pub async fn on_callback(ctx: Context, update: Update) {
         settle::handle_manual_list(&ctx, &cb).await
     } else if let Some(rest) = data.strip_prefix(admin::RESET_CB) {
         admin::handle_reset_cb(&ctx, &cb, rest).await
-    } else if data == admin::DASH_REFRESH {
-        handle_dashboard_refresh(&ctx, &cb).await
+    } else if data.starts_with("dash:") {
+        admin::handle_dashboard_action(&ctx, &cb, &data).await
     } else {
         Ok(())
     };
@@ -757,18 +757,6 @@ async fn handle_history_tab(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Re
     let (text, rows) = history::page_view(ctx, lang, &cb.from, tab, page).await;
     tg::edit_cb(ctx, cb, &text, &rows).await;
     Ok(())
-}
-
-/// `dash:refresh` — owner-only: rebuild the `/dashboard` snapshot and edit it in
-/// place. The button is only posted to the owner, but gate anyway (the snapshot
-/// exposes bot-wide totals). No i18n — the dashboard is a plain-English diagnostic.
-async fn handle_dashboard_refresh(ctx: &Context, cb: &CallbackQuery) -> Result<(), telexide::Error> {
-    if !crate::commands::util::is_owner(ctx, cb.from.id) {
-        return answer(ctx, cb, "", false).await;
-    }
-    let (text, rows) = admin::dashboard_view(ctx);
-    tg::edit_cb(ctx, cb, &text, &rows).await;
-    answer(ctx, cb, "Refreshed", false).await
 }
 
 /// `menu:markets` — post the market brief as a fresh message, leaving the menu

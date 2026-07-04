@@ -83,15 +83,8 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
     if owner_guard(&ctx, &message).is_none() {
         return Ok(());
     }
-    let cmd = std::env::var("REDEPLOY_CMD")
-        .unwrap_or_else(|_| "sudo systemctl start --no-block waterx-deploy.service".to_string());
-    // Spawn detached: the trigger returns immediately (--no-block); the actual
-    // build/restart happens in waterx-deploy.service, not this process.
-    match std::process::Command::new("sh").arg("-c").arg(&cmd).spawn() {
-        Ok(_) => {
-            // Drop a marker so the *freshly restarted* bot can report "back
-            // online" here on startup (this process won't survive the restart).
-            let _ = std::fs::write(REDEPLOY_MARKER, message.chat.get_id().to_string());
+    match trigger_deploy(message.chat.get_id()) {
+        Ok(()) => {
             reply(
                 &ctx,
                 &message,
@@ -112,8 +105,24 @@ pub async fn redeploy(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
-/// Callback data for the `/dashboard` refresh button.
+// `/dashboard` action buttons (all `dash:*`, owner-gated in `handle_dashboard_action`).
+/// Rebuild the snapshot in place.
 pub const DASH_REFRESH: &str = "dash:refresh";
+/// Pause kill-switch (state-aware button). Pausing is disruptive (blocks every
+/// non-owner action), so it's a two-tap confirm: `dash:pause` swaps in a confirm
+/// keyboard, `dash:pause:go` actually pauses. Unpausing is a safe recovery, so it
+/// fires directly (`dash:unpause`).
+pub const DASH_PAUSE: &str = "dash:pause";
+pub const DASH_PAUSE_GO: &str = "dash:pause:go";
+pub const DASH_UNPAUSE: &str = "dash:unpause";
+/// Force a full-DB snapshot.
+pub const DASH_BACKUP: &str = "dash:backup";
+/// Run the settlement sweep on demand.
+pub const DASH_SETTLE: &str = "dash:settle";
+/// Redeploy is destructive (restarts prod), so it's a two-tap confirm: `dash:redeploy`
+/// swaps in a confirm keyboard, `dash:redeploy:go` actually triggers the deploy.
+pub const DASH_REDEPLOY: &str = "dash:redeploy";
+pub const DASH_REDEPLOY_GO: &str = "dash:redeploy:go";
 
 /// `/dashboard` — owner-only snapshot of bot-wide metrics: user/chat counts, the
 /// circulating coin supply, and live market-engine exposure (open events +
@@ -129,11 +138,157 @@ pub async fn dashboard(ctx: Context, message: Message) -> CommandResult {
     Ok(())
 }
 
-/// The dashboard snapshot text + its `[🔄 Refresh]` keyboard — the single source
-/// for the command and the `dash:refresh` callback (`callbacks::handle_dashboard_refresh`).
+/// The dashboard snapshot text + its owner action keyboard — the single source for
+/// the `/dashboard` command and the `dash:*` callbacks (`handle_dashboard_action`).
+/// The pause button is **state-aware** (`[⏸ Pause]` while running, `[▶️ Unpause]`
+/// while paused). All actions are owner-gated at the callback.
 pub(crate) fn dashboard_view(ctx: &Context) -> (String, Vec<tg::Row>) {
-    let rows = vec![vec![("🔄 Refresh".to_string(), DASH_REFRESH.to_string())]];
+    let (pause_label, pause_cb) = if db(ctx).is_paused().unwrap_or(false) {
+        ("▶️ Unpause", DASH_UNPAUSE)
+    } else {
+        ("⏸ Pause", DASH_PAUSE)
+    };
+    let rows = vec![
+        vec![("🔄 Refresh".to_string(), DASH_REFRESH.to_string())],
+        vec![
+            (pause_label.to_string(), pause_cb.to_string()),
+            ("💾 Backup".to_string(), DASH_BACKUP.to_string()),
+        ],
+        vec![
+            ("⚙️ Settle".to_string(), DASH_SETTLE.to_string()),
+            ("🚀 Redeploy".to_string(), DASH_REDEPLOY.to_string()),
+        ],
+    ];
     (dashboard_text(ctx), rows)
+}
+
+/// Owner-only `/dashboard` action buttons (`dash:*`): perform the action, toast the
+/// result, and re-render the snapshot in place. Gated even though the board is only
+/// posted to the owner (it exposes bot-wide totals and mutates state). No i18n — the
+/// dashboard is a plain-English operator surface.
+pub async fn handle_dashboard_action(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    data: &str,
+) -> Result<(), telexide::Error> {
+    if !is_owner(ctx, cb.from.id) {
+        return answer(ctx, cb, "", false).await;
+    }
+    // Disruptive actions get a two-tap confirm: redeploy restarts prod, pause blocks
+    // every non-owner action. (Unpause is a safe recovery, so it fires directly.)
+    if data == DASH_REDEPLOY {
+        return dashboard_confirm(
+            ctx,
+            cb,
+            "🚀 Redeploy pulls + builds + restarts the LIVE bot. Confirm?",
+            "⚠️ Yes, redeploy",
+            DASH_REDEPLOY_GO,
+        )
+        .await;
+    }
+    if data == DASH_PAUSE {
+        return dashboard_confirm(
+            ctx,
+            cb,
+            "⏸ Pause blocks every non-owner action until you unpause. Confirm?",
+            "⚠️ Yes, pause",
+            DASH_PAUSE_GO,
+        )
+        .await;
+    }
+    let toast: String = match data {
+        DASH_REFRESH => "Refreshed".to_string(),
+        DASH_PAUSE_GO => {
+            let _ = db(ctx).set_paused(true);
+            "⏸ Paused — non-owner actions blocked.".to_string()
+        }
+        DASH_UNPAUSE => {
+            let _ = db(ctx).set_paused(false);
+            "▶️ Resumed.".to_string()
+        }
+        DASH_BACKUP => match db(ctx).snapshot() {
+            Ok(file) => format!("💾 Snapshot → {file}"),
+            Err(e) => {
+                alert_owner(ctx, &format!("[dashboard] backup failed: {e}")).await;
+                format!("⚠️ Backup failed: {e}")
+            }
+        },
+        DASH_SETTLE => dashboard_settle(ctx).await,
+        DASH_REDEPLOY_GO => match trigger_deploy(cb.message.as_ref().map(|m| m.chat.get_id()).unwrap_or(0)) {
+            Ok(()) => "🚀 Deploying — I'll message here when it's back.".to_string(),
+            Err(e) => {
+                alert_owner(ctx, &format!("redeploy spawn error: {e}")).await;
+                "⚠️ Couldn't start the deploy — see DEPLOY.md.".to_string()
+            }
+        },
+        _ => String::new(),
+    };
+    // Re-render in place (pause status / market counts may have changed).
+    let (text, rows) = dashboard_view(ctx);
+    tg::edit_cb(ctx, cb, &text, &rows).await;
+    answer(ctx, cb, &toast, true).await
+}
+
+/// Swap the dashboard into a two-tap confirm for a disruptive action: the snapshot
+/// text + `prompt`, with `[yes_label]` (→ `go_cb`, the action's execute callback)
+/// and `[Cancel]` (→ `dash:refresh`, back to the normal board).
+async fn dashboard_confirm(
+    ctx: &Context,
+    cb: &CallbackQuery,
+    prompt: &str,
+    yes_label: &str,
+    go_cb: &str,
+) -> Result<(), telexide::Error> {
+    let text = format!("{}\n\n{prompt}", dashboard_text(ctx));
+    let rows = vec![
+        vec![(yes_label.to_string(), go_cb.to_string())],
+        vec![("Cancel".to_string(), DASH_REFRESH.to_string())],
+    ];
+    tg::edit_cb(ctx, cb, &text, &rows).await;
+    answer(ctx, cb, "", false).await
+}
+
+/// Run the settlement sweep from the dashboard button: detect Gamma resolution,
+/// settle, DM winners, alert the owner on any stuck event, and return a one-line
+/// toast. Reuses the same `settle::sweep`/`notify_settled`/`alert_failures` the
+/// `/settle` command runs.
+async fn dashboard_settle(ctx: &Context) -> String {
+    use std::collections::HashSet;
+    let database = db(ctx);
+    let report = match crate::commands::settle::sweep(&database).await {
+        Ok(r) => r,
+        Err(e) => {
+            alert_owner(ctx, &format!("[dashboard] settle sweep error: {e}")).await;
+            return format!("⚠️ Settle failed: {e}");
+        }
+    };
+    crate::commands::settle::notify_settled(&bot_token(ctx), &database, &report.payouts).await;
+    crate::commands::settle::alert_failures(ctx, &report.failed).await;
+    let events: HashSet<i64> = report.payouts.iter().map(|p| p.event_id).collect();
+    let paid: i64 = report.payouts.iter().map(|p| p.coins).sum();
+    if events.is_empty() {
+        "⚙️ Nothing to settle right now.".to_string()
+    } else {
+        format!(
+            "✅ Settled {} event(s) — {} 🪙 paid.",
+            events.len(),
+            fmt_coins(paid)
+        )
+    }
+}
+
+/// Trigger the detached deploy (the systemd oneshot: pull + build + restart) and
+/// drop the marker so the freshly-restarted bot reports "back online" to `chat_id`.
+/// Shared by the `/redeploy` command and the dashboard button. `Err` = the spawn
+/// itself failed (unit/sudoers not installed — see DEPLOY.md).
+fn trigger_deploy(chat_id: i64) -> std::io::Result<()> {
+    let cmd = std::env::var("REDEPLOY_CMD")
+        .unwrap_or_else(|_| "sudo systemctl start --no-block waterx-deploy.service".to_string());
+    // Spawn detached: returns immediately (--no-block); the build/restart happens in
+    // waterx-deploy.service, not this process.
+    std::process::Command::new("sh").arg("-c").arg(&cmd).spawn()?;
+    let _ = std::fs::write(REDEPLOY_MARKER, chat_id.to_string());
+    Ok(())
 }
 
 /// Build the dashboard text (plain English). Returns an error-notice string on a

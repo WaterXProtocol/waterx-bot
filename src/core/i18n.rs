@@ -1853,6 +1853,14 @@ pub fn btn_sell(l: Lang) -> &'static str {
         "💸 Vender", "💸 बेचें", "💸 بيع")
 }
 
+pub fn sell_which(l: Lang) -> &'static str {
+    tr!(l;
+        "💸 Which position do you want to sell?", "💸 你想賣出哪一筆？", "💸 你想卖出哪一笔？", "💸 どのポジションを売る？", "💸 어떤 포지션을 팔까?",
+        "💸 Какую позицию продать?", "💸 Quelle position vends-tu ?", "💸 ¿Qué posición quieres vender?", "💸 Welche Position möchtest du verkaufen?", "💸 Bạn muốn bán vị thế nào?",
+        "💸 Posisi mana yang ingin kamu jual?", "💸 Aling posisyon ang gusto mong ibenta?", "💸 อยากขายโพซิชันไหน?", "💸 Welke positie wil je verkopen?", "💸 Hangi pozisyonu satmak istersin?",
+        "💸 Qual posição você quer vender?", "💸 आप कौन-सी पोज़िशन बेचना चाहते हैं?", "💸 أي مركز تريد بيعه؟")
+}
+
 pub fn sell_build(l: Lang, outcome: &str, held: &str, selling: &str, proceeds: &str) -> String {
     tr!(l;
         "💸 Sell {outcome}\nHeld {held} · selling {selling} → ≈ {proceeds} 🪙\nChoose amount:", "💸 出售 {outcome}\n持有 {held} · 賣出 {selling} → ≈ {proceeds} 🪙\n選擇數量：", "💸 出售 {outcome}\n持有 {held} · 卖出 {selling} → ≈ {proceeds} 🪙\n选择数量：", "💸 {outcome} を売却\n保有 {held} · 売却 {selling} → ≈ {proceeds} 🪙\n数量を選択：", "💸 {outcome} 판매\n보유 {held} · 판매 {selling} → ≈ {proceeds} 🪙\n수량 선택:",
