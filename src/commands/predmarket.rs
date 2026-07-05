@@ -404,7 +404,13 @@ pub async fn handle_place(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resu
     let (chat, msg) = tg::cb_coords(cb);
     if is_group_chat(chat) {
         let _ = tg::delete_message(ctx, chat, msg).await;
-        let announce = i18n::bet_announce(lang, &full_name(&cb.from), &fmt_coins(spend), &name, &odds_str);
+        let announce = i18n::bet_announce(
+            lang,
+            &full_name(&cb.from),
+            &fmt_coins(spend),
+            &name,
+            &fmt_coins(shares),
+        );
         if let Ok(Some((cchat, cmsg))) = db(ctx).event_card(event_id) {
             let _ = tg::send_text_reply(ctx, cchat, cmsg, &announce).await;
         } else {

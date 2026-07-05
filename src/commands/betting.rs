@@ -465,7 +465,7 @@ pub async fn handle_size_place(ctx: &Context, cb: &CallbackQuery, rest: &str) ->
             &full_name(&cb.from),
             &fmt_coins(spend_units),
             &side,
-            &odds_str,
+            &fmt_coins(shares),
         );
         if q.origin_msg != 0 {
             let _ = tg::send_text_reply(ctx, q.origin_chat, q.origin_msg, &announce).await;
