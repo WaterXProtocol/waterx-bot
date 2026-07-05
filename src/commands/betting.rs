@@ -372,7 +372,10 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     // can never propose more than they hold. The Confirm debit guards it too, but
     // capping here keeps the shown number honest: going over lands on the cap with a
     // "not enough" toast, while reaching it exactly is silent.
-    let cap = db(ctx).get_user_info(cb.from.id).map(|u| u.balance / COIN).unwrap_or(0);
+    let cap = db(ctx)
+        .get_user_info(cb.from.id)
+        .map(|u| u.balance / COIN)
+        .unwrap_or(0);
     let toast = (total > cap).then_some(i18n::not_enough_money(lang));
     render_builder(ctx, cb, lang, qid, idx, total.min(cap).max(0), toast).await
 }
