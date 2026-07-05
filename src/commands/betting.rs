@@ -368,7 +368,13 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     if quote_owner_ok(ctx, qid, cb.from.id) == Some(false) {
         return answer(ctx, cb, i18n::not_your_bet(lang), true).await;
     }
-    render_builder(ctx, cb, lang, qid, idx, total).await
+    // Cap the running stake at the tapper's affordable whole coins so the builder
+    // can never propose more than they hold. The Confirm debit guards it too, but
+    // capping here keeps the shown number honest: going over lands on the cap with a
+    // "not enough" toast, while reaching it exactly is silent.
+    let cap = db(ctx).get_user_info(cb.from.id).map(|u| u.balance / COIN).unwrap_or(0);
+    let toast = (total > cap).then_some(i18n::not_enough_money(lang));
+    render_builder(ctx, cb, lang, qid, idx, total.min(cap).max(0), toast).await
 }
 
 /// `szp:<qid>:<idx>:<total>` — fired by the builder's **Confirm**: the only
@@ -547,7 +553,9 @@ fn builder_text_rows(
     Some((text, rows))
 }
 
-/// Render the accumulate screen in place (edits the DM builder message).
+/// Render the accumulate screen in place (edits the DM builder message). `toast`,
+/// when set, is shown as an alert after the re-render (e.g. the stake was capped at
+/// the tapper's balance).
 async fn render_builder(
     ctx: &Context,
     cb: &CallbackQuery,
@@ -555,6 +563,7 @@ async fn render_builder(
     qid: u64,
     idx: usize,
     total: i64,
+    toast: Option<&str>,
 ) -> Result<(), telexide::Error> {
     let Some(q) = fresh_quote(ctx, lang, qid).await else {
         return expire(ctx, cb, lang).await;
@@ -565,7 +574,10 @@ async fn render_builder(
         return answer(ctx, cb, "", false).await;
     };
     tg::edit_cb(ctx, cb, &text, &rows).await;
-    answer(ctx, cb, "", false).await
+    match toast {
+        Some(t) => answer(ctx, cb, t, true).await,
+        None => answer(ctx, cb, "", false).await,
+    }
 }
 
 async fn expire(ctx: &Context, cb: &CallbackQuery, lang: Lang) -> Result<(), telexide::Error> {
