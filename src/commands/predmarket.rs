@@ -337,6 +337,14 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
     let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
         return answer(ctx, cb, i18n::bet_expired(lang), true).await;
     };
+    // Cap the running spend at the tapper's affordable whole coins (the `amm_buy`
+    // debit guards it too, but this keeps the shown number honest): going over lands
+    // on the cap with a "not enough" toast, reaching it exactly is silent.
+    let cap = db(ctx)
+        .get_user_info(cb.from.id)
+        .map(|u| u.balance / COIN)
+        .unwrap_or(0);
+    let over = spend > cap;
     let (chat, msg) = tg::cb_coords(cb);
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
     let (text, rows) = builder(
@@ -346,12 +354,16 @@ pub async fn handle_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> Resul
         &board,
         idx,
         owner,
-        spend,
+        spend.min(cap).max(0),
         chat,
         &full_name(&cb.from),
     );
     let _ = tg::edit_with_buttons(ctx, chat, msg, &text, &rows).await;
-    answer(ctx, cb, "", false).await
+    if over {
+        answer(ctx, cb, i18n::not_enough_money(lang), true).await
+    } else {
+        answer(ctx, cb, "", false).await
+    }
 }
 
 /// `pm:go:<event>:<idx>:<owner>:<spend>` — buy YES shares via `amm_buy`, refresh
@@ -508,11 +520,32 @@ pub async fn handle_fund_size(ctx: &Context, cb: &CallbackQuery, rest: &str) -> 
     let Some(board) = db(ctx).amm_board(event_id).ok().flatten() else {
         return answer(ctx, cb, i18n::bet_expired(lang), true).await;
     };
+    // Cap the LP allocation at the tapper's affordable whole coins (the
+    // `add_liquidity` debit guards it too): going over lands on the cap with a "not
+    // enough" toast, reaching it exactly is silent.
+    let cap = db(ctx)
+        .get_user_info(cb.from.id)
+        .map(|u| u.balance / COIN)
+        .unwrap_or(0);
+    let over = amount > cap;
     let (chat, msg) = tg::cb_coords(cb);
     let fmt = db(ctx).get_odds_fmt(cb.from.id).unwrap_or_default();
-    let (text, rows) = fund_builder(lang, fmt, &board, idx, owner, amount, chat, &full_name(&cb.from));
+    let (text, rows) = fund_builder(
+        lang,
+        fmt,
+        &board,
+        idx,
+        owner,
+        amount.min(cap).max(0),
+        chat,
+        &full_name(&cb.from),
+    );
     let _ = tg::edit_with_buttons(ctx, chat, msg, &text, &rows).await;
-    answer(ctx, cb, "", false).await
+    if over {
+        answer(ctx, cb, i18n::not_enough_money(lang), true).await
+    } else {
+        answer(ctx, cb, "", false).await
+    }
 }
 
 /// `pm:fgo:<event>:<idx>:<owner>:<amount>` — provide liquidity via `add_liquidity`,
