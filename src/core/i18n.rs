@@ -1836,10 +1836,10 @@ pub fn bet_placed(l: Lang, stake: &str, side: &str, odds: &str, payout: &str) ->
 /// Mirrors the `/bets` line: 🪙 staked → 🏆 potential payout (share count).
 pub fn bet_announce(l: Lang, name: &str, stake: &str, side: &str, payout: &str) -> String {
     tr!(l;
-        "🎟️ {name} bet 🪙{stake} on {side} → 🏆{payout}", "🎟️ {name} 下注 🪙{stake} 於 {side} → 🏆{payout}", "🎟️ {name} 下注 🪙{stake} 于 {side} → 🏆{payout}", "🎟️ {name} が {side} に 🪙{stake} を賭けた → 🏆{payout}", "🎟️ {name} 님이 {side} 에 🪙{stake} 베팅 → 🏆{payout}",
-        "🎟️ {name} поставил 🪙{stake} на {side} → 🏆{payout}", "🎟️ {name} a misé 🪙{stake} sur {side} → 🏆{payout}", "🎟️ {name} apostó 🪙{stake} a {side} → 🏆{payout}", "🎟️ {name} hat 🪙{stake} auf {side} gesetzt → 🏆{payout}", "🎟️ {name} đã đặt 🪙{stake} cho {side} → 🏆{payout}",
-        "🎟️ {name} bertaruh 🪙{stake} pada {side} → 🏆{payout}", "🎟️ {name} tumaya ng 🪙{stake} sa {side} → 🏆{payout}", "🎟️ {name} เดิมพัน 🪙{stake} ที่ {side} → 🏆{payout}", "🎟️ {name} zette 🪙{stake} op {side} → 🏆{payout}", "🎟️ {name}, {side} için 🪙{stake} yatırdı → 🏆{payout}",
-        "🎟️ {name} apostou 🪙{stake} em {side} → 🏆{payout}", "🎟️ {name} ने {side} पर 🪙{stake} लगाए → 🏆{payout}", "🎟️ {name} راهن 🪙{stake} على {side} → 🏆{payout}")
+        "🍀 {name} bet 🪙{stake} on {side} → 🏆{payout}", "🍀 {name} 下注 🪙{stake} 於 {side} → 🏆{payout}", "🍀 {name} 下注 🪙{stake} 于 {side} → 🏆{payout}", "🍀 {name} が {side} に 🪙{stake} を賭けた → 🏆{payout}", "🍀 {name} 님이 {side} 에 🪙{stake} 베팅 → 🏆{payout}",
+        "🍀 {name} поставил 🪙{stake} на {side} → 🏆{payout}", "🍀 {name} a misé 🪙{stake} sur {side} → 🏆{payout}", "🍀 {name} apostó 🪙{stake} a {side} → 🏆{payout}", "🍀 {name} hat 🪙{stake} auf {side} gesetzt → 🏆{payout}", "🍀 {name} đã đặt 🪙{stake} cho {side} → 🏆{payout}",
+        "🍀 {name} bertaruh 🪙{stake} pada {side} → 🏆{payout}", "🍀 {name} tumaya ng 🪙{stake} sa {side} → 🏆{payout}", "🍀 {name} เดิมพัน 🪙{stake} ที่ {side} → 🏆{payout}", "🍀 {name} zette 🪙{stake} op {side} → 🏆{payout}", "🍀 {name}, {side} için 🪙{stake} yatırdı → 🏆{payout}",
+        "🍀 {name} apostou 🪙{stake} em {side} → 🏆{payout}", "🍀 {name} ने {side} पर 🪙{stake} लगाए → 🏆{payout}", "🍀 {name} راهن 🪙{stake} على {side} → 🏆{payout}")
     .replace("{name}", name)
     .replace("{stake}", stake)
     .replace("{side}", side)
