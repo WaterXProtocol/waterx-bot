@@ -12,6 +12,7 @@ pub mod callbacks;
 pub mod checkin;
 pub mod feedback;
 pub mod history;
+pub mod leagues;
 pub mod markets;
 pub mod onlyreplyhere;
 pub mod predict;
@@ -34,6 +35,7 @@ pub use bets::*;
 pub use buy::*;
 pub use checkin::*;
 pub use history::*;
+pub use leagues::*;
 // `predict` and `feedback` each expose an `on_message` DM listener, so the two
 // globs collide on that name in this namespace. It's harmless: nothing uses the
 // bare `commands::on_message` — both listeners are reached via their module path

@@ -74,3 +74,66 @@ impl OddsFormat {
         OddsFormat::Price,
     ];
 }
+
+/// One competition the `/events` feed surfaces, and how to fetch just it from the
+/// waterx browse endpoint. The feed is a huge cursor-paginated mix (crypto/binary
+/// and many leagues) with no "only these" filter, but its `type` + `league` query
+/// params narrow a request to one competition (e.g. `type=esports&league=lol`), so
+/// the bot pulls one stream per filter and skips the bulk. Owner-editable at
+/// runtime via `/leagues` (persisted as JSON in the `meta` table); only
+/// team-vs-team `sport`/`esports` matches render + settle, so other types yield
+/// nothing even if fetched. Serialized field name is `type` for a compact store.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LeagueFilter {
+    /// Browse `type` query value — the broad category (`sport`, `esports`, …).
+    #[serde(rename = "type")]
+    pub api_type: String,
+    /// Browse `league` query value (lowercase, e.g. `fifa_wc`, `lol`). `None` =
+    /// the whole type (every league in that category).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub league: Option<String>,
+    /// Tournament markers matched (case-insensitively) in the always-English
+    /// market `description`; empty = keep the whole league. Lets a league that
+    /// mixes several tournaments (e.g. LoL: MSI + Esports World Cup + regional
+    /// leagues) be narrowed to just the wanted ones.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tournaments: Vec<String>,
+}
+
+impl LeagueFilter {
+    /// The built-in allowlist used until the owner customises it (and restored by
+    /// `/leagues reset`): the World Cup + League of Legends' MSI & Esports World Cup.
+    pub fn defaults() -> Vec<LeagueFilter> {
+        vec![
+            LeagueFilter {
+                api_type: "sport".into(),
+                league: Some("fifa_wc".into()),
+                tournaments: vec![],
+            },
+            LeagueFilter {
+                api_type: "esports".into(),
+                league: Some("lol".into()),
+                tournaments: vec![
+                    "Mid-Season Invitational".into(),
+                    "Esports World Cup".into(),
+                ],
+            },
+        ]
+    }
+
+    /// A stable one-line human label, e.g. `esports / lol [Mid-Season Invitational,
+    /// Esports World Cup]` — used by the `/leagues` listing (owner-only, plain text).
+    pub fn label(&self) -> String {
+        let mut s = self.api_type.clone();
+        if let Some(l) = &self.league {
+            s.push_str(" / ");
+            s.push_str(l);
+        }
+        if !self.tournaments.is_empty() {
+            s.push_str(" [");
+            s.push_str(&self.tournaments.join(", "));
+            s.push(']');
+        }
+        s
+    }
+}

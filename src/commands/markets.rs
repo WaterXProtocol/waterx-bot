@@ -2,7 +2,7 @@ use crate::commands::menu;
 use crate::commands::tg::Row;
 use crate::commands::util::*;
 use crate::core::i18n::{self, Lang};
-use crate::core::types::OddsFormat;
+use crate::core::types::{LeagueFilter, OddsFormat};
 use chrono::Utc;
 use parking_lot::Mutex;
 use serde::Deserialize;
@@ -28,25 +28,31 @@ const PAGE_SIZE: usize = 4;
 /// Items requested per browse page. The endpoint is cursor-paginated and caps a
 /// page at 50 regardless of a larger ask, so this is the real ceiling.
 const FEED_PAGE_LIMIT: &str = "50";
-/// Safety bound on how many browse pages `fetch_markets` walks per refresh. The
-/// feed has no working server-side sport filter (crypto/binary dominate and the
-/// allowlisted matches can sit on any page), so we walk it whole; this only guards
-/// against a runaway if the feed balloons. Hitting it is logged, not silent.
+/// Safety bound on how many browse pages a single competition stream walks. Each
+/// stream is already narrowed to one `type`+`league` server-side, so it's normally
+/// a page or two; this only guards against a runaway if one balloons. Logged if hit.
 const MAX_FEED_PAGES: usize = 30;
-/// Curated `(league, required tournament marker)` allowlist for `kind == "sport"`
-/// matches. `None` = keep the whole league (the World Cup). The waterx feed's
-/// `sport` bucket also carries esports (LOL/CS2/VALORANT/DOTA2); within `LOL` it
-/// mixes the big international tournaments (Mid-Season Invitational, the Esports
-/// World Cup) with small regional leagues (Prime League, …), so that league is
-/// narrowed to those tournaments by a marker in the (always-English) market
-/// `description`. A league may appear on **multiple** rows — a match is kept if
-/// *any* of its rows matches (whole-league `None`, or the description names the
-/// marker). Add a row to surface a league or tournament.
-const ALLOWED_LEAGUES: &[(&str, Option<&str>)] = &[
-    ("FIFA_WC", None),
-    ("LOL", Some("Mid-Season Invitational")),
-    ("LOL", Some("Esports World Cup")),
-];
+/// Process-wide active `/events` allowlist ([`LeagueFilter`]s). The network fetch
+/// path (`fetch_markets`/`fetch_one`) has no DB handle, so the owner-configured
+/// list is mirrored here: seeded from the DB at boot ([`set_active_leagues`]) and
+/// re-set whenever `/leagues` edits it. Defaults to [`LeagueFilter::defaults`]
+/// until seeded, so `/events` works before the owner touches anything.
+fn active_leagues_cell() -> &'static Mutex<Vec<LeagueFilter>> {
+    static CELL: OnceLock<Mutex<Vec<LeagueFilter>>> = OnceLock::new();
+    CELL.get_or_init(|| Mutex::new(LeagueFilter::defaults()))
+}
+
+/// Replace the active allowlist (boot seed from the DB + every `/leagues` edit).
+/// Also drops the feed cache so the next `/events` reflects the change at once.
+pub fn set_active_leagues(leagues: Vec<LeagueFilter>) {
+    *active_leagues_cell().lock() = leagues;
+    feed_cache().lock().clear();
+}
+
+/// A snapshot of the active allowlist (guard dropped before any `.await`).
+fn active_leagues() -> Vec<LeagueFilter> {
+    active_leagues_cell().lock().clone()
+}
 
 /// Callback-data prefix: tapping a market number opens the bet flow.
 pub const BET: &str = "bet:";
@@ -79,17 +85,17 @@ pub struct SourcedEvent {
     pub live: bool,
 }
 
-/// Group the browse feed into sourced events. **Allowlisted leagues only**
-/// (`ALLOWED_LEAGUES` — the World Cup + League of Legends' MSI & Esports World
-/// Cup): a `kind == "sport"` match → its outcomes in the fixed `[teamA, draw,
-/// teamB]` order (matching `gamma_resolution`'s idx convention; an esports match
-/// with no `draw` side collapses to `[teamA, teamB]`). A league with a tournament
-/// marker keeps only matches whose `description` names one of its tournaments (LoL
-/// → Mid-Season Invitational or Esports World Cup, dropping regional leagues).
-/// Other `sport` leagues (CS2/VALORANT/DOTA2) and the
-/// feed's `sport-award`/`crypto` kinds are dropped. Odds are the feed's relayed
-/// YES prices; `lang` localizes the Draw label.
-fn group_events(items: &[Item], lang: Lang) -> Vec<SourcedEvent> {
+/// Group one fetched stream into sourced events. The stream is already narrowed to
+/// a competition server-side (the `type`+`league` query), so this only (a) keeps
+/// team-vs-team `kind == "sport"` matches and (b) applies the filter's `tournaments`
+/// markers, if any: a match is kept when its (always-English) `description` names
+/// one of them — so a league that mixes tournaments (LoL: MSI + Esports World Cup +
+/// regional leagues) is trimmed to the wanted ones. Empty `tournaments` = keep the
+/// whole stream. Outcomes come out in the fixed `[teamA, draw, teamB]` order
+/// (matching `gamma_resolution`'s idx convention; a draw-less esports match
+/// collapses to `[teamA, teamB]`). Odds are the feed's relayed YES prices; `lang`
+/// localizes the Draw label.
+fn group_events(items: &[Item], lang: Lang, tournaments: &[String]) -> Vec<SourcedEvent> {
     let mut events: Vec<SourcedEvent> = Vec::new();
     for it in items {
         let Some(r) = it.next_round.as_ref() else { continue };
@@ -97,21 +103,14 @@ fn group_events(items: &[Item], lang: Lang) -> Vec<SourcedEvent> {
         if d.kind.as_deref() != Some("sport") {
             continue;
         }
-        let Some(league) = d.league.as_deref() else {
-            continue; // no league tag
-        };
-        // Keep the match if any allowlist row for its league matches: a
-        // whole-league row (`None`), or a tournament marker the description
-        // names. The description is always English, so the marker match works
-        // across feed locales. A league can list several tournaments (e.g. LoL:
-        // MSI + Esports World Cup) as separate rows.
-        let desc = d.description.as_deref().unwrap_or("").to_ascii_lowercase();
-        let allowed = ALLOWED_LEAGUES.iter().any(|(name, tournament)| {
-            *name == league
-                && tournament.is_none_or(|m| desc.contains(&m.to_ascii_lowercase()))
-        });
-        if !allowed {
-            continue; // league/tournament not allowlisted
+        // If the filter names tournaments, keep only matches whose description
+        // names one (case-insensitive; the description is always English, so this
+        // holds across feed locales). No markers = keep the whole stream.
+        if !tournaments.is_empty() {
+            let desc = d.description.as_deref().unwrap_or("").to_ascii_lowercase();
+            if !tournaments.iter().any(|m| desc.contains(&m.to_ascii_lowercase())) {
+                continue;
+            }
         }
         let (Some(a), Some(b)) = (d.team_a.as_ref(), d.team_b.as_ref()) else {
             continue;
@@ -299,7 +298,7 @@ pub(crate) async fn fetch_one(lang: Lang, key: &str) -> Result<Option<SourcedEve
 }
 
 /// True when an event should appear in the brief: live, or kicking off within the
-/// next 24h. Applies uniformly to every allowlisted match (World Cup + LoL).
+/// next 24h. Applies uniformly to every configured competition's matches.
 fn within_window(m: &SourcedEvent, now: i64) -> bool {
     m.live || m.starts_at.is_some_and(|t| t >= now && t <= now + 86_400)
 }
@@ -313,15 +312,60 @@ fn feed_cache() -> &'static Mutex<FeedCache> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Pull and parse the feed into sourced events, live-first then soonest. Served
-/// from a [`FEED_CACHE_TTL`]-second per-locale cache to avoid hammering the API.
-/// The browse endpoint is **cursor-paginated** (≤50 items/page) with no working
-/// server-side sport filter — crypto/binary markets dominate and an allowlisted
-/// match can land on any page — so we walk every page (up to [`MAX_FEED_PAGES`])
-/// and let `group_events` keep the allowlisted ones. Odds are the feed's
+/// Walk one competition's cursor-paginated stream and return its raw items. The
+/// browse endpoint caps a page at 50 (`FEED_PAGE_LIMIT`) and pages via an opaque
+/// `nextCursor`; the `type` (+ optional `league`) query narrows it to one
+/// competition server-side, so this is a handful of pages, not the whole feed.
+/// Bounded by [`MAX_FEED_PAGES`] (logged if hit). Every page re-sends the filter
+/// params alongside the cursor (the endpoint requires it).
+async fn fetch_stream(
+    api_locale: &str,
+    api_type: &str,
+    league: Option<&str>,
+) -> Result<Vec<Item>, reqwest::Error> {
+    let mut items: Vec<Item> = Vec::new();
+    let mut cursor: Option<String> = None;
+    let mut pages = 0usize;
+    loop {
+        let mut req = http_client()
+            .get(BROWSE_URL)
+            .query(&[("locale", api_locale), ("type", api_type), ("limit", FEED_PAGE_LIMIT)])
+            .header("user-agent", "waterx-bot/0.1");
+        if let Some(l) = league {
+            req = req.query(&[("league", l)]);
+        }
+        if let Some(c) = &cursor {
+            req = req.query(&[("cursor", c.as_str())]);
+        }
+        let page = req.send().await?.error_for_status()?.json::<BrowseResp>().await?;
+        items.extend(page.data.items);
+        pages += 1;
+        match page.data.next_cursor {
+            Some(c) if !c.is_empty() => {
+                if pages >= MAX_FEED_PAGES {
+                    eprintln!(
+                        "waterx-bot: {api_type}/{league:?} stream exceeded MAX_FEED_PAGES ({MAX_FEED_PAGES}); some matches may be omitted"
+                    );
+                    break;
+                }
+                cursor = Some(c);
+            }
+            _ => break, // no cursor (or an empty one) => last page
+        }
+    }
+    Ok(items)
+}
+
+/// Fetch the configured competitions into sourced events, live-first then soonest.
+/// Served from a [`FEED_CACHE_TTL`]-second per-locale cache to avoid hammering the
+/// API. The browse feed is a huge cursor-paginated mix with no "only these" filter,
+/// but its `type`+`league` query params narrow a request to one competition, so
+/// `fetch_markets` pulls **one stream per owner-configured [`LeagueFilter`]**
+/// ([`active_leagues`]) — a handful of pages instead of the whole feed — and applies
+/// each filter's tournament markers via `group_events`. Odds are the feed's
 /// **relayed Polymarket YES prices** (no separate Gamma odds fetch); every bet
-/// re-prices from this cache, so a wager is booked at odds at most
-/// `FEED_CACHE_TTL` old. Resolution still goes to Gamma (`gamma_resolution`).
+/// re-prices from this cache, so a wager is booked at odds at most `FEED_CACHE_TTL`
+/// old. Resolution still goes to Gamma (`gamma_resolution`).
 async fn fetch_markets(lang: Lang) -> Result<Vec<SourcedEvent>, reqwest::Error> {
     // Chinese users get Chinese team names; everyone else English.
     let api_locale = match lang {
@@ -338,42 +382,30 @@ async fn fetch_markets(lang: Lang) -> Result<Vec<SourcedEvent>, reqwest::Error> 
         }
     }
 
-    // Walk the whole cursor-paginated feed (the allowlist filter is client-side).
-    let mut items: Vec<Item> = Vec::new();
-    let mut cursor: Option<String> = None;
-    let mut pages = 0usize;
-    loop {
-        let mut req = http_client()
-            .get(BROWSE_URL)
-            .query(&[("locale", api_locale), ("limit", FEED_PAGE_LIMIT)])
-            .header("user-agent", "waterx-bot/0.1");
-        if let Some(c) = &cursor {
-            req = req.query(&[("cursor", c.as_str())]);
-        }
-        let page = req.send().await?.error_for_status()?.json::<BrowseResp>().await?;
-        items.extend(page.data.items);
-        pages += 1;
-        match page.data.next_cursor {
-            Some(c) if !c.is_empty() => {
-                if pages >= MAX_FEED_PAGES {
-                    eprintln!(
-                        "waterx-bot: browse feed exceeded MAX_FEED_PAGES ({MAX_FEED_PAGES}); some matches may be omitted"
-                    );
-                    break;
-                }
-                cursor = Some(c);
-            }
-            _ => break, // no cursor (or an empty one) => last page
-        }
+    // One narrowed stream per configured competition; group each with its own
+    // tournament markers.
+    let mut markets: Vec<SourcedEvent> = Vec::new();
+    for f in active_leagues() {
+        let items = fetch_stream(api_locale, &f.api_type, f.league.as_deref()).await?;
+        markets.extend(group_events(&items, lang, &f.tournaments));
     }
 
-    // Dedup by event key: an overlapping cursor page could surface a match twice.
+    // Dedup by event key: overlapping streams/cursor pages could surface a match
+    // twice (e.g. two filters that both match it).
     let mut seen = std::collections::HashSet::new();
-    let mut markets = group_events(&items, lang);
     markets.retain(|m| seen.insert(m.key.clone()));
     markets.sort_by_key(|m| (!m.live, m.starts_at.unwrap_or(i64::MAX)));
     feed_cache().lock().insert(api_locale, (now, markets.clone()));
     Ok(markets)
+}
+
+/// Test-fetch a single [`LeagueFilter`] (bypassing the cache, English locale) and
+/// return the team-vs-team events it currently yields. Used by `/leagues add` to
+/// validate the `type`/`league` values — an invalid value surfaces as `Err`
+/// (the API's "Invalid parameter") — and to report how many matches it surfaces.
+pub async fn probe_filter(f: &LeagueFilter) -> Result<Vec<SourcedEvent>, reqwest::Error> {
+    let items = fetch_stream("en", &f.api_type, f.league.as_deref()).await?;
+    Ok(group_events(&items, Lang::En, &f.tournaments))
 }
 
 /// Detect a sourced match's resolution from Polymarket: fetch the Gamma event by
@@ -466,11 +498,10 @@ struct Market {
 #[derive(Deserialize)]
 struct Display {
     kind: Option<String>,
-    /// Competition tag (e.g. `FIFA_WC`, `LOL`); `/events` keeps only the
-    /// `ALLOWED_LEAGUES`.
-    league: Option<String>,
-    /// Free-text rules blurb (always English); names the tournament, used to
-    /// narrow a league to one event (LoL → Mid-Season Invitational).
+    /// Free-text rules blurb (always English); names the tournament, so a
+    /// `LeagueFilter`'s markers can narrow a league to one event (LoL → Esports
+    /// World Cup). Competition/league selection itself is done server-side via the
+    /// browse `league` query param, so `display.league` is no longer read here.
     #[serde(default)]
     description: Option<String>,
     #[serde(rename = "teamA")]
@@ -707,14 +738,19 @@ mod tests {
          "nextRound":{"phase":"open","sides":[]}}
     ]}}"#;
 
-    fn grouped() -> Vec<SourcedEvent> {
+    // The league narrowing now happens server-side (each fetched stream is one
+    // `type`+`league`); `group_events` only extracts team-vs-team matches and
+    // applies the filter's tournament markers. So these tests exercise the
+    // *marker* filter over a mixed fixture stream.
+    fn grouped(markers: &[&str]) -> Vec<SourcedEvent> {
         let resp: BrowseResp = serde_json::from_str(FIXTURE).unwrap();
-        group_events(&resp.data.items, Lang::En)
+        let m: Vec<String> = markers.iter().map(|s| s.to_string()).collect();
+        group_events(&resp.data.items, Lang::En, &m)
     }
 
     #[test]
     fn sport_becomes_a_three_outcome_event() {
-        let evs = grouped();
+        let evs = grouped(&[]);
         let s = evs.iter().find(|e| e.key == "sport-fifwc-fra-swe").unwrap();
         assert_eq!(s.title, "France vs. Sweden");
         assert_eq!(s.outcomes.len(), 3);
@@ -725,31 +761,39 @@ mod tests {
     }
 
     #[test]
-    fn only_allowlisted_leagues_and_tournaments_kept() {
-        // The fixture has the World Cup, an MSI LoL match, an Esports World Cup
-        // LoL match, a non-MSI/EWC (Prime League) LoL match, a CS2 esports match,
-        // sport-award candidates, a prop, and crypto. Only the World Cup and the
-        // *MSI* + *EWC* LoL matches survive: the regional LoL match, CS2, and the
-        // other kinds are all dropped.
-        let evs = grouped();
-        let keys: Vec<&str> = evs.iter().map(|e| e.key.as_str()).collect();
-        assert_eq!(
-            evs.len(),
-            3,
-            "World Cup + MSI/EWC LoL kept; regional LoL/CS2/awards/crypto dropped"
-        );
-        assert!(keys.contains(&"sport-fifwc-fra-swe"));
-        assert!(keys.contains(&"sport-lol-t1-geng")); // MSI
-        assert!(keys.contains(&"sport-lol-t1-blg")); // Esports World Cup
-        assert!(!keys.contains(&"sport-lol-vfb-tog")); // Prime League — dropped
-        assert!(!keys.contains(&"sport-cs2-navi-faze"));
+    fn empty_markers_keep_every_team_match() {
+        // No tournament markers = keep the whole stream: every `kind == "sport"`
+        // team-vs-team match (the sport-award candidates, the prop, and crypto are
+        // still dropped — they aren't team matches).
+        let keys: Vec<String> = grouped(&[]).iter().map(|e| e.key.clone()).collect();
+        assert_eq!(keys.len(), 5);
+        assert!(keys.iter().any(|k| k == "sport-fifwc-fra-swe"));
+        assert!(keys.iter().any(|k| k == "sport-lol-vfb-tog")); // no league filter here
+        assert!(keys.iter().any(|k| k == "sport-cs2-navi-faze"));
+        assert!(!keys.iter().any(|k| k.starts_with("award-")));
+        assert!(!keys.iter().any(|k| k == "crypto-btc"));
+    }
+
+    #[test]
+    fn tournament_markers_filter_the_stream() {
+        // With MSI + Esports World Cup markers, only the matches whose description
+        // names one survive; the Prime League LoL match and the marker-less
+        // matches (World Cup, CS2 — no matching description) are dropped.
+        let keys: Vec<String> = grouped(&["Mid-Season Invitational", "Esports World Cup"])
+            .iter()
+            .map(|e| e.key.clone())
+            .collect();
+        assert_eq!(keys.len(), 2);
+        assert!(keys.iter().any(|k| k == "sport-lol-t1-geng")); // MSI
+        assert!(keys.iter().any(|k| k == "sport-lol-t1-blg")); // Esports World Cup
+        assert!(!keys.iter().any(|k| k == "sport-lol-vfb-tog")); // Prime League — dropped
     }
 
     #[test]
     fn esports_match_with_no_draw_is_two_outcomes() {
         // A LoL match has only teamA/teamB sides (no draw), so it collapses to a
         // 2-outcome event rather than the 1X2 sport shape.
-        let evs = grouped();
+        let evs = grouped(&[]);
         let lol = evs.iter().find(|e| e.key == "sport-lol-t1-geng").unwrap();
         let names: Vec<&str> = lol.outcomes.iter().map(|o| o.name.as_str()).collect();
         assert_eq!(names, ["T1", "Gen.G"]);
