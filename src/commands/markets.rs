@@ -28,11 +28,17 @@ const PAGE_SIZE: usize = 4;
 /// Curated `(league, required tournament marker)` allowlist for `kind == "sport"`
 /// matches. `None` = keep the whole league (the World Cup). The waterx feed's
 /// `sport` bucket also carries esports (LOL/CS2/VALORANT/DOTA2); within `LOL` it
-/// mixes the big Mid-Season Invitational with small regional leagues (Prime
-/// League, …), so that league is narrowed to MSI by a marker in the
-/// (always-English) market `description`. Add a row to surface a league.
-const ALLOWED_LEAGUES: &[(&str, Option<&str>)] =
-    &[("FIFA_WC", None), ("LOL", Some("Mid-Season Invitational"))];
+/// mixes the big international tournaments (Mid-Season Invitational, the Esports
+/// World Cup) with small regional leagues (Prime League, …), so that league is
+/// narrowed to those tournaments by a marker in the (always-English) market
+/// `description`. A league may appear on **multiple** rows — a match is kept if
+/// *any* of its rows matches (whole-league `None`, or the description names the
+/// marker). Add a row to surface a league or tournament.
+const ALLOWED_LEAGUES: &[(&str, Option<&str>)] = &[
+    ("FIFA_WC", None),
+    ("LOL", Some("Mid-Season Invitational")),
+    ("LOL", Some("Esports World Cup")),
+];
 
 /// Callback-data prefix: tapping a market number opens the bet flow.
 pub const BET: &str = "bet:";
@@ -66,12 +72,13 @@ pub struct SourcedEvent {
 }
 
 /// Group the browse feed into sourced events. **Allowlisted leagues only**
-/// (`ALLOWED_LEAGUES` — the World Cup + League of Legends/MSI): a `kind ==
-/// "sport"` match → its outcomes in the fixed `[teamA, draw, teamB]` order
-/// (matching `gamma_resolution`'s idx convention; an esports match with no `draw`
-/// side collapses to `[teamA, teamB]`). A league with a tournament marker keeps
-/// only matches whose `description` contains it (LoL → Mid-Season Invitational,
-/// dropping regional leagues). Other `sport` leagues (CS2/VALORANT/DOTA2) and the
+/// (`ALLOWED_LEAGUES` — the World Cup + League of Legends' MSI & Esports World
+/// Cup): a `kind == "sport"` match → its outcomes in the fixed `[teamA, draw,
+/// teamB]` order (matching `gamma_resolution`'s idx convention; an esports match
+/// with no `draw` side collapses to `[teamA, teamB]`). A league with a tournament
+/// marker keeps only matches whose `description` names one of its tournaments (LoL
+/// → Mid-Season Invitational or Esports World Cup, dropping regional leagues).
+/// Other `sport` leagues (CS2/VALORANT/DOTA2) and the
 /// feed's `sport-award`/`crypto` kinds are dropped. Odds are the feed's relayed
 /// YES prices; `lang` localizes the Draw label.
 fn group_events(items: &[Item], lang: Lang) -> Vec<SourcedEvent> {
@@ -82,20 +89,21 @@ fn group_events(items: &[Item], lang: Lang) -> Vec<SourcedEvent> {
         if d.kind.as_deref() != Some("sport") {
             continue;
         }
-        let Some((_, tournament)) = d
-            .league
-            .as_deref()
-            .and_then(|l| ALLOWED_LEAGUES.iter().find(|(name, _)| *name == l))
-        else {
-            continue; // league not allowlisted
+        let Some(league) = d.league.as_deref() else {
+            continue; // no league tag
         };
-        // A league with a tournament marker keeps only matches naming it (the
-        // description is always English, so this works across feed locales).
-        if let Some(marker) = tournament {
-            let desc = d.description.as_deref().unwrap_or("");
-            if !desc.to_ascii_lowercase().contains(&marker.to_ascii_lowercase()) {
-                continue;
-            }
+        // Keep the match if any allowlist row for its league matches: a
+        // whole-league row (`None`), or a tournament marker the description
+        // names. The description is always English, so the marker match works
+        // across feed locales. A league can list several tournaments (e.g. LoL:
+        // MSI + Esports World Cup) as separate rows.
+        let desc = d.description.as_deref().unwrap_or("").to_ascii_lowercase();
+        let allowed = ALLOWED_LEAGUES.iter().any(|(name, tournament)| {
+            *name == league
+                && tournament.is_none_or(|m| desc.contains(&m.to_ascii_lowercase()))
+        });
+        if !allowed {
+            continue; // league/tournament not allowlisted
         }
         let (Some(a), Some(b)) = (d.team_a.as_ref(), d.team_b.as_ref()) else {
             continue;
@@ -639,6 +647,10 @@ mod tests {
          "nextRound":{"startsAt":100,"endsAt":200,"phase":"open","sides":[
             {"key":"teamA","oddsCents":60.0,"trade":{"marketId":"0xP1"}},
             {"key":"teamB","oddsCents":40.0,"trade":{"marketId":"0xP2"}}]}},
+        {"market":{"id":"m1e","slug":"sport-lol-t1-blg","display":{"kind":"sport","league":"LOL","description":"LoL match between T1 and Bilibili Gaming at the Esports World Cup.","teamA":{"name":"T1"},"teamB":{"name":"BLG"}}},
+         "nextRound":{"startsAt":100,"endsAt":200,"phase":"open","sides":[
+            {"key":"teamA","oddsCents":52.0,"trade":{"marketId":"0xE1"}},
+            {"key":"teamB","oddsCents":48.0,"trade":{"marketId":"0xE2"}}]}},
         {"market":{"id":"m1c","slug":"sport-cs2-navi-faze","display":{"kind":"sport","league":"CS2","teamA":{"name":"NAVI"},"teamB":{"name":"FaZe"}}},
          "nextRound":{"startsAt":100,"endsAt":200,"phase":"open","sides":[
             {"key":"teamA","oddsCents":50.0,"trade":{"marketId":"0xC1"}},
@@ -676,20 +688,22 @@ mod tests {
     }
 
     #[test]
-    fn only_allowlisted_leagues_and_msi_kept() {
-        // The fixture has the World Cup, an MSI LoL match, a non-MSI (Prime
-        // League) LoL match, a CS2 esports match, sport-award candidates, a prop,
-        // and crypto. Only the World Cup and the *MSI* LoL match survive: the
-        // regional LoL match, CS2, and the other kinds are all dropped.
+    fn only_allowlisted_leagues_and_tournaments_kept() {
+        // The fixture has the World Cup, an MSI LoL match, an Esports World Cup
+        // LoL match, a non-MSI/EWC (Prime League) LoL match, a CS2 esports match,
+        // sport-award candidates, a prop, and crypto. Only the World Cup and the
+        // *MSI* + *EWC* LoL matches survive: the regional LoL match, CS2, and the
+        // other kinds are all dropped.
         let evs = grouped();
         let keys: Vec<&str> = evs.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(
             evs.len(),
-            2,
-            "World Cup + MSI LoL kept; regional LoL/CS2/awards/crypto dropped"
+            3,
+            "World Cup + MSI/EWC LoL kept; regional LoL/CS2/awards/crypto dropped"
         );
         assert!(keys.contains(&"sport-fifwc-fra-swe"));
         assert!(keys.contains(&"sport-lol-t1-geng")); // MSI
+        assert!(keys.contains(&"sport-lol-t1-blg")); // Esports World Cup
         assert!(!keys.contains(&"sport-lol-vfb-tog")); // Prime League — dropped
         assert!(!keys.contains(&"sport-cs2-navi-faze"));
     }
