@@ -87,6 +87,15 @@ pub async fn run() -> anyhow::Result<()> {
     let db = Arc::new(Database::new(&db_path(cfg.dev), bot_id)?);
     let cfg_arc = Arc::new(cfg.clone());
 
+    // Seed the `/events` league allowlist into the network fetch path's cache from
+    // the owner's stored config (unset → the built-in defaults stay in place). The
+    // fetch path has no DB handle, so `/leagues` mirrors edits here too.
+    match db.get_allowed_leagues() {
+        Ok(Some(leagues)) => crate::commands::markets::set_active_leagues(leagues),
+        Ok(None) => {} // never customised — defaults are already active
+        Err(e) => eprintln!("failed to load allowed_leagues at startup (using defaults): {e}"),
+    }
+
     // Rolling full-DB backup: every BACKUP_INTERVAL, snapshot the entire SQLite
     // file to a single fixed `<db>.bak` on the volume (overwritten each time — no
     // timestamp, so it never grows). Captures every table, not just balances, so
@@ -197,6 +206,7 @@ pub async fn run() -> anyhow::Result<()> {
             checkin,
             settings,
             timezone,
+            leagues,
             onlyreplyhere,
             replyanywhere,
             mint,
