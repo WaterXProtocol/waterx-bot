@@ -25,6 +25,14 @@ const FEED_CACHE_TTL: i64 = 5;
 /// Matches shown per page (keeps each brief well under Telegram's 4096-char
 /// message limit); the rest are reachable via the `[next page]` button.
 const PAGE_SIZE: usize = 4;
+/// Items requested per browse page. The endpoint is cursor-paginated and caps a
+/// page at 50 regardless of a larger ask, so this is the real ceiling.
+const FEED_PAGE_LIMIT: &str = "50";
+/// Safety bound on how many browse pages `fetch_markets` walks per refresh. The
+/// feed has no working server-side sport filter (crypto/binary dominate and the
+/// allowlisted matches can sit on any page), so we walk it whole; this only guards
+/// against a runaway if the feed balloons. Hitting it is logged, not silent.
+const MAX_FEED_PAGES: usize = 30;
 /// Curated `(league, required tournament marker)` allowlist for `kind == "sport"`
 /// matches. `None` = keep the whole league (the World Cup). The waterx feed's
 /// `sport` bucket also carries esports (LOL/CS2/VALORANT/DOTA2); within `LOL` it
@@ -307,9 +315,13 @@ fn feed_cache() -> &'static Mutex<FeedCache> {
 
 /// Pull and parse the feed into sourced events, live-first then soonest. Served
 /// from a [`FEED_CACHE_TTL`]-second per-locale cache to avoid hammering the API.
-/// Odds are the feed's **relayed Polymarket YES prices** (no separate Gamma odds
-/// fetch); every bet re-prices from this cache, so a wager is booked at odds at
-/// most `FEED_CACHE_TTL` old. Resolution still goes to Gamma (`gamma_resolution`).
+/// The browse endpoint is **cursor-paginated** (≤50 items/page) with no working
+/// server-side sport filter — crypto/binary markets dominate and an allowlisted
+/// match can land on any page — so we walk every page (up to [`MAX_FEED_PAGES`])
+/// and let `group_events` keep the allowlisted ones. Odds are the feed's
+/// **relayed Polymarket YES prices** (no separate Gamma odds fetch); every bet
+/// re-prices from this cache, so a wager is booked at odds at most
+/// `FEED_CACHE_TTL` old. Resolution still goes to Gamma (`gamma_resolution`).
 async fn fetch_markets(lang: Lang) -> Result<Vec<SourcedEvent>, reqwest::Error> {
     // Chinese users get Chinese team names; everyone else English.
     let api_locale = match lang {
@@ -326,17 +338,39 @@ async fn fetch_markets(lang: Lang) -> Result<Vec<SourcedEvent>, reqwest::Error> 
         }
     }
 
-    let resp = http_client()
-        .get(BROWSE_URL)
-        .query(&[("locale", api_locale), ("limit", "200")])
-        .header("user-agent", "waterx-bot/0.1")
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<BrowseResp>()
-        .await?;
+    // Walk the whole cursor-paginated feed (the allowlist filter is client-side).
+    let mut items: Vec<Item> = Vec::new();
+    let mut cursor: Option<String> = None;
+    let mut pages = 0usize;
+    loop {
+        let mut req = http_client()
+            .get(BROWSE_URL)
+            .query(&[("locale", api_locale), ("limit", FEED_PAGE_LIMIT)])
+            .header("user-agent", "waterx-bot/0.1");
+        if let Some(c) = &cursor {
+            req = req.query(&[("cursor", c.as_str())]);
+        }
+        let page = req.send().await?.error_for_status()?.json::<BrowseResp>().await?;
+        items.extend(page.data.items);
+        pages += 1;
+        match page.data.next_cursor {
+            Some(c) if !c.is_empty() => {
+                if pages >= MAX_FEED_PAGES {
+                    eprintln!(
+                        "waterx-bot: browse feed exceeded MAX_FEED_PAGES ({MAX_FEED_PAGES}); some matches may be omitted"
+                    );
+                    break;
+                }
+                cursor = Some(c);
+            }
+            _ => break, // no cursor (or an empty one) => last page
+        }
+    }
 
-    let mut markets = group_events(&resp.data.items, lang);
+    // Dedup by event key: an overlapping cursor page could surface a match twice.
+    let mut seen = std::collections::HashSet::new();
+    let mut markets = group_events(&items, lang);
+    markets.retain(|m| seen.insert(m.key.clone()));
     markets.sort_by_key(|m| (!m.live, m.starts_at.unwrap_or(i64::MAX)));
     feed_cache().lock().insert(api_locale, (now, markets.clone()));
     Ok(markets)
@@ -410,6 +444,9 @@ struct BrowseResp {
 #[derive(Deserialize)]
 struct BrowseData {
     items: Vec<Item>,
+    /// Opaque pagination cursor; `None`/empty on the last page.
+    #[serde(rename = "nextCursor", default)]
+    next_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
