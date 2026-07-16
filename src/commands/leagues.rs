@@ -34,7 +34,12 @@ pub async fn leagues(ctx: Context, message: Message) -> CommandResult {
         }
         Some("add") => {
             let Some(api_type) = a.get(1).map(|s| s.to_string()) else {
-                reply(&ctx, &message, format!("usage: /leagues add <type> [league] [tournament…]{USAGE}")).await?;
+                reply(
+                    &ctx,
+                    &message,
+                    format!("usage: /leagues add <type> [league] [tournament…]{USAGE}"),
+                )
+                .await?;
                 return Ok(());
             };
             let league = a.get(2).map(|s| s.trim_matches('"').to_string());
@@ -44,13 +49,23 @@ pub async fn leagues(ctx: Context, message: Message) -> CommandResult {
         Some("remove" | "rm" | "del") => match a.get(1).and_then(|s| s.parse::<usize>().ok()) {
             Some(n) => remove_filter(&ctx, &message, &db, n).await?,
             None => {
-                reply(&ctx, &message, "usage: /leagues remove <n>  (n from /leagues list)").await?;
+                reply(
+                    &ctx,
+                    &message,
+                    "usage: /leagues remove <n>  (n from /leagues list)",
+                )
+                .await?;
             }
         },
         Some("reset") => match db.clear_allowed_leagues() {
             Ok(()) => {
                 markets::set_active_leagues(LeagueFilter::defaults());
-                reply(&ctx, &message, format!("Reset to built-in defaults.\n\n{}", list_text(&db))).await?;
+                reply(
+                    &ctx,
+                    &message,
+                    format!("Reset to built-in defaults.\n\n{}", list_text(&db)),
+                )
+                .await?;
             }
             Err(e) => {
                 alert_owner(&ctx, &format!("[leagues] reset failed: {e}")).await;
@@ -60,7 +75,12 @@ pub async fn leagues(ctx: Context, message: Message) -> CommandResult {
         Some("clear") => match db.set_allowed_leagues(&[]) {
             Ok(()) => {
                 markets::set_active_leagues(vec![]);
-                reply(&ctx, &message, "Cleared — /events now surfaces nothing until you add a league (or /leagues reset).").await?;
+                reply(
+                    &ctx,
+                    &message,
+                    "Cleared — /events now surfaces nothing until you add a league (or /leagues reset).",
+                )
+                .await?;
             }
             Err(e) => {
                 alert_owner(&ctx, &format!("[leagues] clear failed: {e}")).await;
@@ -111,10 +131,16 @@ async fn add_filter(
     tournament: Option<String>,
 ) -> CommandResult {
     let mut list = current(db);
-    let pos = list.iter().position(|f| f.api_type == api_type && f.league == league);
+    let pos = list
+        .iter()
+        .position(|f| f.api_type == api_type && f.league == league);
     let mut candidate = match pos {
         Some(i) => list[i].clone(),
-        None => LeagueFilter { api_type: api_type.clone(), league: league.clone(), tournaments: vec![] },
+        None => LeagueFilter {
+            api_type: api_type.clone(),
+            league: league.clone(),
+            tournaments: vec![],
+        },
     };
     if let Some(t) = &tournament {
         if !candidate.tournaments.iter().any(|x| x.eq_ignore_ascii_case(t)) {
@@ -171,6 +197,11 @@ async fn remove_filter(ctx: &Context, message: &Message, db: &Database, n: usize
         return Ok(());
     }
     markets::set_active_leagues(list);
-    reply(ctx, message, format!("Removed: {}\n\n{}", removed.label(), list_text(db))).await?;
+    reply(
+        ctx,
+        message,
+        format!("Removed: {}\n\n{}", removed.label(), list_text(db)),
+    )
+    .await?;
     Ok(())
 }

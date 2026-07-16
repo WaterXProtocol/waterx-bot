@@ -329,7 +329,11 @@ async fn fetch_stream(
     loop {
         let mut req = http_client()
             .get(BROWSE_URL)
-            .query(&[("locale", api_locale), ("type", api_type), ("limit", FEED_PAGE_LIMIT)])
+            .query(&[
+                ("locale", api_locale),
+                ("type", api_type),
+                ("limit", FEED_PAGE_LIMIT),
+            ])
             .header("user-agent", "waterx-bot/0.1");
         if let Some(l) = league {
             req = req.query(&[("league", l)]);

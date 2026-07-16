@@ -113,10 +113,7 @@ impl LeagueFilter {
             LeagueFilter {
                 api_type: "esports".into(),
                 league: Some("lol".into()),
-                tournaments: vec![
-                    "Mid-Season Invitational".into(),
-                    "Esports World Cup".into(),
-                ],
+                tournaments: vec!["Mid-Season Invitational".into(), "Esports World Cup".into()],
             },
         ]
     }
