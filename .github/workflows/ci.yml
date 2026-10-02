@@ -45,3 +45,14 @@ jobs:
       # Catch release-only breakage (optimizations, dead-code cfg, etc.).
       - name: Build (release)
         run: cargo build --release --locked
+
+  # Shell-only; keeps the coding-agent files (AGENTS.md only, no CLAUDE.md,
+  # .codex/config.toml, docs/knowledge-hub) in the shape both tools load. The
+  # script is vendored byte-for-byte from Bucket-Protocol/waterx-commons
+  # (harness/lint); update it there, then copy it here.
+  agent-guards:
+    name: agent harness layout
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/agent-hooks/check-harness.sh

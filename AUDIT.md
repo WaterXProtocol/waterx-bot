@@ -72,7 +72,7 @@ systemic: every multi-statement money/state mutation now runs in one rusqlite
 transaction, `balance_change` is a single atomic conditional `UPDATE`, and
 callback-supplied amounts pass through `util::to_micro` (caps `MAX_COINS`,
 `checked_mul`) before any `× COIN`. See the "Atomicity invariant" note in
-`CLAUDE.md`.
+`AGENTS.md`.
 
 ---
 
