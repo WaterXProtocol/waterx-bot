@@ -12,6 +12,8 @@ A Telegram bot for a small private group, written in Rust on top of [`telexide`]
 
 The request sets the scope. Asked to assess, report findings and stop. Keep changes to what the task needs — this bot moves a coin ledger, and "tidy" edits to `src/database/event.rs` or `balance_change` are where money invariants break; put extras in the summary as suggestions. Report only what a tool result from this session shows (the four CI gates below, a `cargo test` line); say plainly what is unverified. Lessons that are not already here or in the code live in `docs/knowledge-hub/` (one file per lesson; format in its README) — scan its titles before starting, add one when something cost real time.
 
+Shared skills: `.claude/settings.json` enables the waterx-commons plugins waterx-harness (`/waterx-harness:adopt-harness-standard`, `/waterx-harness:harness-transform`, `/waterx-harness:knowledge-hub-lesson`) and waterx-review (`/waterx-review:waterx-code-review`). Claude Code loads them after you accept the workspace-trust prompt, with your own GitHub access to the private Bucket-Protocol/waterx-commons (a different organization from this repository, so you need read access there as well), and not in cloud sessions; Codex users link them into `~/.agents/skills` ([waterx-commons plugins, "Codex"](https://github.com/Bucket-Protocol/waterx-commons/tree/main/plugins)). This file wins over a plugin skill.
+
 ## Commands
 
 ```bash
