@@ -2,7 +2,7 @@
 #
 # Every advisory below is confined to the dependency tree of `telexide 0.1.17`,
 # the Telegram bot framework. It is pinned: 0.1.17 is the only resolvable
-# version (see CLAUDE.md), and a [patch.crates-io] rustls bump won't compile
+# version (see AGENTS.md), and a [patch.crates-io] rustls bump won't compile
 # against telexide's rustls-0.21-era API. There is therefore no upstream fix
 # path short of forking/replacing telexide.
 #
